@@ -3,8 +3,8 @@ import numpy as np
 from datetime import datetime
 
 from GOTAcc.src.gotacc.algorithms.single_objective.bo import BOOptimizer
-from GOTAcc.src.gotacc.interfaces.epics import Obj_EpicsIoc
-from GOTAcc.src.gotacc.configs.para_irfel import knob_para, obj_para
+from gotacc.interfaces.epics_new import Obj_EpicsIoc
+from GOTAcc.src.gotacc.configs.para_irfel import machine_para
 
 
 # main script to run Bayesian Optimization with EPICS IOC
@@ -14,32 +14,34 @@ if __name__ == "__main__":
     try:  
         # ---获得目标函数与边界---
         # 1. 获取knob和obj和setup的参数
-        knobs_pvnames, knobs_bounds = knob_para()
-        obj_pvnames, obj_weights, obj_samples, obj_math, interval = obj_para()
-        print('变量:', knob_para())
-        print('目标:', obj_para())
+        eval_para = machine_para()
+        # knobs_pvnames, knobs_bounds = knob_para()
+        # obj_pvnames, obj_weights, obj_samples, obj_math, interval = obj_para()
+        print('=== Evaluation Para ===')
+        print(eval_para)
+
 
         # 2. 建立与目标函数的通道
-        objhub = Obj_EpicsIoc(knobs_pvnames=knobs_pvnames,
-                            obj_pvnames=obj_pvnames, 
-                            obj_weights=obj_weights, 
-                            obj_samples=obj_samples, 
-                            obj_math=obj_math, 
-                            interval=interval)
+        objhub = Obj_EpicsIoc(
+                        knobs_pvnames=eval_para["knobs_pvnames"],
+                        obj_pvnames=eval_para["obj_pvnames"],
+                        obj_weights=eval_para["obj_weights"],
+                        obj_samples=eval_para["obj_samples"],
+                        obj_math=eval_para["obj_math"],
+                        interval=eval_para["interval"],)
         
         # 3. 得到绝对边界且转化为符合优化器要求的边界格式(字典)
         ini_values = objhub.init_knob_value()
-        # ini_values = [1,2]  # test values
-        vrange = np.array([[ini_values[i] + knobs_bounds[i][0], ini_values[i] + knobs_bounds[i][1]] for i in range(len(ini_values))])
-        bounds =  vrange
-        print("Optimization bounds:", bounds)
+        vrange = np.array([[ini_values[i] + eval_para["knobs_bounds"][i][0], ini_values[i] + eval_para["knobs_bounds"][i][1]] for i in range(len(ini_values))])
+        print("=== Optimization domain ===")
+        print(vrange)
         
         #---执行优化---
         # 1. 创建优化对象
         # maximize
         opt = BOOptimizer(
             func=objhub.evaluate_func,
-            bounds=bounds,
+            bounds=vrange,
             kernel_type="rbfwhite",# "rbf", "matern", "rbfwhite", "maternwhite"
             gp_restarts=5,
             acq="ucb",
@@ -61,7 +63,7 @@ if __name__ == "__main__":
         timestamp = datetime.now().strftime("%Y%m%d%H%M")
         path = f"save/BO_{timestamp}.dat"
         opt.save_history(path) # 保存评估历史
-        objhub.set_init()
+        # objhub.set_init()
         # objhub.set_best()# 设置最优结果到EPICS
         opt.plot_convergence()# 绘制收敛曲线
         

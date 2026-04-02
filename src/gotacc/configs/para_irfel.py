@@ -84,13 +84,13 @@ def knob_para():
     ]
 
     # 选择的knobs
-    indices = [0,1,4,5,6]  # 选择第x、x、x个correctors
+    indices = [0,1]  # 选择第x、x、x个correctors
     cor_x_pvlist = [cor_x_all[i] for i in indices]
     cor_y_pvlist = [cor_y_all[i] for i in indices]
     cor_x_bounds = [[-8, 8]]*len(indices)
     cor_y_bounds = [[-8, 8]]*len(indices)
 
-    indices = [12,13]  # 选择第x、x、x个quads
+    indices = []  # 选择第x、x、x个quads
     quad_pvlist = [quad_all[i] for i in indices]
     quad_bounds = [[-8, 8]]*len(indices)
 
@@ -135,7 +135,3 @@ def machine_para():
 if __name__ == "__main__":
     print("=== machine config ===")
     print(machine_para())
-    # print("=== optimizer config ===")
-    # print(optimizer_para())
-    # print("=== run config ===")
-    # print(run_para())

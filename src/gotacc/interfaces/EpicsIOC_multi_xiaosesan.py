@@ -116,6 +116,11 @@ class Obj_EpicsIoc:
         print(f"对应的目标值: {obj_vals[best_idx]}")
         print(f"加权和: {weighted_sums[best_idx]}")
 
+    def set_init(self):
+        if self.init_knob is None:
+            raise RuntimeError("init_knob is None. Call init_knob_value() first.")
+        caput_many(self.knobs_pvnames, self.init_knob)
+        print("Set knob values to initial values")
 
 if __name__ == "__main__":
 

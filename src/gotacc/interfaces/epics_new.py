@@ -68,6 +68,7 @@ class Obj_EpicsIoc:
 
     def _read_many_checked(self, pvnames, what="PV"):
         values = caget_many(pvnames)
+        print(values)
         if values is None:
             raise RuntimeError(f"{what} 读取失败：返回 None")
         if any(v is None for v in values):
@@ -114,6 +115,7 @@ class Obj_EpicsIoc:
         return np.asarray(results, dtype=float)
 
     def init_knob_value(self):
+        print(self.knobs_pvnames)
         knobs_pvvalue = self._read_many_checked(self.knobs_pvnames, what="knob 初始值")
         if self.initial_knob_values is None:
             self.initial_knob_values = knobs_pvvalue.copy()

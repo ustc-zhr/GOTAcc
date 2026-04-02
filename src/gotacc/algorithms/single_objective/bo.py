@@ -333,6 +333,7 @@ class BOOptimizer:
     # main optimize flow
     # --------------------
     def optimize(self):
+        start_time = time.time()
         print(f"\n=== Running BO with BoTorch ===")
         print(f"Using device: {self.device}")
         print(f"Acquisition: {self.acq}, Optimizer: {self.acq_optimizer}")
@@ -368,10 +369,13 @@ class BOOptimizer:
             self.history_X = np.vstack([self.history_X, x_next_np.reshape(1, -1)])
             self.history_Y = np.vstack([self.history_Y, y_next])
 
-            # 打印进度
+            # 打印每一代进度
             t1 = time.time()
             if self.verbose:
-                print(f"Iter {it+1:02d}: f(x)={float(y_next.ravel()[0]):.6f}, time={(t1-t0):.2f}s")
+                print(f"iter {it+1:02d}: f(x)={float(y_next.ravel()[0]):.6f}, time={(t1-t0):.2f}s")
+        # 打印总耗时
+        if self.verbose:
+                print(f'Total time: {time.time() - start_time:.2f} s')
 
     # --------------------
     # plotting/saving helpers
@@ -487,7 +491,6 @@ if __name__ == "__main__":
     opt.optimize()
 
     # Results display
-    print(f'Total time: {time.time() - t0:.2f} s')
     opt.save_history()
     opt.plot_convergence()
 
