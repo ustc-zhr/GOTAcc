@@ -104,9 +104,7 @@ GOTAcc/
 │  │  ├─ BOOptimizer.py
 │  │  ├─ TuRBOOptimizer.py
 │  │  ├─ RCDSOptimizer.py
-│  │  ├─ RsimplexOptimizer.py
-│  │  └─ NN_BO/
-│  └─ multi_objective/
+│  └─ multi_objectives/
 │     ├─ MOBOOptimizer.py
 │     ├─ MGGPO.py
 │     ├─ NSGA2Optimizer.py

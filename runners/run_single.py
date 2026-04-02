@@ -2,8 +2,9 @@ import os
 import time
 import numpy as np
 
-from EpicsIOC import Obj_EpicsIoc
-import para_setup
+
+from interfaces.EpicsIOC import Obj_EpicsIoc
+from configs import para_half as para_setup
 
 
 def _ensure_parent_dir(path):
@@ -26,11 +27,11 @@ def build_optimizer(name, func, bounds, kwargs):
     name = str(name).lower()
 
     if name == "bo":
-        from BOOptimizer import BOOptimizer
+        from algorithms.single_objective.BOOptimizer import BOOptimizer
         return BOOptimizer(func=func, bounds=bounds, **kwargs)
 
     elif name == "turbo":
-        from TuRBOOptimizer import TuRBOOptimizer
+        from algorithms.single_objective.TuRBOOptimizer import TuRBOOptimizer
         return TuRBOOptimizer(func=func, bounds=bounds, **kwargs)
 
     else:
