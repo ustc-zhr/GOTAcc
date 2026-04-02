@@ -47,9 +47,6 @@ Homepage = "https://github.com/ustc-zhr/GOTAcc"
 Repository = "https://github.com/ustc-zhr/GOTAcc"
 Issues = "https://github.com/ustc-zhr/GOTAcc/issues"
 
-[project.scripts]
-gotacc-run-multi = "runners.run_multi_epics:main"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = [

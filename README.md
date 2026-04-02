@@ -1,119 +1,102 @@
 # GOTAcc
 
-**GOTAcc** stands for **General Optimization Toolkit for Accelerator Applications**.
+GOTAcc stands for **General Optimization Toolkit for Accelerator Applications**.
 
-It is a Python toolkit for accelerator optimization, covering both:
+It is a Python toolkit for accelerator optimization, aimed at both:
 
 - **design optimization**
-  - STCF-BTP
-  - other beam dynamics design problems
+  - beam dynamics design studies
+  - constrained multi-objective optimization
+  - simulation-based optimization
 - **online tuning**
-  - FELiChEM
-  - HLS2
-  - other EPICS-based accelerator systems
-
-At the current stage, GOTAcc focuses on a practical combination of:
-
-- optimization algorithms
-- EPICS-based machine interaction
-- simulation / test-function based benchmarking
-- future extensibility toward a more general accelerator optimization framework
+  - EPICS-based machine optimization
+  - FEL / linac / injector tuning
+  - practical accelerator operation support
 
 ---
 
 ## Current Status
 
-GOTAcc is currently under active development.
+GOTAcc is currently in an **alpha-stage, flat-layout** development phase.
 
-The repository currently contains:
+At the current public stage, the repository contains:
 
 - single-objective optimizers
 - multi-objective optimizers
-- EPICS-based online evaluation interface
-- test-function based offline evaluation utilities
+- an EPICS-based online evaluation interface
+- basic offline benchmarking support
+- project-level configuration and run scripts
 
-This project is currently organized in a transitional flat-module style and will gradually evolve into a more structured package layout.
+This repository is intentionally kept in a relatively simple flat structure for now.
+A later release may migrate to a `src/gotacc/` package layout.
 
 ---
 
-## Algorithm Overview
+## Currently Included Algorithms
 
 ### Single-objective optimization
 
-These algorithms are intended for problems of the form:
+Current public single-objective optimizers:
 
-$$x \mapsto y,\quad y \in \mathbb{R}$$
+- **BO** — Bayesian Optimization
+- **TuRBO** — Trust Region Bayesian Optimization
+- **RCDS** — Robust Conjugate Direction Search
 
-They are suitable for cases such as:
+Typical use cases:
 
 - maximizing FEL pulse energy
 - minimizing beam size
 - maximizing transport efficiency
 - single-metric online tuning
 
-Current single-objective algorithms include:
-
-- **BO** — Bayesian Optimization
-- **TuRBO** — Trust Region Bayesian Optimization
-- **RCDS** — Robust Conjugate Direction Search
-- **Rsimplex** — Robust Nelder–Mead Simplex
-- **NN-BO** — Neural-network-based Bayesian Optimization *(under development)*
-
----
-
 ### Multi-objective optimization
 
-These algorithms are intended for problems of the form:
+Current public multi-objective optimizers:
 
-$$x \mapsto \mathbf{y},\quad \mathbf{y} \in \mathbb{R}^m$$
+- **MOBO** — Multi-Objective Bayesian Optimization
+- **MGGPO** — Multi-Generation Gaussian Process Optimizer
+- **MOPSO** — Multi-Objective Particle Swarm Optimization
+- **NSGA-II** — Non-dominated Sorting Genetic Algorithm II
 
-
-They are suitable for cases such as:
+Typical use cases:
 
 - beam size vs. emittance
 - transport efficiency vs. FEL pulse energy
 - charge vs. energy spread vs. emittance
 - constrained beam dynamics design optimization
 
-Current multi-objective algorithms include:
-
-- **MOBO** — Multi-Objective Bayesian Optimization
-  - EHVI
-  - qEHVI
-  - qNEHVI
-- **MG-GPO** — Multi-Generation Gaussian Process Optimizer
-  - UCB / EHVI based
-  - constrained version supported
-- **MOPSO** — Multi-Objective Particle Swarm Optimization
-- **NSGA-II** — Non-dominated Sorting Genetic Algorithm II
-
 ---
 
-## Current Repository Structure
+## Repository Structure
 
-A practical near-term organization is:
+After the first-round cleanup, the recommended repository structure is:
 
 ```text
 GOTAcc/
-├─ pyproject.toml
-├─ README.md
-├─ runOpt.py
-├─ para_setup.py
 ├─ algorithms/
+│  ├─ __init__.py
 │  ├─ single_objective/
+│  │  ├─ __init__.py
 │  │  ├─ BOOptimizer.py
-│  │  ├─ TuRBOOptimizer.py
 │  │  ├─ RCDSOptimizer.py
-│  └─ multi_objectives/
-│     ├─ MOBOOptimizer.py
+│  │  └─ TuRBOOptimizer.py
+│  └─ multi_objective/
+│     ├─ __init__.py
 │     ├─ MGGPO.py
-│     ├─ NSGA2Optimizer.py
-│     └─ MOPSOOptimizer.py
+│     ├─ MOBOOptimizer.py
+│     ├─ MOPSOOptimizer.py
+│     └─ NSGA2Optimizer.py
 ├─ interfaces/
+│  ├─ __init__.py
 │  ├─ EpicsIOC.py
 │  └─ test_function.py
-├─ configs/
-├─ runners/
-├─ save/
-├─ docs/
-└─ tests/
+├─ examples/
+│  ├─ demo_single_bo_local.py
+│  └─ demo_epics_ioc.py
+├─ tests/
+│  └─ test_imports.py
+├─ README.md
+├─ para_setup.py
+├─ pyproject.toml
+├─ requirements.txt
+└─ runOpt.py
