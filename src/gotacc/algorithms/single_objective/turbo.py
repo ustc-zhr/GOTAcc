@@ -1,4 +1,5 @@
 import time
+import os
 import numpy as np
 from scipy.stats import qmc
 import matplotlib.pyplot as plt
@@ -507,6 +508,7 @@ class TuRBOOptimizer:
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
             path = f"save/BO_{timestamp}.png"
+        os.makedirs(os.path.dirname(path), exist_ok=True)  # 确保目录存在 自动创建目录
         plt.savefig(path)
 
         plt.tight_layout()
@@ -515,7 +517,8 @@ class TuRBOOptimizer:
     def save_history(self, path: str = None):
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
-            path = f"save/TuRBO_{timestamp}.dat"
+            path = f"save/turbo_{timestamp}.dat"
+        os.makedirs(os.path.dirname(path), exist_ok=True)  # 确保目录存在 自动创建目录
         data = np.hstack([self.history_X, self.history_Y])
         np.savetxt(path, data, fmt="%.6f")
         print(f"Saved history to {path}")

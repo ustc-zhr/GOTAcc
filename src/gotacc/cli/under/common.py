@@ -1,9 +1,33 @@
-import argparse
+from __future__ import annotations
+
 import importlib
 import os
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
+
+
+def import_from_string(path: str):
+    """
+    Import an object from a dotted path.
+
+    Example:
+        import_from_string("gotacc.interfaces.epics.Obj_EpicsIoc")
+    """
+    module_name, attr_name = path.rsplit(".", 1)
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)
+
+
+def load_config_module(module_path: str):
+    """
+    Load a config module by dotted path.
+
+    Example:
+        gotacc.configs.half_online
+        gotacc.configs.irfel_online
+    """
+    return importlib.import_module(module_path)
 
 
 def ensure_parent_dir(path: str | None) -> None:
@@ -14,16 +38,15 @@ def ensure_parent_dir(path: str | None) -> None:
         os.makedirs(dirname, exist_ok=True)
 
 
-def load_config_module(module_path: str):
+def build_absolute_bounds(initial_values, relative_bounds) -> np.ndarray:
     """
-    Load config module by dotted path, e.g.:
-        configs.hls2_single
-        configs.irfel_multi
+    Convert relative bounds to absolute bounds using initial machine values.
+
+    Example:
+        initial = [1.0, 2.0]
+        rel = [[-0.1, 0.2], [-0.5, 0.5]]
+        -> [[0.9, 1.2], [1.5, 2.5]]
     """
-    return importlib.import_module(module_path)
-
-
-def build_absolute_bounds(initial_values, relative_bounds):
     ini = np.asarray(initial_values, dtype=float)
     rel = np.asarray(relative_bounds, dtype=float)
 
@@ -35,26 +58,30 @@ def build_absolute_bounds(initial_values, relative_bounds):
     return np.column_stack([ini + rel[:, 0], ini + rel[:, 1]])
 
 
-def build_single_optimizer(name: str, func, bounds, kwargs: Dict[str, Any]):
+def build_single_optimizer(name: str, func, bounds, kwargs: dict[str, Any]):
     """
-    Stable public single-objective builder for the current public repo.
-    For now, keep only the optimizers already used in the public single runner.
+    Factory for stable public single-objective optimizers.
     """
     name = str(name).lower()
 
     if name == "bo":
-        from algorithms.single_objective.BOOptimizer import BOOptimizer
+        from gotacc.algorithms.single_objective.bo import BOOptimizer
 
         return BOOptimizer(func=func, bounds=bounds, **kwargs)
 
     if name == "turbo":
-        from algorithms.single_objective.TuRBOOptimizer import TuRBOOptimizer
+        from gotacc.algorithms.single_objective.turbo import TuRBOOptimizer
 
         return TuRBOOptimizer(func=func, bounds=bounds, **kwargs)
 
+    if name == "rcds":
+        from gotacc.algorithms.single_objective.rcds import RCDSOptimizer
+
+        return RCDSOptimizer(func=func, bounds=bounds, **kwargs)
+
     raise ValueError(
         f"Unsupported single-objective optimizer: {name}. "
-        "Current stable public runner supports: 'bo', 'turbo'."
+        "Supported: bo, turbo, rcds."
     )
 
 
@@ -64,15 +91,15 @@ def build_multi_optimizer(
     bounds,
     n_objectives: int,
     ref_point,
-    kwargs: Dict[str, Any],
+    kwargs: dict[str, Any],
 ):
     """
-    Stable public multi-objective builder aligned with the public algorithm files.
+    Factory for stable public multi-objective optimizers.
     """
     name = str(name).lower()
 
     if name == "mobo":
-        from algorithms.multi_objective.MOBOOptimizer import MOBOOptimizer
+        from gotacc.algorithms.multi_objective.mobo import MOBOOptimizer
 
         return MOBOOptimizer(
             func=func,
@@ -83,7 +110,7 @@ def build_multi_optimizer(
         )
 
     if name == "mggpo":
-        from algorithms.multi_objective.MGGPO import MultiObjectiveMGGPO
+        from gotacc.algorithms.multi_objective.mggpo import MultiObjectiveMGGPO
 
         return MultiObjectiveMGGPO(
             func=func,
@@ -94,7 +121,7 @@ def build_multi_optimizer(
         )
 
     if name == "mopso":
-        from algorithms.multi_objective.MOPSOOptimizer import MOPSOOptimizer
+        from gotacc.algorithms.multi_objective.mopso import MOPSOOptimizer
 
         return MOPSOOptimizer(
             func=func,
@@ -105,7 +132,7 @@ def build_multi_optimizer(
         )
 
     if name == "nsga2":
-        from algorithms.multi_objective.NSGA2Optimizer import NSGA2Optimizer
+        from gotacc.algorithms.multi_objective.nsga2 import NSGA2Optimizer
 
         return NSGA2Optimizer(
             func=func,
@@ -117,7 +144,7 @@ def build_multi_optimizer(
 
     raise ValueError(
         f"Unsupported multi-objective optimizer: {name}. "
-        "Supported: 'mobo', 'mggpo', 'mopso', 'nsga2'."
+        "Supported: mobo, mggpo, mopso, nsga2."
     )
 
 
@@ -131,6 +158,7 @@ def maybe_save_history(opt, path: str | None = None):
         try:
             opt.save_history(path=path)
         except TypeError:
+            # Backward-compatible fallback
             opt.save_history()
 
 
@@ -144,12 +172,7 @@ def maybe_plot_convergence(opt, path: str | None = None):
         opt.plot_convergence()
 
 
-def make_parser(default_config: str):
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=default_config,
-        help=f"Config module path, e.g. {default_config}",
-    )
-    return parser
+def require_callable(obj, name: str):
+    if not callable(obj):
+        raise TypeError(f"{name} must be callable.")
+    return obj

@@ -1,8 +1,8 @@
 import time
 import numpy as np
 
-from interfaces.EpicsIOC_multi import MultiObjEpicsIOC
-from runners.common import (
+from gotacc.interfaces.bakup.epicsioc_multi import MultiObjEpicsIOC
+from gotacc.cli.under.common import (
     build_absolute_bounds,
     build_multi_optimizer,
     load_config_module,

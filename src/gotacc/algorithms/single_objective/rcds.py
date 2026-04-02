@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 import time
 from datetime import datetime
@@ -465,6 +466,7 @@ class RCDSOptimizer:
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
             path = f"save/rcds_{timestamp}.png"
+        os.makedirs(os.path.dirname(path), exist_ok=True)  # 确保目录存在 自动创建目录
         plt.savefig(path)
 
         plt.tight_layout()
@@ -473,8 +475,8 @@ class RCDSOptimizer:
     def save_history(self, path: str = None):
         if path == None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")  # 格式：20231012T1545
-            path = f"save/RCDSopt_{timestamp}.dat"
-        
+            path = f"save/rcds{timestamp}.dat"
+        os.makedirs(os.path.dirname(path), exist_ok=True)  # 确保目录存在 自动创建目录
         # 确保数据为二维数组
         # g_data_array = np.array(self.history)
         # history_X = g_data_array[:, :2]

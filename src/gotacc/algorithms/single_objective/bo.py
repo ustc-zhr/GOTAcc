@@ -3,6 +3,7 @@
 # date: 2025-11
 
 import time
+import os
 import numpy as np
 from scipy.stats import qmc
 import matplotlib.pyplot as plt
@@ -408,7 +409,12 @@ class BOOptimizer:
         # 保存图片（如果指定了路径）
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
-            path = f"save/BO_{timestamp}.png"
+            path = f"save/bo_{timestamp}.png"
+
+        save_dir = os.path.dirname(path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+
         plt.savefig(path)
 
         plt.tight_layout()
@@ -417,7 +423,12 @@ class BOOptimizer:
     def save_history(self, path: str = None):
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
-            path = f"save/BO_{timestamp}.dat"
+            path = f"save/bo_{timestamp}.dat"
+        
+        save_dir = os.path.dirname(path)
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+
         data = np.hstack([self.history_X, self.history_Y])
         np.savetxt(path, data, fmt="%.6f")
         print(f"Saved history to {path}")
@@ -453,7 +464,7 @@ if __name__ == "__main__":
     t0 = time.time()
 
     # fuction for test
-    from test_function import *
+    from GOTAcc.src.gotacc.interfaces.test_function_single import *
     dim = 10
     func_type = "rosenbrock" # "sphere", "rosenbrock", "ackley"
     func, bounds = setup_objective(func_type, dim=dim)

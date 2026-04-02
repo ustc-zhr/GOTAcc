@@ -2,7 +2,7 @@ import time
 import numpy as np
 
 from interfaces.EpicsIOC import Obj_EpicsIoc
-from runners.common import (
+from gotacc.cli.under.common import (
     build_absolute_bounds,
     build_single_optimizer,
     load_config_module,
