@@ -43,26 +43,27 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourname/GOTAcc"
-Repository = "https://github.com/yourname/GOTAcc"
-Issues = "https://github.com/yourname/GOTAcc/issues"
+Homepage = "https://github.com/ustc-zhr/GOTAcc"
+Repository = "https://github.com/ustc-zhr/GOTAcc"
+Issues = "https://github.com/ustc-zhr/GOTAcc/issues"
 
-[tool.setuptools]
-py-modules = [
-  "BOOptimizer",
-  "TuRBOOptimizer",
-  "MOBOOptimizer",
-  "MGGPO",
-  "NSGA2Optimizer",
-  "MOPSOOptimizer",
-  "EpicsIOC",
-  "para_setup",
-  "runOpt",
-  "test_function"
-]
+[project.scripts]
+gotacc-run-multi = "runners.run_multi_epics:main"
 
 [tool.setuptools.packages.find]
-exclude = ["save*", "docs*", "examples*", "tests*"]
+where = ["."]
+include = [
+  "algorithms*",
+  "interfaces*",
+  "configs*",
+  "runners*"
+]
+exclude = [
+  "save*",
+  "docs*",
+  "examples*",
+  "tests*"
+]
 
 [tool.black]
 line-length = 100

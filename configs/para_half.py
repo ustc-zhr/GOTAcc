@@ -20,43 +20,72 @@ def obj_para():
 # 当前保持与你现有 HALF 配置一致
 # ----------------------------------------------------------------------
 def knob_para():
-    cor_x_all = ['XC01', 'XC02', 'XC03', 'XC04', 'XC05', 'XC06', 'XC07', 'XC08', 'XC09', 'XC10', 'XC11']
-    cor_y_all = ['YC01', 'YC02', 'YC03', 'YC04', 'YC05', 'YC06', 'YC07', 'YC08', 'YC09', 'YC10', 'YC11']
-    quad_all = ['QT01', 'QT02']
+    cor_x_all = [
+        'LA_PS_HIC1:current:ao','LA_PS_HIC2:current:ao','LA_PS_HIC3:current:ao',#0-2
 
-    # 选择的 knobs
-    indices = []  # 选择 x 向校正子
-    cor_x_select = [cor_x_all[i] for i in indices]
+        'LA_PS_HC1:current:ao','LA_PS_HC2:current:ao','LA_PS_HC3:current:ao','LA_PS_HC4:current:ao',#3-6
+        'LA_PS_HC5:current:ao','LA_PS_HC6:current:ao','LA_PS_HC7:current:ao','LA_PS_HC8:current:ao',#7-10
 
-    indices = []  # 选择 y 向校正子
-    cor_y_select = [cor_y_all[i] for i in indices]
+        'TL_PS_HC1:current:ao','TL_PS_HC2:current:ao','TL_PS_HC3:current:ao','TL_PS_HC4:current:ao',#11-14
+        'TL_PS_HC5:current:ao','TL_PS_HC6:current:ao','TL_PS_HC7:current:ao','TL_PS_HC8:current:ao', 'TL_PS_HC9:current:ao'#15-19
+    ]
 
-    indices = [0, 1]  # 选择四极
-    quad_select = [quad_all[i] for i in indices]
+    cor_y_all = [
+        'LA_PS_VIC1:current:ao','LA_PS_VIC2:current:ao','LA_PS_VIC3:current:ao', #0-2
 
-    # x correctors
-    cor_x_pvlist = []
-    cor_x_bounds = []
-    for cor in cor_x_select:
-        cor_x_pvlist.append(f"HALF:IN:COR:{cor}:ao")
-        cor_x_bounds.append((-5, 5))
+        'LA_PS_VC1:current:ao','LA_PS_VC2:current:ao','LA_PS_VC3:current:ao','LA_PS_VC4:current:ao',#3-6
+        'LA_PS_VC5:current:ao','LA_PS_VC6:current:ao','LA_PS_VC7:current:ao','LA_PS_VC8:current:ao',#7-10
 
-    # y correctors
-    cor_y_pvlist = []
-    cor_y_bounds = []
-    for cor in cor_y_select:
-        cor_y_pvlist.append(f"HALF:IN:COR:{cor}:ao")
-        cor_y_bounds.append((-5, 5))
+        'TL_PS_VC1:current:ao','TL_PS_VC2:current:ao','TL_PS_VC3:current:ao','TL_PS_VC4:current:ao',#11-14
+        'TL_PS_VC5:current:ao','TL_PS_VC6:current:ao','TL_PS_VC7:current:ao','TL_PS_VC8:current:ao', 'TL_PS_VC9:current:ao'#15-19
+    ]
+    quad_all = [
+        'LA_PS_Q1:current:ao','LA_PS_Q2:current:ao','LA_PS_Q3:current:ao','LA_PS_Q4:current:ao',#0-3
+        'LA_PS_Q5:current:ao','LA_PS_Q6:current:ao','LA_PS_Q7:current:ao','LA_PS_Q8:current:ao',#4-7
+        'LA_PS_Q9:current:ao','LA_PS_Q10:current:ao','LA_PS_Q11:current:ao','LA_PS_Q12:current:ao',#8-11
+        
+        'LA_PS_AQ2:current:ao','LA_PS_AQ3:current:ao',#12-13
 
-    # quads
-    quad_pvlist = []
-    quad_bounds = []
-    for quad in quad_select:
-        quad_pvlist.append(f"HALF:IN:QUAD:{quad}:K1")
-        quad_bounds.append((-2, 2))
+        'TL_PS_Q1:current:ao','TL_PS_Q2:current:ao','TL_PS_Q3:current:ao','TL_PS_Q4:current:ao',#14-17
+        'TL_PS_Q5:current:ao','TL_PS_Q6:current:ao','TL_PS_Q7:current:ao','TL_PS_Q8:current:ao',#18-21
+        'TL_PS_Q9:current:ao','TL_PS_Q10:current:ao','TL_PS_Q11:current:ao','TL_PS_Q12:current:ao'#22-25
+    ]
 
-    knob_pvlist = cor_x_pvlist + cor_y_pvlist + quad_pvlist
-    knob_bounds = cor_x_bounds + cor_y_bounds + quad_bounds
+    cavity_all = [
+        'LA-PCI-KLY1:Elecontrolphaser','LA-PCI-KLY2:Elecontrolphaser', 'LA-PCI-KLY3:Elecontrolphaser','LA-PCI-KLY4:Elecontrolphaser',#0-3
+        'LA-PCI-KLY5:Elecontrolphaser','LA-PCI-KLY6:Elecontrolphaser','LA-PCI-KLY7:Elecontrolphaser','LA-PCI-KLY8:Elecontrolphaser',#4-7
+        'LA-PCI-KLY9:Elecontrolphaser' #8
+    ]
+
+    bend_all = [
+        'TL_PS_SM:current:ao','TL_PS_AM:current:ao', #0-1   switch
+        'TL_PS_BM1256:current:ao','TL_PS_BM1:current:ao','TL_PS_BM2:current:ao','TL_PS_BM5:current:ao','TL_PS_BM6:current:ao',#2-6
+        'TL_PS_BM34:current:ao'
+    ]
+
+    # 选择的knobs
+    indices = [7, 8, 9, 10]
+    # indices = [0,1,2,3]  # 选择第x、x、x个correctors
+    cor_x_pvlist = [cor_x_all[i] for i in indices]
+    cor_y_pvlist = [cor_y_all[i] for i in indices]
+    cor_x_bounds = [[-3, 3]]*len(indices)
+    cor_y_bounds = [[-3, 3]]*len(indices)
+
+    indices = []  # 选择第x、x、x个quads
+    quad_pvlist = [quad_all[i] for i in indices]
+    quad_bounds = [[-10, 10]]*len(indices) if len(indices)>0 else []
+
+    indices = []  # 选择第x、x、x个quads
+    cavity_pvlist = [cavity_all[i] for i in indices]
+    cavity_bounds = [[-10, 10]]*len(indices) if len(indices)>0 else []
+
+    indices = []  # 选择第x、x、x个quads
+    bend_pvlist = [bend_all[i] for i in indices]
+    bend_bounds = [[-10, 10]]*len(indices) if len(indices)>0 else []
+
+    # 合并所有PV列表和边界列表
+    knob_pvlist = cor_x_pvlist + cor_y_pvlist + quad_pvlist + cavity_pvlist + bend_pvlist
+    knob_bounds = cor_x_bounds + cor_y_bounds + quad_bounds + cavity_bounds + bend_bounds  
 
     return knob_pvlist, knob_bounds
 
@@ -124,14 +153,11 @@ def run_para():
     }
 
 
-def print_config():
+
+if __name__ == "__main__":
     print("=== machine config ===")
     print(machine_para())
     print("=== optimizer config ===")
     print(optimizer_para())
     print("=== run config ===")
     print(run_para())
-
-
-if __name__ == "__main__":
-    print_config()

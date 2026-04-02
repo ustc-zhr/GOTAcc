@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-from configs import irfel_mobo as para_setup
+from configs import para_irfel as para_setup
 from interfaces.EpicsIOC_multi import MultiObjEpicsIOC
 
 from algorithms.multi_objectives.MOBOOptimizer import MOBOOptimizer
