@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gotacc"
+version = "0.1.0"
+description = "General Optimization Toolkit for Accelerator Applications"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Haoran Zhang" }
+]
+keywords = [
+  "accelerator",
+  "optimization",
+  "bayesian-optimization",
+  "multi-objective-optimization",
+  "epics",
+  "botorch"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: OS Independent"
+]
+
+dependencies = [
+  "matplotlib==3.10.7",
+  "numpy==2.3.3",
+  "pyepics==3.5.7",
+  "scipy==1.16.3",
+  "cma==4.4.0",
+  "botorch==0.16.0",
+  "gpytorch",
+  "torch==2.7.1"
+]
+
+[project.urls]
+Homepage = "https://github.com/yourname/GOTAcc"
+Repository = "https://github.com/yourname/GOTAcc"
+Issues = "https://github.com/yourname/GOTAcc/issues"
+
+[tool.setuptools]
+py-modules = [
+  "BOOptimizer",
+  "TuRBOOptimizer",
+  "MOBOOptimizer",
+  "MGGPO",
+  "NSGA2Optimizer",
+  "MOPSOOptimizer",
+  "EpicsIOC",
+  "para_setup",
+  "runOpt",
+  "test_function"
+]
+
+[tool.setuptools.packages.find]
+exclude = ["save*", "docs*", "examples*", "tests*"]
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100

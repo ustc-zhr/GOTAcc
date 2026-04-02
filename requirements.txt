@@ -1,0 +1,10 @@
+# base
+matplotlib==3.10.7
+numpy==2.3.3
+pyepics==3.5.7
+scipy==1.16.3
+cma==4.4.0
+
+# for botorch based
+torch==2.7.1+cu118
+botorch==0.16.0
