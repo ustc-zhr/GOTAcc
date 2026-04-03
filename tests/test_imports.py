@@ -3,9 +3,7 @@ import importlib
 
 MODULES = [
     "GOTAcc.src.gotacc",
-    "GOTAcc.src.gotacc.cli.common",
-    "GOTAcc.src.gotacc.cli.run_single",
-    "GOTAcc.src.gotacc.cli.run_multi",
+    "GOTAcc.src.gotacc.cli.run_bo",
     "GOTAcc.src.gotacc.algorithms.single_objective.bo",
     "GOTAcc.src.gotacc.algorithms.single_objective.turbo",
     "GOTAcc.src.gotacc.algorithms.single_objective.rcds",
@@ -19,3 +17,6 @@ MODULES = [
 def test_import_core_modules():
     for module_name in MODULES:
         importlib.import_module(module_name)
+
+
+test_import_core_modules()

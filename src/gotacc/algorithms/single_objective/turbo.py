@@ -34,7 +34,7 @@ class TuRBOOptimizer:
         kernel_type: Optional[str] = "matern",
         gp_restarts: int = 5,
         acq: str = "ei",
-        acq_optimizer: str = "lbfgs",
+        acq_optimizer: str = "optimize_acqf",
         acq_opt_kwargs: Optional[Dict[str, Any]] = None,
         n_trust_regions: int = 1,
         success_tolerance: int = 3,

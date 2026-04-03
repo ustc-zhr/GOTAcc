@@ -39,7 +39,7 @@ class BOOptimizer:
         acq: str = "ucb",
         acq_para: float = 3.0,
         acq_para_kwargs: Optional[Dict[str, Any]] = None,
-        acq_optimizer: str = "lbfgs",
+        acq_optimizer: str = "optimize_acqf",
         acq_opt_kwargs: Optional[Dict[str, Any]] = None,
         n_init: int = 5,
         n_iter: int = 50,
