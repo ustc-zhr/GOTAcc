@@ -8,10 +8,12 @@ It is a Python toolkit for accelerator optimization, intended for both:
   - EPICS-based machine optimization
   - injector / linac / FEL tuning
   - practical control-room deployment
-- **design optimization**
+  
+- **design optimization**(Integration in progress)
+  
   - beam dynamics optimization
-  - constrained multi-objective studies
-  - simulation-based accelerator design workflows
+  
+    
 
 ---
 
