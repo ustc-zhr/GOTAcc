@@ -57,7 +57,7 @@ def setup_objective(func_type, dim):
         bounds = np.array([[-2, 2]] * dim)
     elif func_type == "rosenbrock":
         objective = rosenbrock
-        bounds = np.array([[-10, 10]] * dim)
+        bounds = np.array([[-2, 2]] * dim)
     elif func_type == "ackley":
         objective = ackley
         bounds = np.array([[-32.768, 32.768]] * dim)

@@ -1,0 +1,1590 @@
+from __future__ import annotations
+
+import ast
+import json
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDoubleSpinBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSpinBox,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..main_window import MainWindow
+
+try:
+    from ...services.task_service import TaskService
+    from ..tool_dialogs import AlgorithmDetailDialog
+    from ..tool_dialogs import BoundsToolsDialog
+except ImportError:  # pragma: no cover - local script fallback
+    CURRENT_DIR = Path(__file__).resolve().parent
+    GUI_ROOT = CURRENT_DIR.parents[1]
+    for path in (GUI_ROOT, GUI_ROOT / "services", GUI_ROOT / "views"):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    from task_service import TaskService
+    from tool_dialogs import AlgorithmDetailDialog
+    from tool_dialogs import BoundsToolsDialog
+
+
+CURRENT_DIR = Path(__file__).resolve().parent
+GOTACC_ROOT = CURRENT_DIR.parents[2]
+
+ALGORITHM_INIT_SOURCES = {
+    "BO": (GOTACC_ROOT / "algorithms" / "single_objective" / "bo.py", "BOOptimizer"),
+    "TuRBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "turbo.py", "TuRBOOptimizer"),
+    "MOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mobo.py", "MOBOOptimizer"),
+    "MOPSO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mopso.py", "MOPSOOptimizer"),
+    "NSGA-II": (GOTACC_ROOT / "algorithms" / "multi_objective" / "nsga2.py", "NSGA2Optimizer"),
+}
+
+EXCLUDED_INIT_PARAMS = {
+    "BO": {"self", "func", "bounds", "random_state", "n_iter"},
+    "TuRBO": {"self", "func", "bounds", "random_state", "n_iter"},
+    "MOBO": {"self", "func", "bounds", "random_state", "n_objectives", "n_iter", "maximize"},
+    "MOPSO": {"self", "func", "bounds", "random_state", "n_objectives", "maximize"},
+    "NSGA-II": {"self", "func", "bounds", "random_state", "n_objectives", "maximize"},
+}
+
+PARAM_NOTES = {
+    "kernel_type": "Kernel type from optimizer __init__.",
+    "gp_restarts": "GP fitting retry count.",
+    "acq": "Acquisition function name.",
+    "acq_para": "Acquisition tuning parameter.",
+    "acq_para_kwargs": "Additional acquisition parameter kwargs as JSON.",
+    "acq_optimizer": "Acquisition optimizer name.",
+    "acq_opt_kwargs": "Acquisition optimizer kwargs as JSON.",
+    "n_init": "Initial design size. Total evaluations are still capped by Max Evaluations.",
+    "device": "Torch device name, for example cpu or cuda.",
+    "dtype": "Torch dtype name, for example float64.",
+    "n_trust_regions": "TuRBO trust-region count.",
+    "success_tolerance": "TuRBO consecutive success threshold.",
+    "failure_tolerance": "TuRBO consecutive failure threshold.",
+    "length_init": "Initial trust-region length.",
+    "length_min": "Minimum trust-region length before restart.",
+    "ref_point": "Reference point as JSON array.",
+    "pop_size": "Population size.",
+    "n_generations": "Generation count. Budget is still clipped by Max Evaluations.",
+    "w": "PSO inertia weight.",
+    "c1": "PSO cognitive coefficient.",
+    "c2": "PSO social coefficient.",
+    "mutation_prob": "Optional mutation probability. Leave blank to use the optimizer default.",
+    "archive_size": "Archive size.",
+    "crossover_prob": "Crossover probability.",
+    "crossover_eta": "SBX crossover eta.",
+    "mutation_eta": "Polynomial mutation eta.",
+    "verbose": "Print optimizer progress logs.",
+}
+
+OBJECTIVE_POLICY_DEFAULTS = {
+    "fel_energy_guard": {
+        "target_col": 0,
+        "kwargs": {
+            "target_col": 0,
+            "large_threshold": 1e6,
+            "change_threshold": 1e-6,
+        },
+    },
+    "zero_guard": {
+        "target_col": 1,
+        "kwargs": {
+            "target_col": 1,
+            "zero_atol": 1e-12,
+            "offset": 100.0,
+        },
+    },
+}
+
+_NO_DEFAULT_OVERRIDE = object()
+
+ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
+    "BO": {
+        "acq_para_kwargs": {"beta_strategy": "inv_decay", "beta_lam": 0.01},
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "n_candidates": 8192},
+    },
+    "TuRBO": {
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 512, "n_candidates": 8192},
+    },
+    "MOBO": {
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "qehvi_batch": 1},
+        "ref_point": [0.0, 0.0],
+    },
+    "MOPSO": {
+        "ref_point": [0.0, 0.0],
+    },
+    "NSGA-II": {
+        "ref_point": [0.0, 0.0],
+    },
+}
+
+OBJECTIVE_MATH_OPTIONS = ("mean", "std")
+
+
+def _safe_eval_ast(node: ast.AST):
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+        return ast.literal_eval(node)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _safe_eval_ast(node.operand)
+        return +operand if isinstance(node.op, ast.UAdd) else -operand
+    if isinstance(node, ast.BinOp):
+        left = _safe_eval_ast(node.left)
+        right = _safe_eval_ast(node.right)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right
+        if isinstance(node.op, ast.FloorDiv):
+            return left // right
+        if isinstance(node.op, ast.Mod):
+            return left % right
+        if isinstance(node.op, ast.Pow):
+            return left**right
+    raise ValueError(f"Unsupported default AST node: {type(node).__name__}")
+
+
+def _annotation_to_dtype(name: str, annotation_text: str, default):
+    ann = (annotation_text or "").replace(" ", "").lower()
+    if name == "dtype":
+        return "str"
+    if any(token in ann for token in ("dict", "mapping", "ndarray", "list", "tuple")):
+        return "json"
+    if "bool" in ann:
+        return "bool"
+    if "int" in ann:
+        return "int"
+    if "float" in ann:
+        return "float"
+    if "str" in ann:
+        return "str"
+
+    if isinstance(default, bool):
+        return "bool"
+    if isinstance(default, int) and not isinstance(default, bool):
+        return "int"
+    if isinstance(default, float):
+        return "float"
+    if isinstance(default, (dict, list, tuple)):
+        return "json"
+    return "str"
+
+
+class TaskBuilderController:
+    def __init__(self, window: "MainWindow") -> None:
+        self.window = window
+        self.view = window.view_adapter
+        self._algorithm_param_widgets: dict[str, tuple[QWidget, str, str]] = {}
+        self._syncing_algorithm_param_form = False
+        self._algorithm_param_specs_cache: dict[str, list[tuple[str, str, str, str]]] = {}
+        self._algorithm_overrides_expanded = False
+        self._algorithm_detail_dialog: AlgorithmDetailDialog | None = None
+        self._last_bounds_preview = ""
+        self._bounds_dialog: BoundsToolsDialog | None = None
+        self._bounds_tool_state: dict[str, object] = {
+            "source": "Current machine readback",
+            "mode": "± absolute delta",
+            "selected_only": False,
+            "update_initial": True,
+            "primary": 0.1,
+            "secondary": 1.0,
+        }
+
+    def algorithm_template_key(self, algorithm_text: str) -> str:
+        text = (algorithm_text or "").strip()
+        lowered = text.lower()
+        if lowered == "turbo":
+            return "TuRBO"
+        if lowered == "mobo":
+            return "MOBO"
+        if lowered == "bo":
+            return "BO"
+        return text
+
+    def dynamic_table_records(self):
+        return self._parameter_table_records(self.window.task_ui.tableWidget_dynamicParams)
+
+    def _parameter_table_records(self, table) -> list[list[str]]:
+        records = []
+        for row in range(table.rowCount()):
+            values = []
+            has_content = False
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                value = item.text().strip() if item is not None else ""
+                values.append(value)
+                has_content = has_content or bool(value)
+            if has_content:
+                records.append(values)
+        return records
+
+    @staticmethod
+    def _canonical_param_name(name: str) -> str:
+        return str(name or "").strip()
+
+    def _recommended_param_specs(self, algorithm_text: str):
+        algorithm_key = self.algorithm_template_key(algorithm_text)
+        return algorithm_key, self._load_algorithm_param_specs(algorithm_key)
+
+    def _load_algorithm_param_specs(self, algorithm_key: str) -> list[tuple[str, str, str, str]]:
+        if algorithm_key in self._algorithm_param_specs_cache:
+            return self._algorithm_param_specs_cache[algorithm_key]
+
+        source_info = ALGORITHM_INIT_SOURCES.get(algorithm_key)
+        if source_info is None:
+            self._algorithm_param_specs_cache[algorithm_key] = []
+            return []
+
+        path, class_name = source_info
+        specs: list[tuple[str, str, str, str]] = []
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except Exception:
+            self._algorithm_param_specs_cache[algorithm_key] = specs
+            return specs
+
+        class_node = next(
+            (
+                node
+                for node in tree.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            ),
+            None,
+        )
+        if class_node is None:
+            self._algorithm_param_specs_cache[algorithm_key] = specs
+            return specs
+
+        init_node = next(
+            (
+                node
+                for node in class_node.body
+                if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+            ),
+            None,
+        )
+        if init_node is None:
+            self._algorithm_param_specs_cache[algorithm_key] = specs
+            return specs
+
+        excluded = EXCLUDED_INIT_PARAMS.get(algorithm_key, set())
+        args = list(init_node.args.args)
+        defaults = [None] * (len(args) - len(init_node.args.defaults)) + list(init_node.args.defaults)
+        for arg_node, default_node in zip(args, defaults):
+            name = arg_node.arg
+            if name in excluded:
+                continue
+
+            annotation_text = ast.unparse(arg_node.annotation) if arg_node.annotation is not None else ""
+            if default_node is None:
+                default_value = ""
+            else:
+                try:
+                    default_value = _safe_eval_ast(default_node)
+                except Exception:
+                    default_value = ast.unparse(default_node)
+
+            dtype = _annotation_to_dtype(name, annotation_text, default_value)
+            override_value = self._algorithm_param_default_override(algorithm_key, name)
+            if override_value is not _NO_DEFAULT_OVERRIDE:
+                default_value = override_value
+            elif default_value is None:
+                structured_default = self._structured_none_default(name, annotation_text, dtype)
+                if structured_default is not None:
+                    default_value = structured_default
+            default_text = self._format_dynamic_param_value(default_value, dtype, name=name)
+            note = PARAM_NOTES.get(name, f"{class_name}.__init__ parameter.")
+            specs.append((name, default_text, dtype, note))
+
+        self._algorithm_param_specs_cache[algorithm_key] = specs
+        return specs
+
+    @staticmethod
+    def _format_param_label(name: str) -> str:
+        return str(name).replace("_", " ").strip().title()
+
+    @staticmethod
+    def _structured_none_default(name: str, annotation_text: str = "", dtype: str = ""):
+        normalized_name = str(name or "").strip().lower()
+        ann = (annotation_text or "").replace(" ", "").lower()
+        normalized_dtype = str(dtype or "").strip().lower()
+        if normalized_dtype not in {"json", "dict", "list"}:
+            return None
+        if normalized_name.endswith("_kwargs") or "dict" in ann or "mapping" in ann:
+            return {}
+        if normalized_name in {"ref_point", "ref_points"} or any(
+            token in ann for token in ("ndarray", "list", "tuple", "sequence")
+        ):
+            return []
+        return None
+
+    @staticmethod
+    def _algorithm_param_default_override(algorithm_key: str, name: str):
+        return ALGORITHM_PARAM_DEFAULT_OVERRIDES.get(str(algorithm_key or "").strip(), {}).get(
+            str(name or "").strip(),
+            _NO_DEFAULT_OVERRIDE,
+        )
+
+    @staticmethod
+    def _format_dynamic_param_value(value, dtype: str, name: str = "") -> str:
+        normalized_dtype = str(dtype or "").strip().lower()
+        if value is None:
+            if normalized_dtype in {"json", "dict", "list"}:
+                structured_default = TaskBuilderController._structured_none_default(name, "", dtype)
+                if structured_default is not None:
+                    return json.dumps(structured_default, ensure_ascii=False)
+            return ""
+        if normalized_dtype in {"bool", "boolean"}:
+            return "true" if bool(value) else "false"
+        if normalized_dtype in {"int", "integer"}:
+            return str(int(value))
+        if normalized_dtype in {"float", "double"}:
+            return format(float(value), "g")
+        if normalized_dtype in {"json", "dict", "list"}:
+            if isinstance(value, str):
+                return value
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    @staticmethod
+    def _clear_layout(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            child = item.widget()
+            nested = item.layout()
+            if child is not None:
+                child.deleteLater()
+            elif nested is not None:
+                TaskBuilderController._clear_layout(nested)
+
+    def _dynamic_param_lookup(self) -> dict[str, tuple[str, str, str]]:
+        lookup: dict[str, tuple[str, str, str]] = {}
+        for record in self.dynamic_table_records():
+            key = str(record[0] or "").strip()
+            if not key:
+                continue
+            value = str(record[1] or "").strip()
+            dtype = str(record[2] or "").strip() or "str"
+            note = str(record[3] or "").strip()
+            lookup[key] = (value, dtype, note)
+        return lookup
+
+    def _upsert_dynamic_param_row(self, name: str, value_text: str, dtype: str, note: str) -> None:
+        table = self.window.task_ui.tableWidget_dynamicParams
+        target_row = None
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            current_name = item.text().strip() if item is not None else ""
+            if current_name == name:
+                target_row = row
+                break
+        old_state = table.blockSignals(True)
+        try:
+            if target_row is None:
+                target_row = table.rowCount()
+                table.insertRow(target_row)
+            values = [name, value_text, dtype, note]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                if col != 1:
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                table.setItem(target_row, col, item)
+        finally:
+            table.blockSignals(old_state)
+        self.refresh_task_preview()
+
+    def _populate_parameter_table(self, table, records: list[list[str]]) -> None:
+        old_state = table.blockSignals(True)
+        try:
+            table.setRowCount(0)
+            for row_index, record in enumerate(records):
+                table.insertRow(row_index)
+                for col, value in enumerate(record):
+                    item = QTableWidgetItem(str(value))
+                    if col != 1:
+                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    table.setItem(row_index, col, item)
+        finally:
+            table.blockSignals(old_state)
+
+    def _populate_dynamic_param_table(self, records: list[list[str]]) -> None:
+        table = self.window.task_ui.tableWidget_dynamicParams
+        self._populate_parameter_table(table, records)
+
+    def _param_widget_value(self, widget: QWidget, dtype: str) -> str:
+        if isinstance(widget, QCheckBox):
+            return "true" if widget.isChecked() else "false"
+        if isinstance(widget, QSpinBox):
+            return str(widget.value())
+        if isinstance(widget, QDoubleSpinBox):
+            return format(widget.value(), "g")
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip()
+        return ""
+
+    def _on_algorithm_param_widget_changed(self, name: str) -> None:
+        if self._syncing_algorithm_param_form:
+            return
+        widget_meta = self._algorithm_param_widgets.get(name)
+        if widget_meta is None:
+            return
+        widget, dtype, note = widget_meta
+        self._upsert_dynamic_param_row(name, self._param_widget_value(widget, dtype), dtype, note)
+
+    def render_algorithm_param_form(self, algorithm_text: str) -> None:
+        form_layout = getattr(self.window.task_ui, "formLayout_algorithmParams", None)
+        summary_label = getattr(self.window.task_ui, "label_algorithmParamSummary", None)
+        algorithm_key, specs = self._recommended_param_specs(algorithm_text)
+        if summary_label is not None:
+            summary_label.setText(f"{algorithm_key} Parameters · {len(specs)} field(s)")
+        if form_layout is None or summary_label is None:
+            self._algorithm_param_widgets = {}
+            return
+
+        current_lookup = self._dynamic_param_lookup()
+        self._syncing_algorithm_param_form = True
+        try:
+            self._clear_layout(form_layout)
+            self._algorithm_param_widgets = {}
+
+            for name, default, dtype, note in specs:
+                value_text, _dtype, _note = current_lookup.get(name, (str(default), dtype, note))
+                parsed_value = TaskService._coerce_scalar(value_text, dtype)
+                label = QLabel(self._format_param_label(name), self.window.task_ui.groupBox_dynamicParams)
+                label.setToolTip(note)
+
+                normalized_dtype = str(dtype).strip().lower()
+                if (parsed_value == "" or parsed_value is None) and normalized_dtype in {
+                    "bool",
+                    "boolean",
+                    "int",
+                    "integer",
+                    "float",
+                    "double",
+                }:
+                    widget = QLineEdit(self.window.task_ui.groupBox_dynamicParams)
+                    widget.setText("" if parsed_value in {"", None} else str(parsed_value))
+                    widget.editingFinished.connect(lambda param=name: self._on_algorithm_param_widget_changed(param))
+                elif normalized_dtype in {"bool", "boolean"}:
+                    widget: QWidget = QCheckBox(self.window.task_ui.groupBox_dynamicParams)
+                    widget.setChecked(bool(parsed_value))
+                    widget.toggled.connect(lambda *_args, param=name: self._on_algorithm_param_widget_changed(param))
+                elif normalized_dtype in {"int", "integer"}:
+                    widget = QSpinBox(self.window.task_ui.groupBox_dynamicParams)
+                    widget.setMaximum(999999999)
+                    widget.setValue(int(parsed_value))
+                    widget.valueChanged.connect(lambda *_args, param=name: self._on_algorithm_param_widget_changed(param))
+                elif normalized_dtype in {"float", "double"}:
+                    widget = QDoubleSpinBox(self.window.task_ui.groupBox_dynamicParams)
+                    widget.setDecimals(8)
+                    widget.setMaximum(999999999.0)
+                    widget.setValue(float(parsed_value))
+                    widget.valueChanged.connect(lambda *_args, param=name: self._on_algorithm_param_widget_changed(param))
+                else:
+                    widget = QLineEdit(self.window.task_ui.groupBox_dynamicParams)
+                    widget.setText(self._format_dynamic_param_value(parsed_value, dtype, name=name))
+                    widget.editingFinished.connect(lambda param=name: self._on_algorithm_param_widget_changed(param))
+                widget.setToolTip(note)
+                form_layout.addRow(label, widget)
+                self._algorithm_param_widgets[name] = (widget, dtype, note)
+        finally:
+            self._syncing_algorithm_param_form = False
+
+    def apply_recommended_dynamic_params(
+        self,
+        algorithm_text: str,
+        *,
+        preserve_custom: bool = True,
+        log_change: bool = True,
+    ) -> None:
+        algorithm_key = self.algorithm_template_key(algorithm_text)
+        recommended = self._load_algorithm_param_specs(algorithm_key)
+        if not recommended:
+            self.refresh_task_preview()
+            return
+
+        current_lookup = self._dynamic_param_lookup()
+
+        recommended_records = []
+        for name, default, dtype, note in recommended:
+            value_text, stored_dtype, stored_note = current_lookup.get(name, (str(default), dtype, note))
+            recommended_records.append(
+                [
+                    name,
+                    value_text,
+                    stored_dtype or dtype,
+                    stored_note or note,
+                ]
+            )
+
+        self._populate_dynamic_param_table(recommended_records)
+        self.render_algorithm_param_form(algorithm_text)
+        self._update_algorithm_detail_summary(algorithm_text)
+        self.refresh_task_preview()
+        if log_change:
+            self.view.log_console(f"Loaded {algorithm_key} parameters from optimizer __init__.")
+
+    def set_algorithm_overrides_expanded(self, expanded: bool) -> None:
+        self._algorithm_overrides_expanded = bool(expanded)
+        table = getattr(self.window.task_ui, "tableWidget_dynamicParams", None)
+        toggle = getattr(self.window.task_ui, "toolButton_toggleAlgorithmOverrides", None)
+        if table is not None:
+            table.setVisible(self._algorithm_overrides_expanded)
+        if toggle is not None:
+            old_state = toggle.blockSignals(True)
+            try:
+                toggle.setChecked(self._algorithm_overrides_expanded)
+                toggle.setText("Hide" if self._algorithm_overrides_expanded else "Show")
+            finally:
+                toggle.blockSignals(old_state)
+
+    def toggle_algorithm_overrides(self, checked: bool) -> None:
+        self.set_algorithm_overrides_expanded(bool(checked))
+
+    def _update_algorithm_detail_summary(self, algorithm_text: str | None = None) -> None:
+        summary_label = getattr(self.window.task_ui, "label_algorithmDetailSummary", None)
+        if summary_label is None:
+            return
+        if algorithm_text is None:
+            algorithm_text = self.window.task_ui.comboBox_algorithm.currentText()
+        algorithm_key = self.algorithm_template_key(algorithm_text)
+        count = self.window.task_ui.tableWidget_dynamicParams.rowCount()
+        summary_label.setText(f"{algorithm_key} · {count} field(s)")
+
+    def open_algorithm_detail_dialog(self) -> None:
+        dialog = AlgorithmDetailDialog(self.window)
+        self._algorithm_detail_dialog = dialog
+        dialog.ui.label_summary.setText(
+            self.window.task_ui.label_algorithmDetailSummary.text().strip()
+            or f"{self.algorithm_template_key(self.window.task_ui.comboBox_algorithm.currentText())} parameters"
+        )
+        table = dialog.ui.tableWidget_dynamicParams
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._populate_parameter_table(table, self.dynamic_table_records())
+        if dialog.exec_() != QDialog.Accepted:
+            self._algorithm_detail_dialog = None
+            return
+
+        records = self._parameter_table_records(table)
+        self._populate_dynamic_param_table(records)
+        self.render_algorithm_param_form(self.window.task_ui.comboBox_algorithm.currentText())
+        self._update_algorithm_detail_summary()
+        self.refresh_task_preview()
+        self.view.log_console("Updated algorithm detail parameters.")
+        self._algorithm_detail_dialog = None
+
+    def on_algorithm_changed(self, text: str) -> None:
+        if self.window._suppress_autofill:
+            return
+        self.apply_recommended_dynamic_params(text, preserve_custom=False, log_change=True)
+        self.update_algorithm_guidance()
+
+    def on_dynamic_param_table_changed(self) -> None:
+        self.render_algorithm_param_form(self.window.task_ui.comboBox_algorithm.currentText())
+        self.refresh_task_preview()
+
+    def table_headers(self, table) -> list[str]:
+        headers = []
+        for col in range(table.columnCount()):
+            item = table.horizontalHeaderItem(col)
+            headers.append(item.text() if item is not None else f"col_{col}")
+        return headers
+
+    def _install_objective_math_widgets(self, table) -> None:
+        if table is not self.window.task_ui.tableWidget_objectives:
+            return
+        headers = self.table_headers(table)
+        if "Math" not in headers:
+            return
+        math_col = headers.index("Math")
+        old_state = table.blockSignals(True)
+        try:
+            for row in range(table.rowCount()):
+                current_item = table.item(row, math_col)
+                current_value = (
+                    current_item.text().strip().lower()
+                    if current_item is not None and current_item.text().strip()
+                    else "mean"
+                )
+                combo = QComboBox(table)
+                for option in OBJECTIVE_MATH_OPTIONS:
+                    combo.addItem(option)
+                combo.setCurrentText(current_value if current_value in OBJECTIVE_MATH_OPTIONS else "mean")
+                combo.currentTextChanged.connect(lambda *_args: self.refresh_task_preview())
+                table.setCellWidget(row, math_col, combo)
+                if current_item is None:
+                    table.setItem(row, math_col, QTableWidgetItem(combo.currentText()))
+                else:
+                    current_item.setText(combo.currentText())
+        finally:
+            table.blockSignals(old_state)
+
+    def _current_write_link_variable_names(self) -> list[str]:
+        rows = TaskService.table_to_records(self.window.task_ui.tableWidget_variables)
+        enabled_rows = TaskService._enabled_rows(rows)
+        names: list[str] = []
+        for row in enabled_rows:
+            name = str(row.get("Name", "")).strip()
+            if name:
+                names.append(name)
+        return names
+
+    @staticmethod
+    def _normalize_write_link_source_value(value: str, variable_names: list[str]) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if text in variable_names:
+            return text
+        try:
+            index = int(text)
+        except Exception:
+            return text
+        if 0 <= index < len(variable_names):
+            return variable_names[index]
+        return text
+
+    def _install_write_link_source_widgets(self, table) -> None:
+        if table is not self.window.machine_ui.tableWidget_writeLinks:
+            return
+        headers = self.table_headers(table)
+        if "Source Index" not in headers:
+            return
+        source_col = headers.index("Source Index")
+        variable_names = self._current_write_link_variable_names()
+        old_state = table.blockSignals(True)
+        try:
+            for row in range(table.rowCount()):
+                existing_widget = table.cellWidget(row, source_col)
+                if existing_widget is not None and hasattr(existing_widget, "currentText"):
+                    current_value = str(existing_widget.currentText()).strip()
+                else:
+                    current_item = table.item(row, source_col)
+                    current_value = current_item.text().strip() if current_item is not None else ""
+                normalized_value = self._normalize_write_link_source_value(current_value, variable_names)
+                combo = QComboBox(table)
+                combo.addItem("")
+                for name in variable_names:
+                    combo.addItem(name)
+                if normalized_value and combo.findText(normalized_value, Qt.MatchFixedString) < 0:
+                    combo.addItem(normalized_value)
+                combo.setCurrentText(normalized_value)
+                combo.currentTextChanged.connect(lambda *_args: self.refresh_task_preview())
+                table.setCellWidget(row, source_col, combo)
+                item = table.item(row, source_col)
+                if item is None:
+                    item = QTableWidgetItem(combo.currentText())
+                    table.setItem(row, source_col, item)
+                else:
+                    item.setText(combo.currentText())
+        finally:
+            table.blockSignals(old_state)
+
+    @staticmethod
+    def _normalize_write_link_enabled_value(value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "True"
+        return "True" if TaskService._is_enabled(text) else "False"
+
+    def _install_write_link_enabled_widgets(self, table) -> None:
+        if table is not self.window.machine_ui.tableWidget_writeLinks:
+            return
+        headers = self.table_headers(table)
+        if "Enabled" not in headers:
+            return
+        enabled_col = headers.index("Enabled")
+        old_state = table.blockSignals(True)
+        try:
+            for row in range(table.rowCount()):
+                existing_widget = table.cellWidget(row, enabled_col)
+                if existing_widget is not None and hasattr(existing_widget, "currentText"):
+                    current_value = str(existing_widget.currentText()).strip()
+                else:
+                    current_item = table.item(row, enabled_col)
+                    current_value = current_item.text().strip() if current_item is not None else ""
+                normalized_value = self._normalize_write_link_enabled_value(current_value)
+                combo = QComboBox(table)
+                combo.addItems(["True", "False"])
+                combo.setCurrentText(normalized_value)
+                combo.currentTextChanged.connect(lambda *_args: self.refresh_task_preview())
+                table.setCellWidget(row, enabled_col, combo)
+                item = table.item(row, enabled_col)
+                if item is None:
+                    item = QTableWidgetItem(combo.currentText())
+                    table.setItem(row, enabled_col, item)
+                else:
+                    item.setText(combo.currentText())
+        finally:
+            table.blockSignals(old_state)
+
+    def refresh_write_link_editors(self) -> None:
+        table = self.window.machine_ui.tableWidget_writeLinks
+        self._install_write_link_source_widgets(table)
+        self._install_write_link_enabled_widgets(table)
+
+    @staticmethod
+    def _normalize_objective_policy_enabled_value(value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "True"
+        return "True" if TaskService._is_enabled(text) else "False"
+
+    @staticmethod
+    def _normalize_objective_policy_name(value: str) -> str:
+        text = str(value or "").strip().lower()
+        if text in {"fel_energy_guard", "zero_guard"}:
+            return text
+        return "fel_energy_guard"
+
+    @staticmethod
+    def objective_policy_default_row(name: str = "fel_energy_guard", enabled: str = "True") -> list[str]:
+        normalized_name = TaskBuilderController._normalize_objective_policy_name(name)
+        spec = OBJECTIVE_POLICY_DEFAULTS[normalized_name]
+        kwargs_text = json.dumps(spec["kwargs"], ensure_ascii=False)
+        return [enabled, normalized_name, kwargs_text]
+
+    def _ensure_objective_policy_row_defaults(
+        self,
+        table,
+        row: int,
+        policy_name: str,
+        *,
+        force: bool = False,
+    ) -> None:
+        headers = self.table_headers(table)
+        if "Kwargs JSON" not in headers:
+            return
+        kwargs_col = headers.index("Kwargs JSON")
+        normalized_name = self._normalize_objective_policy_name(policy_name)
+        defaults = self.objective_policy_default_row(normalized_name)
+        default_kwargs = defaults[2]
+
+        kwargs_item = table.item(row, kwargs_col)
+        kwargs_text = kwargs_item.text().strip() if kwargs_item is not None else ""
+        if force or kwargs_text in {"", "{}"}:
+            if kwargs_item is None:
+                kwargs_item = QTableWidgetItem(default_kwargs)
+                table.setItem(row, kwargs_col, kwargs_item)
+            else:
+                kwargs_item.setText(default_kwargs)
+
+    def _on_objective_policy_name_changed(self, row: int, value: str) -> None:
+        table = self.window.machine_ui.tableWidget_objectivePolicies
+        if row < 0 or row >= table.rowCount():
+            return
+        old_state = table.blockSignals(True)
+        try:
+            self._ensure_objective_policy_row_defaults(table, row, value, force=True)
+        finally:
+            table.blockSignals(old_state)
+        self.refresh_task_preview()
+
+    def _install_objective_policy_widgets(self, table) -> None:
+        if table is not self.window.machine_ui.tableWidget_objectivePolicies:
+            return
+        headers = self.table_headers(table)
+        if "Enabled" not in headers or "Policy Name" not in headers:
+            return
+        enabled_col = headers.index("Enabled")
+        name_col = headers.index("Policy Name")
+        old_state = table.blockSignals(True)
+        try:
+            for row in range(table.rowCount()):
+                existing_enabled = table.cellWidget(row, enabled_col)
+                if existing_enabled is not None and hasattr(existing_enabled, "currentText"):
+                    enabled_value = str(existing_enabled.currentText()).strip()
+                else:
+                    current_item = table.item(row, enabled_col)
+                    enabled_value = current_item.text().strip() if current_item is not None else ""
+                enabled_value = self._normalize_objective_policy_enabled_value(enabled_value)
+                enabled_combo = QComboBox(table)
+                enabled_combo.addItems(["True", "False"])
+                enabled_combo.setCurrentText(enabled_value)
+                enabled_combo.currentTextChanged.connect(lambda *_args: self.refresh_task_preview())
+                table.setCellWidget(row, enabled_col, enabled_combo)
+                item = table.item(row, enabled_col)
+                if item is None:
+                    item = QTableWidgetItem(enabled_combo.currentText())
+                    table.setItem(row, enabled_col, item)
+                else:
+                    item.setText(enabled_combo.currentText())
+
+                existing_name = table.cellWidget(row, name_col)
+                if existing_name is not None and hasattr(existing_name, "currentText"):
+                    name_value = str(existing_name.currentText()).strip()
+                else:
+                    current_item = table.item(row, name_col)
+                    name_value = current_item.text().strip() if current_item is not None else ""
+                name_value = self._normalize_objective_policy_name(name_value)
+                name_combo = QComboBox(table)
+                name_combo.addItems(["fel_energy_guard", "zero_guard"])
+                name_combo.setCurrentText(name_value)
+                name_combo.currentTextChanged.connect(
+                    lambda value, row_idx=row: self._on_objective_policy_name_changed(row_idx, value)
+                )
+                table.setCellWidget(row, name_col, name_combo)
+                item = table.item(row, name_col)
+                if item is None:
+                    item = QTableWidgetItem(name_combo.currentText())
+                    table.setItem(row, name_col, item)
+                else:
+                    item.setText(name_combo.currentText())
+                self._ensure_objective_policy_row_defaults(table, row, name_value)
+        finally:
+            table.blockSignals(old_state)
+
+    def refresh_objective_policy_editors(self) -> None:
+        self._install_objective_policy_widgets(self.window.machine_ui.tableWidget_objectivePolicies)
+
+    def init_bounds_tool(self) -> None:
+        return
+
+    def _bounds_ui(self):
+        if self._bounds_dialog is None:
+            return None
+        return self._bounds_dialog.ui
+
+    def _save_bounds_tool_state(self) -> None:
+        ui = self._bounds_ui()
+        if ui is None:
+            return
+        self._bounds_tool_state = {
+            "source": ui.comboBox_boundsSource.currentText(),
+            "mode": ui.comboBox_boundsMode.currentText(),
+            "selected_only": ui.checkBox_boundsSelectedOnly.isChecked(),
+            "update_initial": ui.checkBox_boundsUpdateInitial.isChecked(),
+            "primary": float(ui.doubleSpinBox_boundsPrimary.value()),
+            "secondary": float(ui.doubleSpinBox_boundsSecondary.value()),
+        }
+
+    def _restore_bounds_tool_state(self) -> None:
+        ui = self._bounds_ui()
+        if ui is None:
+            return
+        state = self._bounds_tool_state
+        ui.comboBox_boundsSource.setCurrentText(str(state.get("source", "Current machine readback")))
+        ui.comboBox_boundsMode.setCurrentText(str(state.get("mode", "± absolute delta")))
+        ui.checkBox_boundsSelectedOnly.setChecked(bool(state.get("selected_only", False)))
+        ui.checkBox_boundsUpdateInitial.setChecked(bool(state.get("update_initial", True)))
+        ui.doubleSpinBox_boundsPrimary.setValue(float(state.get("primary", 0.1)))
+        ui.doubleSpinBox_boundsSecondary.setValue(float(state.get("secondary", 1.0)))
+
+    def update_bounds_tool_controls(self) -> None:
+        ui = self._bounds_ui()
+        if ui is None:
+            return
+
+        mode = ui.comboBox_boundsMode.currentText().strip().lower()
+        primary_label = ui.label_boundsPrimary
+        secondary_label = ui.label_boundsSecondary
+        primary_spin = ui.doubleSpinBox_boundsPrimary
+        secondary_spin = ui.doubleSpinBox_boundsSecondary
+        source_combo = ui.comboBox_boundsSource
+
+        offline = self.window.task_ui.comboBox_mode.currentText().strip() == "Offline"
+        source_combo.model().item(0).setEnabled(not offline)
+        if offline and source_combo.currentIndex() == 0:
+            old_state = source_combo.blockSignals(True)
+            try:
+                source_combo.setCurrentIndex(1)
+            finally:
+                source_combo.blockSignals(old_state)
+
+        if "percent" in mode:
+            primary_label.setText("Percent")
+            primary_spin.setMinimum(0.0)
+            primary_spin.setMaximum(1000000.0)
+            secondary_label.setVisible(False)
+            secondary_spin.setVisible(False)
+        elif "fixed" in mode:
+            primary_label.setText("Lower")
+            primary_spin.setMinimum(-1000000000.0)
+            primary_spin.setMaximum(1000000000.0)
+            secondary_label.setText("Upper")
+            secondary_label.setVisible(True)
+            secondary_spin.setVisible(True)
+        else:
+            primary_label.setText("Delta")
+            primary_spin.setMinimum(0.0)
+            primary_spin.setMaximum(1000000000.0)
+            secondary_label.setVisible(False)
+            secondary_spin.setVisible(False)
+
+        if self._last_bounds_preview:
+            ui.label_boundsToolSummary.setText(self._last_bounds_preview)
+        else:
+            scope = "selected rows" if ui.checkBox_boundsSelectedOnly.isChecked() else "enabled rows"
+            source = ui.comboBox_boundsSource.currentText().strip().lower()
+            if source.startswith("current machine"):
+                source_text = "current machine readback"
+            else:
+                source_text = "current Initial values"
+            ui.label_boundsToolSummary.setText(
+                f"Generate bounds for {scope} using {source_text}."
+            )
+
+    def _table_records_with_row_indices(self, table) -> list[tuple[int, dict[str, str]]]:
+        headers = self.table_headers(table)
+        rows: list[tuple[int, dict[str, str]]] = []
+        for row in range(table.rowCount()):
+            record: dict[str, str] = {}
+            non_empty = False
+            for col, header in enumerate(headers):
+                widget = table.cellWidget(row, col)
+                if widget is not None and hasattr(widget, "currentText"):
+                    value = str(widget.currentText()).strip()
+                else:
+                    item = table.item(row, col)
+                    value = item.text().strip() if item is not None else ""
+                if value:
+                    non_empty = True
+                record[header] = value
+            if non_empty:
+                rows.append((row, record))
+        return rows
+
+    def _target_variable_rows(self) -> list[tuple[int, dict[str, str]]]:
+        ui = self._bounds_ui()
+        if ui is None:
+            raise ValueError("Bounds Tools dialog is not open.")
+        table = self.window.task_ui.tableWidget_variables
+        rows = self._table_records_with_row_indices(table)
+        if ui.checkBox_boundsSelectedOnly.isChecked():
+            selected_rows = {index.row() for index in table.selectionModel().selectedRows()}
+            if not selected_rows:
+                raise ValueError("Select one or more variable rows, or turn off 'Selected rows only'.")
+            targets = [(row_index, row) for row_index, row in rows if row_index in selected_rows]
+        else:
+            targets = [
+                (row_index, row)
+                for row_index, row in rows
+                if TaskService._is_enabled(row.get("Enable", ""))
+            ]
+
+        if not targets:
+            raise ValueError("No variable rows are available for bounds generation.")
+        return targets
+
+    @staticmethod
+    def _parse_required_float(row: dict[str, str], key: str, *, row_number: int) -> float:
+        text = str(row.get(key, "")).strip()
+        try:
+            return float(text)
+        except Exception as exc:
+            raise ValueError(f"Variable row {row_number} has invalid {key} value {text!r}.") from exc
+
+    def _resolve_bounds_source_values(
+        self,
+        task: dict,
+        target_rows: list[tuple[int, dict[str, str]]],
+    ) -> list[float]:
+        ui = self._bounds_ui()
+        if ui is None:
+            raise ValueError("Bounds Tools dialog is not open.")
+        source = ui.comboBox_boundsSource.currentText().strip().lower()
+        variable_payloads = [row for _, row in target_rows]
+        if source.startswith("current machine"):
+            return self.window.machine_controller.read_current_knob_values(task, variable_payloads)
+        return [
+            self._parse_required_float(row, "Initial", row_number=row_index + 1)
+            for row_index, row in target_rows
+        ]
+
+    def _compute_bounds_from_source(self, source_value: float) -> tuple[float, float]:
+        ui = self._bounds_ui()
+        if ui is None:
+            raise ValueError("Bounds Tools dialog is not open.")
+        mode = ui.comboBox_boundsMode.currentText().strip().lower()
+        primary = float(ui.doubleSpinBox_boundsPrimary.value())
+        secondary = float(ui.doubleSpinBox_boundsSecondary.value())
+
+        if "fixed" in mode:
+            lower, upper = primary, secondary
+        elif "percent" in mode:
+            if abs(source_value) < 1e-15:
+                raise ValueError(
+                    "Percent mode cannot expand around a zero source value. Use ± absolute delta instead."
+                )
+            delta = abs(source_value) * primary / 100.0
+            lower, upper = source_value - delta, source_value + delta
+        else:
+            delta = primary
+            lower, upper = source_value - delta, source_value + delta
+
+        if lower >= upper:
+            raise ValueError(f"Computed bounds are invalid: lower={lower:g}, upper={upper:g}.")
+        return lower, upper
+
+    def _build_bounds_preview(
+        self,
+        task: dict,
+        *,
+        apply_changes: bool,
+    ) -> str:
+        ui = self._bounds_ui()
+        if ui is None:
+            raise ValueError("Bounds Tools dialog is not open.")
+        target_rows = self._target_variable_rows()
+        source_values = self._resolve_bounds_source_values(task, target_rows)
+        update_initial = ui.checkBox_boundsUpdateInitial.isChecked()
+        table = self.window.task_ui.tableWidget_variables
+        headers = self.table_headers(table)
+        lower_col = headers.index("Lower")
+        upper_col = headers.index("Upper")
+        initial_col = headers.index("Initial")
+        name_col = headers.index("Name")
+
+        preview_lines: list[str] = []
+        old_state = table.blockSignals(True) if apply_changes else None
+        try:
+            for (row_index, row), source_value in zip(target_rows, source_values):
+                lower, upper = self._compute_bounds_from_source(source_value)
+                name = str(row.get("Name", "")).strip() or f"x{row_index}"
+                preview_lines.append(
+                    f"{name}: [{lower:g}, {upper:g}]"
+                    + (f" | Initial <- {source_value:g}" if update_initial else "")
+                )
+                if not apply_changes:
+                    continue
+
+                for col, value in (
+                    (lower_col, lower),
+                    (upper_col, upper),
+                ):
+                    item = table.item(row_index, col)
+                    if item is None:
+                        item = QTableWidgetItem()
+                        table.setItem(row_index, col, item)
+                    item.setText(format(float(value), "g"))
+
+                if update_initial:
+                    initial_item = table.item(row_index, initial_col)
+                    if initial_item is None:
+                        initial_item = QTableWidgetItem()
+                        table.setItem(row_index, initial_col, initial_item)
+                    initial_item.setText(format(float(source_value), "g"))
+
+                name_item = table.item(row_index, name_col)
+                if name_item is not None:
+                    row["Name"] = name_item.text().strip()
+        finally:
+            if apply_changes and old_state is not None:
+                table.blockSignals(old_state)
+
+        scope = "selected rows" if ui.checkBox_boundsSelectedOnly.isChecked() else "enabled rows"
+        preview = f"{len(target_rows)} row(s) updated for {scope}. "
+        preview += "  ".join(preview_lines[:4])
+        if len(preview_lines) > 4:
+            preview += f"  ... (+{len(preview_lines) - 4} more)"
+        self._last_bounds_preview = preview
+        ui.label_boundsToolSummary.setText(preview)
+        return preview
+
+    def preview_bounds_tool(self) -> None:
+        task = self.view.current_task()
+        try:
+            preview = self._build_bounds_preview(task, apply_changes=False)
+        except Exception as exc:
+            self._last_bounds_preview = f"Bounds preview failed: {exc}"
+            ui = self._bounds_ui()
+            if ui is not None:
+                ui.label_boundsToolSummary.setText(self._last_bounds_preview)
+            self.view.log_warning(f"Bounds preview failed: {exc}")
+            QMessageBox.warning(self.window, "Bounds Preview", str(exc))
+            return
+        self._save_bounds_tool_state()
+        self.view.log_console(f"Bounds preview ready. {preview}")
+        self.view.status_message("Bounds preview updated.", 3000)
+
+    def apply_bounds_tool(self) -> None:
+        task = self.view.current_task()
+        try:
+            preview = self._build_bounds_preview(task, apply_changes=True)
+        except Exception as exc:
+            self._last_bounds_preview = f"Bounds apply failed: {exc}"
+            ui = self._bounds_ui()
+            if ui is not None:
+                ui.label_boundsToolSummary.setText(self._last_bounds_preview)
+            self.view.log_warning(f"Bounds apply failed: {exc}")
+            QMessageBox.warning(self.window, "Apply Bounds", str(exc))
+            return
+
+        self._save_bounds_tool_state()
+        self.view.log_console(f"Applied generated bounds. {preview}")
+        self.view.append_overview_activity("Bounds", status="Updated knob bounds from bounds tool.")
+        self.view.status_message("Bounds applied to variable table.", 4000)
+        self.refresh_task_preview()
+
+    def _on_bounds_tool_settings_changed(self) -> None:
+        self._save_bounds_tool_state()
+        self._last_bounds_preview = ""
+        self.update_bounds_tool_controls()
+
+    def _on_bounds_dialog_finished(self, _result: int) -> None:
+        self._save_bounds_tool_state()
+        self._bounds_dialog = None
+
+    def open_bounds_tool_dialog(self) -> None:
+        dialog = BoundsToolsDialog(self.window)
+        self._bounds_dialog = dialog
+        self._restore_bounds_tool_state()
+        ui = dialog.ui
+        ui.comboBox_boundsSource.currentTextChanged.connect(self._on_bounds_tool_settings_changed)
+        ui.comboBox_boundsMode.currentTextChanged.connect(self._on_bounds_tool_settings_changed)
+        ui.checkBox_boundsSelectedOnly.toggled.connect(self._on_bounds_tool_settings_changed)
+        ui.checkBox_boundsUpdateInitial.toggled.connect(self._on_bounds_tool_settings_changed)
+        ui.doubleSpinBox_boundsPrimary.valueChanged.connect(self._on_bounds_tool_settings_changed)
+        ui.doubleSpinBox_boundsSecondary.valueChanged.connect(self._on_bounds_tool_settings_changed)
+        ui.pushButton_previewBounds.clicked.connect(self.preview_bounds_tool)
+        ui.pushButton_applyBounds.clicked.connect(self.apply_bounds_tool)
+        dialog.finished.connect(self._on_bounds_dialog_finished)
+        self.update_bounds_tool_controls()
+        dialog.exec_()
+
+    def fill_table_from_records(self, table, records) -> None:
+        headers = self.table_headers(table)
+        old_state = table.blockSignals(True)
+        try:
+            table.setRowCount(0)
+            for record in records or []:
+                row = table.rowCount()
+                table.insertRow(row)
+                for col, header in enumerate(headers):
+                    value = record.get(header, "") if isinstance(record, dict) else ""
+                    table.setItem(row, col, QTableWidgetItem(str(value)))
+        finally:
+            table.blockSignals(old_state)
+        self._install_objective_math_widgets(table)
+        self.refresh_write_link_editors()
+        self.refresh_objective_policy_editors()
+
+    def apply_task_payload(
+        self,
+        task: dict,
+        *,
+        source_label: str | None = None,
+        goto_builder: bool = True,
+    ) -> None:
+        self.window._suppress_autofill = True
+        try:
+            self.window.task_ui.lineEdit_taskName.setText(str(task.get("task_name", "untitled_task")))
+            self.window.task_ui.comboBox_mode.setCurrentText(str(task.get("mode", "Online EPICS")))
+            self.window.task_ui.comboBox_objectiveType.setCurrentText(
+                str(task.get("objective_type", "Single Objective"))
+            )
+            self.window.task_ui.comboBox_algorithm.setCurrentText(str(task.get("algorithm", "BO")))
+            test_function = str(task.get("test_function", "rosenbrock")).strip().lower() or "rosenbrock"
+            test_function_index = self.window.task_ui.comboBox_testFunction.findText(
+                test_function,
+                Qt.MatchFixedString,
+            )
+            if test_function_index >= 0:
+                self.window.task_ui.comboBox_testFunction.setCurrentIndex(test_function_index)
+            self.window.task_ui.spinBox_seed.setValue(int(task.get("seed", 0)))
+            self.window.task_ui.spinBox_maxEval.setValue(int(task.get("max_evaluations", 20)))
+            self.window.task_ui.spinBox_batch.setValue(int(task.get("batch_size", 1)))
+            self.window.task_ui.lineEdit_workdir.setText(str(task.get("workdir", Path.cwd())))
+
+            self.fill_table_from_records(self.window.task_ui.tableWidget_variables, task.get("variables", []))
+            self.fill_table_from_records(self.window.task_ui.tableWidget_objectives, task.get("objectives", []))
+            self.fill_table_from_records(self.window.task_ui.tableWidget_constraints, task.get("constraints", []))
+            self.fill_table_from_records(
+                self.window.task_ui.tableWidget_dynamicParams,
+                task.get("algorithm_params", []),
+            )
+            self.apply_recommended_dynamic_params(
+                str(task.get("algorithm", "BO")),
+                preserve_custom=False,
+                log_change=False,
+            )
+
+            machine = task.get("machine", {}) or {}
+            self.window.machine_ui.lineEdit_caAddress.setText(str(machine.get("ca_address", "")))
+            self.window.machine_ui.checkBox_confirm.setChecked(bool(machine.get("confirm_before_write", True)))
+            self.window.machine_ui.checkBox_restore.setChecked(bool(machine.get("restore_on_abort", True)))
+            self.window.machine_ui.checkBox_readbackCheck.setChecked(bool(machine.get("readback_check", False)))
+            self.window.machine_ui.doubleSpinBox_readbackTol.setValue(
+                float(machine.get("readback_tol", 1e-6) or 0.0)
+            )
+            self.window.machine_ui.doubleSpinBox_interval.setValue(float(machine.get("interval", 0.2)))
+            self.window.machine_ui.doubleSpinBox_delta.setValue(float(machine.get("max_delta", 0.1)))
+            self.window.machine_ui.doubleSpinBox_timeout.setValue(float(machine.get("write_timeout", 2.0)))
+            self.window.machine_ui.comboBox_policy.setCurrentText(
+                str(machine.get("write_policy", self.window.machine_ui.comboBox_policy.currentText()))
+            )
+            self.fill_table_from_records(self.window.machine_ui.tableWidget_mapping, machine.get("mapping", []))
+            self.fill_table_from_records(
+                self.window.machine_ui.tableWidget_writeLinks,
+                machine.get("write_links", []),
+            )
+            self.fill_table_from_records(
+                self.window.machine_ui.tableWidget_objectivePolicies,
+                machine.get("objective_policies", []),
+            )
+        finally:
+            self.window._suppress_autofill = False
+
+        self.refresh_task_preview()
+        if source_label:
+            self.view.log_console(source_label)
+            self.view.status_message(source_label, 5000)
+            self.view.append_overview_activity("Task Update", status=source_label)
+        if goto_builder:
+            self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
+
+    def create_new_offline_task(self) -> None:
+        self.window.task_ui.lineEdit_taskName.setText("offline_task")
+        self.window.task_ui.comboBox_mode.setCurrentText("Offline")
+        self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
+        self.window.task_ui.comboBox_algorithm.setCurrentText("BO")
+        self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
+        self.refresh_task_preview()
+        self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
+        self.view.log_console("Created a new offline task draft.")
+        self.view.append_overview_activity("Draft", status="Created offline task draft.")
+
+    def create_new_online_task(self) -> None:
+        self.window.task_ui.lineEdit_taskName.setText("online_task")
+        self.window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
+        self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
+        self.window.task_ui.comboBox_algorithm.setCurrentText("TuRBO")
+        self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
+        self.refresh_task_preview()
+        self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
+        self.view.log_console("Created a new online task draft.")
+        self.view.append_overview_activity("Draft", status="Created online task draft.")
+
+    def browse_workdir(self) -> None:
+        directory = QFileDialog.getExistingDirectory(
+            self.window,
+            "Select working directory",
+            self.window.task_ui.lineEdit_workdir.text(),
+        )
+        if directory:
+            self.window.task_ui.lineEdit_workdir.setText(directory)
+
+    def refresh_task_preview(self) -> None:
+        task = self.view.current_task()
+        self.refresh_write_link_editors()
+        self.refresh_objective_policy_editors()
+        self._update_test_function_control(task)
+        self.update_bounds_tool_controls()
+        self.update_algorithm_guidance(task)
+        self._update_algorithm_detail_summary(task.get("algorithm"))
+        self.set_algorithm_overrides_expanded(self._algorithm_overrides_expanded)
+        enabled_variables = len(TaskService._enabled_rows(task.get("variables", [])))
+        enabled_objectives = len(TaskService._enabled_rows(task.get("objectives", [])))
+        enabled_constraints = len(TaskService._enabled_rows(task.get("constraints", [])))
+        self.window.task_ui.label_builderSummary.setText(
+            f"{task['mode']} · {task['objective_type']} · {task['algorithm']} · "
+            f"{enabled_variables} variable(s) · {enabled_objectives} objective(s) · "
+            f"{enabled_constraints} constraint(s) · budget {int(task.get('max_evaluations', 0) or 0)}"
+        )
+        self.window.ui.label_cardCurrentTaskValue.setText(task["task_name"])
+        self.window.ui.label_cardModeValue.setText(task["mode"])
+        self.window.ui.label_cardAlgorithmValue.setText(task["algorithm"])
+        self.window.ui.label_statusTaskValue.setText(task["task_name"])
+        self.window.ui.label_statusModeValue.setText(task["mode"])
+        self.window.ui.label_statusAlgorithmValue.setText(task["algorithm"])
+        self.window.machine_controller.update_pv_library_summary()
+        self.window.machine_controller.refresh_machine_summary()
+        self.view.refresh_overview_readiness()
+        if self.window.state.run.phase in {"Idle", "Finished", "Error", "Aborted"}:
+            self.view.reset_plot_data()
+            if hasattr(self.window, "obj_canvas") and hasattr(self.window, "pareto_canvas"):
+                self.view.redraw_plots()
+
+    def _update_test_function_control(self, task: dict | None = None) -> None:
+        if task is None:
+            task = self.view.current_task()
+        offline_task = str(task.get("mode", "")).strip() == "Offline"
+        single_objective = str(task.get("objective_type", "")).strip() == "Single Objective"
+        combo = self.window.task_ui.comboBox_testFunction
+        label = self.window.task_ui.label_testFunction
+        if offline_task and single_objective and combo.currentText().strip().lower() == "tradeoff":
+            old_state = combo.blockSignals(True)
+            try:
+                combo.setCurrentText("rosenbrock")
+            finally:
+                combo.blockSignals(old_state)
+        combo.setEnabled(offline_task)
+        label.setEnabled(offline_task)
+        tooltip = (
+            "Offline benchmark function. Ignored for online EPICS tasks."
+            if offline_task
+            else "Offline benchmark function. Disabled because the current task uses Online EPICS."
+        )
+        combo.setToolTip(tooltip)
+        label.setToolTip(tooltip)
+
+    def update_algorithm_guidance(self, task: dict | None = None) -> None:
+        if task is None:
+            task = self.view.current_task()
+
+        dyn = TaskService._dynamic_params_to_dict(task.get("algorithm_params", []))
+        algorithm = TaskService._optimizer_name_from_gui(task.get("algorithm", "BO"))
+        budget_text = self._build_budget_hint(task, dyn, algorithm)
+
+        if hasattr(self.window.task_ui, "label_budgetHint"):
+            self.window.task_ui.label_budgetHint.setText(budget_text)
+            self.window.task_ui.label_budgetHint.setToolTip(budget_text)
+        self.window.task_ui.spinBox_maxEval.setToolTip(budget_text)
+        self.window.task_ui.comboBox_algorithm.setToolTip(
+            "Select the optimizer family. Different algorithms consume evaluation budget differently; "
+            "see the budget summary below."
+        )
+        self.window.task_ui.spinBox_batch.setToolTip(self._batch_size_tooltip(algorithm))
+        self.window.task_ui.tableWidget_dynamicParams.setToolTip(
+            self._dynamic_params_tooltip(algorithm)
+        )
+        self.window.task_ui.groupBox_dynamicParams.setToolTip(
+            self._dynamic_params_tooltip(algorithm)
+        )
+        if hasattr(self.window.task_ui, "pushButton_openAlgorithmDetail"):
+            self.window.task_ui.pushButton_openAlgorithmDetail.setToolTip(
+                self._dynamic_params_tooltip(algorithm)
+            )
+
+    def _build_budget_hint(self, task: dict, dyn: dict, algorithm: str) -> str:
+        enabled_objectives = TaskService._enabled_rows(task.get("objectives", []))
+        n_objectives = max(1, len(enabled_objectives))
+        max_evals = max(1, int(task.get("max_evaluations", 20)))
+        normalized_name = self.algorithm_template_key(task.get("algorithm", "BO"))
+
+        try:
+            kwargs = TaskService._build_optimizer_kwargs(task, dyn, n_objectives)
+        except Exception as exc:
+            return (
+                "Max Evaluations is treated as a total objective-call cap.\n"
+                f"Current parameter mapping could not be derived for {normalized_name}: {exc}"
+            )
+
+        if algorithm in {"bo", "turbo", "mobo"}:
+            n_init = int(kwargs.get("n_init", 0))
+            n_iter = int(kwargs.get("n_iter", 0))
+            iter_cost = int(TaskService._bo_iteration_eval_cost(task, dyn, algorithm))
+            planned = n_init + n_iter * iter_cost
+            slack = max(0, max_evals - planned)
+            detail = self._bo_budget_detail(task, dyn, algorithm, iter_cost)
+            slack_text = (
+                f" Budget slack: {slack} evaluation(s) remain unused because iterations are discrete."
+                if slack
+                else ""
+            )
+            return (
+                f"Total planned evaluations = n_init ({n_init}) + n_iter ({n_iter}) x step cost ({iter_cost}) = {planned} / {max_evals}.\n"
+                f"{detail}{slack_text}"
+            )
+
+        pop_size = int(kwargs.get("pop_size", 0))
+        n_generations = int(kwargs.get("n_generations", 0))
+        planned = pop_size * (1 + n_generations)
+        slack = max(0, max_evals - planned)
+        slack_text = (
+            f" Budget slack: {slack} evaluation(s) remain unused because generations consume a full population."
+            if slack
+            else ""
+        )
+        return (
+            "Population algorithms spend one population to initialize and one population per generation.\n"
+            f"Total planned evaluations = pop_size ({pop_size}) x [1 + n_generations ({n_generations})] = {planned} / {max_evals}.{slack_text}"
+        )
+
+    def show_task_preview(self) -> None:
+        task = self.view.current_task()
+        preview_text = TaskService.to_preview_text(task)
+
+        dialog = QDialog(self.window)
+        dialog.setWindowTitle("Task Preview")
+        dialog.resize(900, 700)
+
+        layout = QVBoxLayout(dialog)
+        editor = QPlainTextEdit(dialog)
+        editor.setReadOnly(True)
+        editor.setPlainText(preview_text)
+        layout.addWidget(editor)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        close_button = QPushButton("Close", dialog)
+        close_button.clicked.connect(dialog.accept)
+        button_row.addWidget(close_button)
+        layout.addLayout(button_row)
+
+        dialog.exec_()
+
+    def _bo_budget_detail(self, task: dict, dyn: dict, algorithm: str, iter_cost: int) -> str:
+        if algorithm == "turbo":
+            trust_regions = int(dyn.get("n_trust_regions", 1))
+            return (
+                f"Current TuRBO step cost follows n_trust_regions={trust_regions}. "
+                "The top-level Batch Size field is not used by the current TuRBO runner."
+            )
+        if algorithm == "mobo":
+            acq = str(dyn.get("acq", "ehvi")).strip().lower()
+            if "q" in acq:
+                return (
+                    f"Current MOBO step cost follows acquisition={acq} with q-batch={iter_cost}. "
+                    "The GUI uses Batch Size as the fallback q-batch value."
+                )
+            return (
+                f"Current MOBO acquisition={acq} evaluates one new point per iteration. "
+                "Batch Size only matters for q-acquisition variants."
+            )
+        return "Current BO wiring evaluates one new point per iteration after the initial design."
+
+    def _batch_size_tooltip(self, algorithm: str) -> str:
+        if algorithm == "mobo":
+            return (
+                "For MOBO, this acts as the fallback q-batch size when acquisition is qEHVI/qNEHVI. "
+                "With EHVI, each iteration still adds one point."
+            )
+        if algorithm == "turbo":
+            return (
+                "The current TuRBO runner does not use this field directly. "
+                "Per-iteration cost comes from the dynamic parameter n_trust_regions."
+            )
+        if algorithm in {"mopso", "nsga2"}:
+            return (
+                "Population algorithms do not use this field to define budget. "
+                "Use pop_size and n_generations instead."
+            )
+        return "Current BO wiring uses single-point iterations; this field is reserved for future batch BO support."
+
+    def _dynamic_params_tooltip(self, algorithm: str) -> str:
+        common = (
+            "Algorithm-specific overrides derived from the optimizer __init__ signature. "
+            "Budget-relevant keys usually include n_init, n_trust_regions, pop_size, n_generations and acq."
+        )
+        if algorithm == "turbo":
+            return common + " For TuRBO, n_trust_regions determines the per-iteration evaluation cost."
+        if algorithm == "mobo":
+            return common + " For MOBO, qEHVI/qNEHVI batch behavior is configured through acq_opt_kwargs or the top-level Batch Size fallback."
+        if algorithm in {"mopso", "nsga2"}:
+            return common + " For population algorithms, total evaluations scale as pop_size x (1 + n_generations)."
+        return common
+
+    def apply_task_to_dashboard(self) -> None:
+        self.refresh_task_preview()
+        self.view.log_console("Applied current task settings to dashboard summary.")
+        self.view.append_overview_activity("Dashboard", status="Applied current task snapshot.")
+        self.view.go_to_page(self.window.PAGE_DASHBOARD)
+
+    def validate_task_build(self, task: dict) -> tuple[bool, list[str]]:
+        try:
+            TaskService.build_task_config(task)
+        except Exception as exc:
+            return False, [str(exc)]
+        return True, []
+
+    def validate_task(self) -> bool:
+        task = self.view.current_task()
+        ok, errors = TaskService.validate_task_data(task)
+        build_ok, build_errors = self.validate_task_build(task)
+        if not build_ok:
+            ok = False
+            errors.extend(build_errors)
+        if not ok:
+            self.view.log_warning("Validation failed.")
+            for err in errors:
+                self.view.log_warning(f" - {err}")
+            QMessageBox.warning(self.window, "Validation Failed", "\n".join(errors))
+            return False
+        self.view.log_console("Task validation passed.")
+        QMessageBox.information(self.window, "Validation", "Task validation passed.")
+        return True
+
+    def validate_task_silent(self) -> bool:
+        task = self.view.current_task()
+        ok, errors = TaskService.validate_task_data(task)
+        build_ok, build_errors = self.validate_task_build(task)
+        if not build_ok:
+            ok = False
+            errors.extend(build_errors)
+        if not ok:
+            self.view.log_warning("Silent validation failed.")
+            for err in errors:
+                self.view.log_warning(f" - {err}")
+        return ok
+
+    def export_config(self) -> None:
+        task = self.view.current_task()
+        path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Export TaskConfig",
+            str(Path(task["workdir"]) / "task_config.yaml"),
+            "YAML Files (*.yaml *.yml);;All Files (*)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith((".yaml", ".yml")):
+            path = f"{path}.yaml"
+        TaskService.export_task_config(task, path)
+        self.view.log_console(f"TaskConfig exported to: {path}")
+
+    def open_config(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self.window,
+            "Load Draft",
+            str(Path.cwd()),
+            "JSON Draft Files (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            self.load_task_draft(path)
+        except Exception as exc:
+            self.view.log_warning(f"Load draft failed: {exc}")
+            QMessageBox.critical(self.window, "Load Draft Failed", str(exc))
+
+    def save_project(self) -> None:
+        task = self.view.current_task()
+        default_path = Path(task["workdir"]) / f"{task['task_name']}_draft.json"
+        path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save Draft",
+            str(default_path),
+            "JSON Draft Files (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path = f"{path}.json"
+        TaskService.export_task_json(task, path)
+        self.view.log_console(f"Draft saved to: {path}")
+        self.view.status_message(f"Draft saved: {path}", 5000)
+        self.view.append_overview_activity("Draft", status=f"Saved draft to {Path(path).name}.")
+
+    def load_task_draft(self, path: str | Path) -> None:
+        draft_path = Path(path)
+        with open(draft_path, "r", encoding="utf-8") as f:
+            task = json.load(f)
+        self.apply_task_payload(
+            task,
+            source_label=f"Draft loaded: {draft_path}",
+            goto_builder=True,
+        )

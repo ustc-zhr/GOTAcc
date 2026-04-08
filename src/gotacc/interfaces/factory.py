@@ -339,6 +339,7 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
     # -------------------------------------------------------------------------
     try:
         knobs_pvnames = kwargs.pop("knobs_pvnames")
+        knob_readback_pvnames = kwargs.pop("knob_readback_pvnames", None)
         obj_pvnames = kwargs.pop("obj_pvnames")
         obj_weights = kwargs.pop("obj_weights")
         obj_samples = kwargs.pop("obj_samples")
@@ -357,6 +358,7 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
 
     backend = EpicsObjective(
         knobs_pvnames=knobs_pvnames,
+        knob_readback_pvnames=knob_readback_pvnames,
         obj_pvnames=obj_pvnames,
         obj_weights=obj_weights,
         obj_samples=obj_samples,

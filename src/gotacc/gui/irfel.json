@@ -1,0 +1,170 @@
+{
+  "machine": "IRFEL",
+  "description": "IRFEL control-room PV library",
+  "knobs": [
+    {
+      "name": "HC01",
+      "pv_name": "IRFEL:PS:HC01:current:ao",
+      "readback": "IRFEL:PS:HC01:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HC02",
+      "pv_name": "IRFEL:PS:HC02:current:ao",
+      "readback": "IRFEL:PS:HC02:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HC03",
+      "pv_name": "IRFEL:PS:HC03:current:ao",
+      "readback": "IRFEL:PS:HC03:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HC04",
+      "pv_name": "IRFEL:PS:HC04:current:ao",
+      "readback": "IRFEL:PS:HC04:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HC05",
+      "pv_name": "IRFEL:PS:HC05:current:ao",
+      "readback": "IRFEL:PS:HC05:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HC06",
+      "pv_name": "IRFEL:PS:HC06:current:ao",
+      "readback": "IRFEL:PS:HC06:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HC07",
+      "pv_name": "IRFEL:PS:HC07:current:ao",
+      "readback": "IRFEL:PS:HC07:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HIC01",
+      "pv_name": "IRFEL:PS:HIC01:current:ao",
+      "readback": "IRFEL:PS:HIC01:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "HIC02",
+      "pv_name": "IRFEL:PS:HIC02:current:ao",
+      "readback": "IRFEL:PS:HIC02:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "MSHC",
+      "pv_name": "IRFEL:PS:MS:HC:current:ao",
+      "readback": "IRFEL:PS:MS:HC:current:ai",
+      "group": "steering-x"
+    },
+    {
+      "name": "VC01",
+      "pv_name": "IRFEL:PS:VC01:current:ao",
+      "readback": "IRFEL:PS:VC01:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VC02",
+      "pv_name": "IRFEL:PS:VC02:current:ao",
+      "readback": "IRFEL:PS:VC02:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VC03",
+      "pv_name": "IRFEL:PS:VC03:current:ao",
+      "readback": "IRFEL:PS:VC03:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VC04",
+      "pv_name": "IRFEL:PS:VC04:current:ao",
+      "readback": "IRFEL:PS:VC04:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VC05",
+      "pv_name": "IRFEL:PS:VC05:current:ao",
+      "readback": "IRFEL:PS:VC05:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VC06",
+      "pv_name": "IRFEL:PS:VC06:current:ao",
+      "readback": "IRFEL:PS:VC06:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VC07",
+      "pv_name": "IRFEL:PS:VC07:current:ao",
+      "readback": "IRFEL:PS:VC07:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VIC01",
+      "pv_name": "IRFEL:PS:VIC01:current:ao",
+      "readback": "IRFEL:PS:VIC01:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "VIC02",
+      "pv_name": "IRFEL:PS:VIC02:current:ao",
+      "readback": "IRFEL:PS:VIC02:current:ai",
+      "group": "steering-Y"
+    },
+    {
+      "name": "MSVC",
+      "pv_name": "IRFEL:PS:MS:VC:current:ao",
+      "readback": "IRFEL:PS:MS:VC:current:ai",
+      "group": "steering-y"
+    },
+    {
+      "name": "MS01",
+      "pv_name": "IRFEL:PS:MS01:current:ao",
+      "readback": "IRFEL:PS:MS01:current:ai",
+      "group": "sol"
+    },
+    {
+      "name": "LS01",
+      "pv_name": "IRFEL:PS:LS01:current:ao",
+      "readback": "IRFEL:PS:LS01:current:ai",
+      "group": "sol"
+    },
+    {
+      "name": "SS01",
+      "pv_name": "IRFEL:PS:SS01:current:ao",
+      "readback": "IRFEL:PS:SS01:current:ai",
+      "group": "sol"
+    },
+    {
+      "name": "SS02",
+      "pv_name": "IRFEL:PS:SS02:current:ao",
+      "readback": "IRFEL:PS:SS02:current:aI",
+      "group": "sol"
+    }
+  ],
+  "objectives": [
+    {
+      "name": "CH2_ASUM",
+      "pv_name": "IRFEL:BD:CT:CH2:WAV:ASUM",
+      "readback": "IRFEL:BD:CT:CH2:WAV:ASUM",
+      "group": "CT"
+    },
+    {
+      "name": "CH3_ASUM",
+      "pv_name": "IRFEL:BD:CT:CH3:WAV:ASUM",
+      "readback": "IRFEL:BD:CT:CH3:WAV:ASUM",
+      "group": "CT"
+    },
+    {
+      "name": "CH4_ASUM",
+      "pv_name": "IRFEL:BD:CT:CH4:WAV:ASUM",
+      "readback": "IRFEL:BD:CT:CH4:WAV:ASUM",
+      "group": "CT"
+    }
+  ]
+}

@@ -211,6 +211,17 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
     _ensure_duplicate_free(knobs_pvnames, "backend.kwargs['knobs_pvnames']")
     _ensure_duplicate_free(obj_pvnames, "backend.kwargs['obj_pvnames']")
 
+    if "knob_readback_pvnames" in kwargs and kwargs["knob_readback_pvnames"] is not None:
+        knob_readback_pvnames = _ensure_list_of_str(
+            kwargs["knob_readback_pvnames"],
+            "backend.kwargs['knob_readback_pvnames']",
+        )
+        if len(knob_readback_pvnames) != len(knobs_pvnames):
+            raise ValueError(
+                f"len(knob_readback_pvnames) ({len(knob_readback_pvnames)}) must match "
+                f"len(knobs_pvnames) ({len(knobs_pvnames)})"
+            )
+
     # bounds 维度必须和 knobs 数量一致
     if len(cfg.backend.bounds) != len(knobs_pvnames):
         raise ValueError(

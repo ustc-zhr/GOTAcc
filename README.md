@@ -25,16 +25,12 @@ GOTAcc currently focuses on four layers:
    - single-objective optimization
    - multi-objective optimization
    - Bayesian and evolutionary approaches
-
 2. **Interfaces**
    - EPICS-based online objective evaluation
    - offline test-function benchmarking
-
 3. **Configs**
    - machine- or task-specific parameter sets
-   - legacy flat-layout compatibility
    - project-specific optimization presets
-
 4. **CLI / runners**
    - reusable entry points for online and offline workflows
 

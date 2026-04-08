@@ -507,7 +507,7 @@ class TuRBOOptimizer:
         # 保存图片（如果指定了路径）
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
-            path = f"save/BO_{timestamp}.png"
+            path = f"save/turbo_{timestamp}.png"
         os.makedirs(os.path.dirname(path), exist_ok=True)  # 确保目录存在 自动创建目录
         plt.savefig(path)
 
@@ -620,8 +620,5 @@ if __name__ == "__main__":
 
     # Display results
     print(f'Total time: {time.time() - t0:.2f} s')
-    # turbo.save_history()
+    turbo.save_history()
     turbo.plot_convergence()
-    
-    # Save results
-    # turbo.save_history()

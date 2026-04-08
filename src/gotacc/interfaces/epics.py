@@ -42,7 +42,7 @@ def _load_epics():
     延迟导入 pyepics。
     """
     try:
-        from epics import caput, caput_many, caget_many
+        from epics import caget, caput, caput_many, caget_many
     except ImportError as exc:
         raise ImportError(
             "EPICS backend requires pyepics. "
@@ -50,7 +50,7 @@ def _load_epics():
             "or pip install pyepics"
         ) from exc
 
-    return caput, caput_many, caget_many
+    return caget, caput, caput_many, caget_many
 
 
 # =============================================================================
@@ -381,6 +381,7 @@ class EpicsObjective(ObjectiveBackend):
     def __init__(
         self,
         knobs_pvnames: Sequence[str] | None = None,
+        knob_readback_pvnames: Sequence[str] | None = None,
         obj_pvnames: Sequence[str] | None = None,
         obj_weights: Sequence[float] | None = None,
         obj_samples: int | None = None,
@@ -395,10 +396,13 @@ class EpicsObjective(ObjectiveBackend):
         best_selector_mode: str | None = None,
     ) -> None:
         # 延迟导入 EPICS
-        self._caput, self._caput_many, self._caget_many = _load_epics()
+        self._caget, self._caput, self._caput_many, self._caget_many = _load_epics()
 
         # 基本配置
         self.knobs_pvnames = list(knobs_pvnames) if knobs_pvnames is not None else []
+        self.knob_readback_pvnames = (
+            list(knob_readback_pvnames) if knob_readback_pvnames is not None else list(self.knobs_pvnames)
+        )
         self.obj_pvnames = list(obj_pvnames) if obj_pvnames is not None else []
         self.obj_weights = np.asarray(obj_weights if obj_weights is not None else [], dtype=float)
         self.obj_samples = int(obj_samples) if obj_samples is not None else 1
@@ -433,6 +437,9 @@ class EpicsObjective(ObjectiveBackend):
         if len(self.knobs_pvnames) == 0:
             raise ValueError("knobs_pvnames cannot be empty")
 
+        if len(self.knob_readback_pvnames) != len(self.knobs_pvnames):
+            raise ValueError("knob_readback_pvnames length must match knobs_pvnames")
+
         if len(self.obj_pvnames) == 0:
             raise ValueError("obj_pvnames cannot be empty")
 
@@ -463,10 +470,23 @@ class EpicsObjective(ObjectiveBackend):
         """
         统一读取多个 PV，并对返回结果做 None 检查。
         """
-        values = self._caget_many(list(pvnames))
+        pv_list = list(pvnames)
+        values = self._caget_many(pv_list)
         if values is None:
             raise RuntimeError(f"{what} read failed: returned None")
+
+        values = list(values)
+        timeout = max(1.0, float(self.interval) if self.interval > 0 else 0.0)
+        missing_indices = [i for i, value in enumerate(values) if value is None]
+        for idx in missing_indices:
+            values[idx] = self._caget(pv_list[idx], timeout=timeout)
+
         if any(v is None for v in values):
+            missing_pvs = [str(pv) for pv, value in zip(pv_list, values) if value is None]
+            if missing_pvs:
+                raise RuntimeError(
+                    f"{what} read failed: contains None for PVs {missing_pvs}"
+                )
             raise RuntimeError(f"{what} read failed: contains None")
         return np.asarray(values, dtype=float)
 
@@ -502,7 +522,7 @@ class EpicsObjective(ObjectiveBackend):
         """
         读取当前 knobs 初始值，并在第一次调用时保存下来，供恢复使用。
         """
-        knob_values = self._read_many_checked(self.knobs_pvnames, what="initial knob PV")
+        knob_values = self._read_many_checked(self.knob_readback_pvnames, what="initial knob PV")
         if self.initial_knob_values is None:
             self.initial_knob_values = knob_values.copy()
         return knob_values
@@ -549,7 +569,7 @@ class EpicsObjective(ObjectiveBackend):
         可选 readback 检查：
         在写入 knobs 后，再把 knobs_pvnames 读回来，与 target_x 对比。
         """
-        rb = self._read_many_checked(self.knobs_pvnames, what="knob readback")
+        rb = self._read_many_checked(self.knob_readback_pvnames, what="knob readback")
         target_x = np.asarray(target_x, dtype=float).reshape(-1)
 
         if self.readback_tol is None:

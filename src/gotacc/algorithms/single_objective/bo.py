@@ -468,7 +468,7 @@ if __name__ == "__main__":
     t0 = time.time()
 
     # fuction for test
-    from GOTAcc.src.gotacc.interfaces.test_function_single import *
+    from tests.test_function_single import *
     dim = 10
     func_type = "rosenbrock" # "sphere", "rosenbrock", "ackley"
     func, bounds = setup_objective(func_type, dim=dim)
