@@ -2,65 +2,99 @@
 
 **GOTAcc** stands for **General Optimization Toolkit for Accelerator Applications**.
 
-It is a Python toolkit for accelerator optimization, intended for both:
+GOTAcc is a Python toolkit for accelerator optimization workflows. The current
+codebase is centered on a unified `TaskConfig` pipeline that can drive offline
+objective functions, EPICS-based online tuning, command-line execution, and a
+PyQt5 desktop GUI.
 
-- **online tuning**
-  - EPICS-based machine optimization
-  - injector / linac / FEL tuning
-  - practical control-room deployment
-  
-- **design optimization**(Integration in progress)
-  
-  - beam dynamics optimization
-  
-    
+## Current Capabilities
 
----
+- Single-objective optimizers: BO, TuRBO, RCDS
+- Multi-objective optimizers: MOBO, MGGPO, MOPSO, NSGA-II
+- Backend abstraction for offline callables and online EPICS evaluation
+- Config loading from Python module paths, Python files, and YAML files
+- PyQt5 GUI shell for task building, machine mapping, run monitoring, and result inspection
 
-## Features
+## Installation
 
-GOTAcc currently focuses on four layers:
+Core install:
 
-1. **Algorithms**
-   - single-objective optimization
-   - multi-objective optimization
-   - Bayesian and evolutionary approaches
-2. **Interfaces**
-   - EPICS-based online objective evaluation
-   - offline test-function benchmarking
-3. **Configs**
-   - machine- or task-specific parameter sets
-   - project-specific optimization presets
-4. **CLI / runners**
-   - reusable entry points for online and offline workflows
+```bash
+pip install -e .
+```
 
----
+Optional extras:
 
-## Package Layout
+```bash
+pip install -e ".[yaml]"
+pip install -e ".[gui]"
+pip install -e ".[epics]"
+pip install -e ".[full,dev]"
+```
+
+- `yaml`: enable YAML task config loading and YAML PV-library import
+- `gui`: install the PyQt5-based GOTAcc Studio GUI
+- `epics`: enable the online EPICS backend
+- `full`: convenience extra for `yaml`, `gui`, and `epics`
+- `dev`: local test and formatting tools
+
+## Running GOTAcc
+
+Installed entry points:
+
+```bash
+gotacc-run --config gotacc.configs.py_cfg.para_half
+gotacc-gui
+```
+
+The `--config` argument accepts:
+
+- Python module paths, for example `gotacc.configs.py_cfg.para_irfel`
+- Python files, for example `src/gotacc/configs/py_cfg/para_irfel.py`
+- YAML files, for example `src/gotacc/configs/yaml_cfg/irfel_bo.yaml`
+
+Module execution is also supported:
+
+```bash
+python -m gotacc.runners.run_cli --config gotacc.configs.py_cfg.para_half
+python -m gotacc.gui.main
+python -m gotacc.runners.run_debug
+```
+
+## Repository Layout
 
 ```text
 GOTAcc/
-├─ pyproject.toml
+├─ CHANGELOG.md
 ├─ README.md
+├─ pyproject.toml
 ├─ src/
 │  └─ gotacc/
 │     ├─ algorithms/
 │     │  ├─ single_objective/
-│     │  │  ├─ bo.py
-│     │  │  ├─ turbo.py
-│     │  │  └─ rcds.py
 │     │  └─ multi_objective/
-│     │     ├─ mobo.py
-│     │     ├─ mggpo.py
-│     │     ├─ mopso.py
-│     │     └─ nsga2.py
-│     ├─ interfaces/
-│     │  ├─ epics.py
-│     │  └─ test_functions.py
 │     ├─ configs/
-│     ├─ cli/
+│     │  ├─ py_cfg/
+│     │  ├─ yaml_cfg/
+│     │  └─ pv_lists/
+│     ├─ gui/
+│     ├─ interfaces/
+│     ├─ runners/
 │     ├─ utils/
-│     └─ compatibility/
+│     └─ version.py
 ├─ examples/
 ├─ tests/
 └─ docs/
+```
+
+## Included Examples
+
+- `examples/demo_single_bo_sphere.py`
+- `examples/demo_multi_mobo_zdt1.py`
+- `examples/demo_epics_mock_single.py`
+
+## Notes
+
+- The package version is sourced from `gotacc.version.__version__`.
+- GUI runtime writes theme and matplotlib cache files under `.cache/`.
+- Online workflows require a reachable EPICS environment and `pyepics`.
