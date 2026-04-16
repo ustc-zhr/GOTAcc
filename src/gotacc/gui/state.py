@@ -37,10 +37,12 @@ class GuiSessionState:
     latest_task_snapshot: dict[str, Any] = field(default_factory=dict)
     latest_eval_payload: dict[str, Any] = field(default_factory=dict)
     latest_finish_payload: dict[str, Any] = field(default_factory=dict)
+    latest_initial_x: dict[str, Any] = field(default_factory=dict)
     latest_best_x: dict[str, Any] = field(default_factory=dict)
     latest_result_output_dir: str = ""
     latest_history_path: str = ""
     latest_plot_path: str = ""
+    latest_result_plot_paths: dict[str, str] = field(default_factory=dict)
     recent_activity: list[dict[str, str]] = field(default_factory=list)
     last_test_read_status: str = "Not checked"
     last_test_read_detail: str = ""
@@ -72,12 +74,16 @@ class GuiSessionState:
         self.eval_history.clear()
         self.eval_x_history.clear()
         self.eval_y_history.clear()
+        self.latest_initial_x.clear()
+        self.latest_result_plot_paths.clear()
 
     def reset_results_snapshot(self) -> None:
         self.latest_task_snapshot.clear()
         self.latest_eval_payload.clear()
         self.latest_finish_payload.clear()
+        self.latest_initial_x.clear()
         self.latest_best_x.clear()
         self.latest_result_output_dir = ""
         self.latest_history_path = ""
         self.latest_plot_path = ""
+        self.latest_result_plot_paths.clear()

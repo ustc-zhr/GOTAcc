@@ -346,8 +346,11 @@ class EpicsObjective(ObjectiveBackend):
             "mean"
             "std"
 
-    interval:
-        写入后等待时间 / 采样间隔
+    set_interval:
+        写入 setpoint 后等待机器稳定的时间
+
+    sample_interval:
+        同一次 evaluate 内多次采样 objective/constraint PV 之间的等待时间
 
     log_path:
         记录优化历史到哪个文件
@@ -386,7 +389,10 @@ class EpicsObjective(ObjectiveBackend):
         obj_weights: Sequence[float] | None = None,
         obj_samples: int | None = None,
         obj_math: Sequence[str] | None = None,
-        interval: float | None = None,
+        constraint_pvnames: Sequence[str] | None = None,
+        constraint_math: Sequence[str] | None = None,
+        set_interval: float | None = None,
+        sample_interval: float | None = None,
         log_path: str = "template.opt",
         readback_check: bool = False,
         readback_tol: float | Sequence[float] | None = None,
@@ -407,7 +413,10 @@ class EpicsObjective(ObjectiveBackend):
         self.obj_weights = np.asarray(obj_weights if obj_weights is not None else [], dtype=float)
         self.obj_samples = int(obj_samples) if obj_samples is not None else 1
         self.obj_math = list(obj_math) if obj_math is not None else []
-        self.interval = float(interval) if interval is not None else 0.0
+        self.constraint_pvnames = list(constraint_pvnames) if constraint_pvnames is not None else []
+        self.constraint_math = list(constraint_math) if constraint_math is not None else []
+        self.set_interval = float(set_interval) if set_interval is not None else 0.0
+        self.sample_interval = float(sample_interval) if sample_interval is not None else 0.0
 
         # 运行辅助配置
         self.log_path = str(log_path)
@@ -424,6 +433,7 @@ class EpicsObjective(ObjectiveBackend):
         # self.data 每一行统一记录成：
         #   [x..., y...]，其中 y 可以是 1 列（标量）或多列（向量）
         self.data: list[np.ndarray] = []
+        self.constraint_data: list[np.ndarray] = []
 
         # 初值，用于恢复
         self.initial_knob_values: np.ndarray | None = None
@@ -449,8 +459,17 @@ class EpicsObjective(ObjectiveBackend):
         if len(self.obj_math) != len(self.obj_pvnames):
             raise ValueError("obj_math length must match obj_pvnames")
 
+        if len(self.constraint_math) != len(self.constraint_pvnames):
+            raise ValueError("constraint_math length must match constraint_pvnames")
+
         if self.obj_samples < 1:
             raise ValueError("obj_samples must be >= 1")
+
+        if self.set_interval < 0:
+            raise ValueError("set_interval must be >= 0")
+
+        if self.sample_interval < 0:
+            raise ValueError("sample_interval must be >= 0")
 
         if self.combine_mode not in {"weighted_sum", "vector"}:
             raise ValueError(
@@ -476,7 +495,7 @@ class EpicsObjective(ObjectiveBackend):
             raise RuntimeError(f"{what} read failed: returned None")
 
         values = list(values)
-        timeout = max(1.0, float(self.interval) if self.interval > 0 else 0.0)
+        timeout = max(1.0, float(self.set_interval), float(self.sample_interval))
         missing_indices = [i for i, value in enumerate(values) if value is None]
         for idx in missing_indices:
             values[idx] = self._caget(pv_list[idx], timeout=timeout)
@@ -499,7 +518,12 @@ class EpicsObjective(ObjectiveBackend):
         arr = np.asarray(y, dtype=float).reshape(-1)
         return arr
 
-    def _record_evaluate(self, x: np.ndarray, y: np.ndarray | float) -> None:
+    def _record_evaluate(
+        self,
+        x: np.ndarray,
+        y: np.ndarray | float,
+        constraints: np.ndarray | None = None,
+    ) -> None:
         """
         记录一次评估结果到内存和文件。
 
@@ -511,6 +535,8 @@ class EpicsObjective(ObjectiveBackend):
 
         row = np.concatenate([x, y_arr])
         self.data.append(row)
+        if constraints is not None:
+            self.constraint_data.append(np.asarray(constraints, dtype=float).reshape(-1))
 
         self._ensure_parent_dir(self.log_path)
         np.savetxt(self.log_path, np.asarray(self.data, dtype=float), fmt="%.6f")
@@ -562,6 +588,12 @@ class EpicsObjective(ObjectiveBackend):
         默认走 DefaultWritePolicy；
         特殊问题可以替换成自定义 write_policy。
         """
+        x = np.asarray(x, dtype=float).reshape(-1)
+        if len(x) != len(self.knobs_pvnames):
+            raise ValueError(
+                f"Setpoint dimension mismatch: got {len(x)} value(s), "
+                f"expected {len(self.knobs_pvnames)} knob(s)."
+            )
         self.write_policy.apply(self, x)
 
     def _check_readback(self, target_x: np.ndarray) -> None:
@@ -595,28 +627,53 @@ class EpicsObjective(ObjectiveBackend):
                 f"tol      = {tol}"
             )
 
-    def _reduce_objectives(self, total: np.ndarray) -> np.ndarray:
+    def _reduce_columns(self, total: np.ndarray, math_ops: Sequence[str], *, what: str) -> np.ndarray:
         """
-        将采样矩阵 total 按 obj_math 做列聚合。
+        将采样矩阵 total 按 math_ops 做列聚合。
 
-        total.shape = (obj_samples, n_obj)
-
-        例如：
-            obj_math = ["mean", "std"]
-        表示：
-            第 1 列取平均
-            第 2 列取标准差
+        total.shape = (obj_samples, n_outputs)
         """
         results = []
-        for col, op in zip(total.T, self.obj_math):
+        for col, op in zip(total.T, math_ops):
             if op == "mean":
                 results.append(np.mean(col))
             elif op == "std":
                 results.append(np.std(col))
             else:
-                raise ValueError(f"Unsupported obj_math operation: {op!r}")
+                raise ValueError(f"Unsupported {what}_math operation: {op!r}")
 
         return np.asarray(results, dtype=float)
+
+    def _reduce_objectives(self, total: np.ndarray) -> np.ndarray:
+        return self._reduce_columns(total, self.obj_math, what="obj")
+
+    def _reduce_constraints(self, total: np.ndarray) -> np.ndarray:
+        if len(self.constraint_pvnames) == 0:
+            return np.zeros((0,), dtype=float)
+        return self._reduce_columns(total, self.constraint_math, what="constraint")
+
+    def _sample_outputs(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        同一轮采样内同时读取 objective 与 constraint PV。
+
+        对每个 sample step，合并读取 obj_pvnames + constraint_pvnames，
+        再拆分为两个采样矩阵，保证约束和目标尽可能对应同一时刻。
+        """
+        n_obj = len(self.obj_pvnames)
+        n_cons = len(self.constraint_pvnames)
+        obj_total = np.zeros((self.obj_samples, n_obj), dtype=float)
+        constraint_total = np.zeros((self.obj_samples, n_cons), dtype=float)
+        all_pvs = [*self.obj_pvnames, *self.constraint_pvnames]
+
+        for i in range(self.obj_samples):
+            vals = self._read_many_checked(all_pvs, what="objective/constraint PV")
+            obj_total[i, :] = vals[:n_obj]
+            if n_cons:
+                constraint_total[i, :] = vals[n_obj:]
+            if i < self.obj_samples - 1 and self.sample_interval > 0:
+                time.sleep(self.sample_interval)
+
+        return obj_total, constraint_total
 
     def _combine_objectives(self, results: np.ndarray) -> np.ndarray | float:
         """
@@ -641,22 +698,12 @@ class EpicsObjective(ObjectiveBackend):
     # -------------------------------------------------------------------------
     # 核心评估函数
     # -------------------------------------------------------------------------
-    def evaluate(self, x: np.ndarray | Sequence[float]) -> np.ndarray | float:
-        """
-        核心评估流程：
-
-            x
-             -> 写 knobs
-             -> 等待
-             -> 可选 readback
-             -> 多次采样 obj PV
-             -> 聚合 mean/std
-             -> 可选 policy 修正
-             -> weighted_sum 或 vector 组合
-             -> 可选 policy 再修正
-             -> 记录
-             -> 返回 y
-        """
+    def _evaluate_core(
+        self,
+        x: np.ndarray | Sequence[float],
+        *,
+        return_constraints: bool = False,
+    ) -> np.ndarray | float | tuple[np.ndarray | float, np.ndarray]:
         x = np.asarray(x, dtype=float).reshape(-1)
 
         if len(x) != len(self.knobs_pvnames):
@@ -671,20 +718,15 @@ class EpicsObjective(ObjectiveBackend):
         self._apply_setpoints(x)
 
         # 2) 等待机器稳定
-        if self.interval > 0:
-            time.sleep(self.interval)
+        if self.set_interval > 0:
+            time.sleep(self.set_interval)
 
         # 3) 可选 readback
         if self.readback_check:
             self._check_readback(x)
 
-        # 4) 多次采样目标
-        total = np.zeros((self.obj_samples, len(self.obj_pvnames)), dtype=float)
-        for i in range(self.obj_samples):
-            vals = self._read_many_checked(self.obj_pvnames, what="objective PV")
-            total[i, :] = vals
-            if i < self.obj_samples - 1 and self.interval > 0:
-                time.sleep(self.interval)
+        # 4) 多次采样目标与约束。每一轮采样合并读 PV，避免目标/约束错时。
+        total, constraint_total = self._sample_outputs()
 
         # 5) 允许 policy 在原始采样层面做预处理
         if self.objective_policy is not None:
@@ -699,18 +741,38 @@ class EpicsObjective(ObjectiveBackend):
 
         # 8) 组合成最终 y
         y = self._combine_objectives(results)
+        constraints = self._reduce_constraints(constraint_total)
 
         # 9) 允许 policy 在最终 y 层面做修正
         if self.objective_policy is not None:
             y = self.objective_policy.post_combine(y, results, total, self)
 
         print(f"[EpicsObjective] Reduced results = {results}")
+        if len(self.constraint_pvnames):
+            print(f"[EpicsObjective] Reduced constraints = {constraints}")
         print(f"[EpicsObjective] Final objective = {y}")
 
         # 10) 记录
-        self._record_evaluate(x, y)
+        self._record_evaluate(x, y, constraints if return_constraints else None)
 
+        if return_constraints:
+            return y, constraints
         return y
+
+    def evaluate(self, x: np.ndarray | Sequence[float]) -> np.ndarray | float:
+        """
+        普通优化器使用的评估入口，只返回 objective。
+        """
+        return self._evaluate_core(x, return_constraints=False)
+
+    def evaluate_with_constraints(self, x: np.ndarray | Sequence[float]) -> tuple[np.ndarray | float, np.ndarray]:
+        """
+        Constrained BO 使用的评估入口，返回 (objective, constraints)。
+        """
+        if not self.constraint_pvnames:
+            raise RuntimeError("No constraint_pvnames configured for constrained evaluation.")
+        y, constraints = self._evaluate_core(x, return_constraints=True)
+        return y, np.asarray(constraints, dtype=float).reshape(-1)
 
     def evaluate_func(self, x: np.ndarray | Sequence[float]) -> np.ndarray | float:
         """

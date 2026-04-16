@@ -65,7 +65,8 @@ class BackendConfig:
             obj_weights
             obj_samples
             obj_math
-            interval
+            set_interval
+            sample_interval
             log_path
             readback_check
             readback_tol

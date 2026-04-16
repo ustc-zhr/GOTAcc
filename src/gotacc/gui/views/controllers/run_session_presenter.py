@@ -58,6 +58,9 @@ class RunSessionPresenter:
         feas = payload.get("feasibility_ratio", run.feasibility_ratio)
         if feas is not None:
             run.feasibility_ratio = float(feas)
+        initial_x = payload.get("initial_x")
+        if isinstance(initial_x, dict) and initial_x:
+            self.window.state.latest_initial_x = dict(initial_x)
 
         if state in {"Running", "Paused"}:
             run.phase = state

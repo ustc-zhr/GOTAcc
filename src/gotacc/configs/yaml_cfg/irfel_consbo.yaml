@@ -1,7 +1,7 @@
 meta:
-  name: irfel_mobo_vector_fel
+  name: irfel_consbo_weighted_fel
   machine: IRFEL
-  description: IRFEL online MOBO with vector objective.
+  description: IRFEL online BO with weighted-sum scalar objective.
 
 backend:
   type: epics
@@ -32,6 +32,11 @@ backend:
       - mean
       - mean
 
+    constraint_pvnames:
+      - IRFEL:BD:CT:CH2:WAV:ASUM
+    constraint_math:
+      - mean
+
     set_interval: 1.0
     sample_interval: 1.0
 
@@ -39,8 +44,8 @@ backend:
     readback_check: false
     readback_tol: 1.0e-6
 
-    combine_mode: vector
-    best_selector_mode: sum_min
+    combine_mode: weighted_sum
+    best_selector_mode: max
 
     objective_policy: fel_energy_guard
     objective_policy_kwargs:
@@ -49,23 +54,33 @@ backend:
       change_threshold: 1.0e-6
 
 optimizer:
-  name: mobo
+  name: bo
   kwargs:
-    n_init: 8
-    n_iter: 20
+    kernel_type: matern
+    gp_restarts: 5
+    acq: ucb
+    acq_para: 2.0
+    acq_para_kwargs:
+      beta_strategy: inv_decay
+      beta_lam: 0.01
+    acq_optimizer: optimize_acqf
+    acq_opt_kwargs:
+      num_restarts: 8
+      raw_samples: 256
+      n_candidates: 8192
+    n_init: 5
+    n_iter: 15
     random_state: 120
     verbose: true
-    # 如果你的 MOBOOptimizer 支持这些参数，可取消注释后使用
-    # ref_point: [-1.0, -1.0]
-    # acq: ehvi
-    # batch_size: 1
+    constraint_bounds:
+      - [null, 100.0]
 
 runtime:
   save_history: true
   history_path: null
-  plot_convergence: false
+  plot_convergence: true
   plot_path: null
-  set_best: false
+  set_best: true
   restore_initial_on_error: true
   restore_initial_on_keyboard_interrupt: true
   verbose: true

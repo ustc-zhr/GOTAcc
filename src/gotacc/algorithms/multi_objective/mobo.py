@@ -533,12 +533,11 @@ class MOBOOptimizer:
 
         # Parameter evolution
         plt.subplot(2, 2, 3)
-        for i in range(min(self.dim, 5)):  # Show first 5 dimensions.
-        # for i in range(self.dim): 
+        for i in range(self.dim):
             plt.plot(self.history_X[:, i], '.-', label=f'Dim {i+1}')
         plt.xlabel('Evaluations')
         plt.ylabel('Parameter values')
-        plt.title('Parameter Evolution (First 5 dimensions)')
+        plt.title('Parameter Evolution')
         plt.legend()
         plt.grid(True)
 

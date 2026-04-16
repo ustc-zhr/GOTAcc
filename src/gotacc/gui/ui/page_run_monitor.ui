@@ -46,6 +46,7 @@
         <item><widget class="QPushButton" name="pushButton_resume"><property name="text"><string>Resume</string></property></widget></item>
         <item><widget class="QPushButton" name="pushButton_stop"><property name="text"><string>Stop</string></property></widget></item>
         <item><widget class="QPushButton" name="pushButton_abortRestore"><property name="text"><string>Abort &amp; Restore</string></property></widget></item>
+        <item><widget class="QPushButton" name="pushButton_restoreInitial"><property name="text"><string>Restore Initial</string></property></widget></item>
         <item><widget class="QPushButton" name="pushButton_setBest"><property name="text"><string>Set Best to Machine</string></property></widget></item>
         <item><spacer name="horizontalSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
        </layout>

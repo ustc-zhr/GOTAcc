@@ -32,6 +32,11 @@ class MachineController:
         self.view = window.view_adapter
         self._loaded_pv_library: PVLibraryDocument | None = None
 
+    @staticmethod
+    def _default_config_directory() -> Path:
+        configs_dir = Path(__file__).resolve().parents[3] / "configs"
+        return configs_dir if configs_dir.exists() else Path.cwd()
+
     def init_machine_page(self) -> None:
         self.refresh_selected_library_tables()
         self.refresh_machine_summary()
@@ -69,7 +74,19 @@ class MachineController:
             return "knob"
         if role == "objective":
             return "objective"
+        if role == "constraint":
+            return "constraint"
         return role
+
+    @staticmethod
+    def _default_group_for_role(role: str) -> str:
+        if role == "knob":
+            return "main"
+        if role == "constraint":
+            return "guard"
+        if role == "objective":
+            return "metric"
+        return ""
 
     def _mapping_items_for_role(self, role: str) -> list[PVLibraryItem]:
         target_role = self._normalize_mapping_role(role)
@@ -88,7 +105,7 @@ class MachineController:
                     name=name,
                     pv_name=pv_name,
                     readback=self._mapping_row_value(row, "Readback", default=pv_name),
-                    group=self._mapping_row_value(row, "Group", default="main" if target_role == "knob" else "metric"),
+                    group=self._mapping_row_value(row, "Group", default=self._default_group_for_role(target_role)),
                     note=self._mapping_row_value(row, "Note"),
                 )
             )
@@ -100,12 +117,16 @@ class MachineController:
             return False
 
         variables, objectives = self._enabled_task_rows(task)
+        constraints = TaskService._enabled_rows(task.get("constraints", []))
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
+        mapped_constraints = self._mapping_items_for_role("constraint")
 
         if len(variables) != len(mapped_knobs):
             return False
         if len(objectives) != len(mapped_objectives):
+            return False
+        if len(constraints) != len(mapped_constraints):
             return False
 
         for index, entry in enumerate(mapped_knobs):
@@ -116,6 +137,11 @@ class MachineController:
         for index, entry in enumerate(mapped_objectives):
             objective_name = str(objectives[index].get("Name", "")).strip()
             if objective_name != entry.name:
+                return False
+
+        for index, entry in enumerate(mapped_constraints):
+            constraint_name = str(constraints[index].get("Name", "")).strip()
+            if constraint_name != entry.name:
                 return False
 
         return True
@@ -133,8 +159,10 @@ class MachineController:
     def refresh_selected_library_tables(self) -> None:
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
+        mapped_constraints = self._mapping_items_for_role("constraint")
         knob_label = getattr(self.window.machine_ui, "label_selectedKnobsSummary", None)
         objective_label = getattr(self.window.machine_ui, "label_selectedObjectivesSummary", None)
+        constraint_label = getattr(self.window.machine_ui, "label_selectedConstraintsSummary", None)
         if knob_label is not None:
             knob_label.setText(
                 "Mapped Knobs: "
@@ -144,6 +172,11 @@ class MachineController:
             objective_label.setText(
                 "Mapped Objectives: "
                 + self._entry_summary(mapped_objectives, empty_label="none")
+            )
+        if constraint_label is not None:
+            constraint_label.setText(
+                "Mapped Constraints: "
+                + self._entry_summary(mapped_constraints, empty_label="none")
             )
         self.update_pv_library_summary()
 
@@ -155,37 +188,39 @@ class MachineController:
             return
 
         variables, objectives = self._enabled_task_rows()
+        constraints = TaskService._enabled_rows(self.view.current_task().get("constraints", []))
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
+        mapped_constraints = self._mapping_items_for_role("constraint")
         sync_state = "Synced" if self._mapping_matches_task_builder() else "Not synced"
 
         if self._loaded_pv_library is None:
             source_label.setText("Library: none")
             summary_label.setText(
-                f"Mapping: {len(mapped_knobs)} knob, {len(mapped_objectives)} objective"
-                f" | Task: {len(variables)} knob, {len(objectives)} objective"
+                f"Mapping: {len(mapped_knobs)} knob, {len(mapped_objectives)} objective, {len(mapped_constraints)} constraint"
+                f" | Task: {len(variables)} knob, {len(objectives)} objective, {len(constraints)} constraint"
                 f" | {sync_state}"
             )
             if apply_button is not None:
-                apply_button.setEnabled(bool(mapped_knobs or mapped_objectives))
+                apply_button.setEnabled(bool(mapped_knobs or mapped_objectives or mapped_constraints))
             return
 
         source_label.setText(f"Library: {self._loaded_pv_library.source}")
         summary_label.setText(
             f"{self._loaded_pv_library.machine}"
             f" | Library: {len(self._loaded_pv_library.knobs)} knob, {len(self._loaded_pv_library.objectives)} objective"
-            f" | Mapping: {len(mapped_knobs)} knob, {len(mapped_objectives)} objective"
-            f" | Task: {len(variables)} knob, {len(objectives)} objective"
+            f" | Mapping: {len(mapped_knobs)} knob, {len(mapped_objectives)} objective, {len(mapped_constraints)} constraint"
+            f" | Task: {len(variables)} knob, {len(objectives)} objective, {len(constraints)} constraint"
             f" | {sync_state}"
         )
         if apply_button is not None:
-            apply_button.setEnabled(bool(mapped_knobs or mapped_objectives))
+            apply_button.setEnabled(bool(mapped_knobs or mapped_objectives or mapped_constraints))
 
     def load_external_pv_library(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self.window,
             "Load Machine PV Library",
-            str(Path.cwd()),
+            str(self._default_config_directory()),
             "PV libraries (*.json *.yaml *.yml)",
         )
         if not path:
@@ -237,8 +272,8 @@ class MachineController:
 
     @staticmethod
     def _entries_to_mapping_rows(entries: list[PVLibraryItem], *, role: str) -> list[dict[str, str]]:
-        normalized_role = "knob" if role == "knob" else "objective"
-        default_group = "main" if normalized_role == "knob" else "metric"
+        normalized_role = role if role in {"knob", "objective", "constraint"} else "objective"
+        default_group = MachineController._default_group_for_role(normalized_role)
         return [
             {
                 "Role": normalized_role,
@@ -256,10 +291,12 @@ class MachineController:
         *,
         knob_rows: list[dict[str, str]] | None = None,
         objective_rows: list[dict[str, str]] | None = None,
+        constraint_rows: list[dict[str, str]] | None = None,
     ) -> None:
         current_rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_mapping)
         existing_knob_rows: list[dict[str, str]] = []
         existing_objective_rows: list[dict[str, str]] = []
+        existing_constraint_rows: list[dict[str, str]] = []
         other_rows: list[dict[str, str]] = []
         for row in current_rows:
             role = self._normalize_mapping_role(self._mapping_row_value(row, "Role"))
@@ -275,7 +312,7 @@ class MachineController:
                 "Group": self._mapping_row_value(
                     row,
                     "Group",
-                    default="main" if role == "knob" else "metric" if role == "objective" else "",
+                    default=self._default_group_for_role(role),
                 ),
                 "Note": self._mapping_row_value(row, "Note"),
             }
@@ -283,12 +320,15 @@ class MachineController:
                 existing_knob_rows.append(normalized)
             elif role == "objective":
                 existing_objective_rows.append(normalized)
+            elif role == "constraint":
+                existing_constraint_rows.append(normalized)
             else:
                 other_rows.append(normalized)
 
         desired_rows = [
             *(knob_rows if knob_rows is not None else existing_knob_rows),
             *(objective_rows if objective_rows is not None else existing_objective_rows),
+            *(constraint_rows if constraint_rows is not None else existing_constraint_rows),
             *other_rows,
         ]
 
@@ -339,6 +379,26 @@ class MachineController:
             status=f"Mapped {len(selected)} objective PV row(s) from library.",
         )
 
+    def open_constraint_library_dialog(self) -> None:
+        if self._loaded_pv_library is None:
+            self._open_library_dialog([], title="Select Constraints From Objectives", intro_text="")
+            return
+        selected = self._open_library_dialog(
+            list(self._loaded_pv_library.objectives),
+            title="Select Constraints From Objectives",
+            intro_text="Choose one or more objective/diagnostic PVs to use as output constraints.",
+        )
+        if selected is None:
+            return
+        self._rewrite_mapping_rows(
+            constraint_rows=self._entries_to_mapping_rows(selected, role="constraint"),
+        )
+        self.view.log_console(f"Loaded {len(selected)} constraint PV row(s) into PV Mapping.")
+        self.view.append_overview_activity(
+            "Machine",
+            status=f"Mapped {len(selected)} constraint PV row(s) from objective library.",
+        )
+
     def clear_selected_knobs(self) -> None:
         self._rewrite_mapping_rows(knob_rows=[])
         self.view.log_console("Cleared knob rows from PV Mapping.")
@@ -347,14 +407,20 @@ class MachineController:
         self._rewrite_mapping_rows(objective_rows=[])
         self.view.log_console("Cleared objective rows from PV Mapping.")
 
+    def clear_selected_constraints(self) -> None:
+        self._rewrite_mapping_rows(constraint_rows=[])
+        self.view.log_console("Cleared constraint rows from PV Mapping.")
+
     def _align_task_builder_rows_to_mapping(
         self,
         mapped_knobs: list[PVLibraryItem],
         mapped_objectives: list[PVLibraryItem],
+        mapped_constraints: list[PVLibraryItem],
     ) -> None:
         task_builder = self.window.task_builder_controller
         variable_table = self.window.task_ui.tableWidget_variables
         objective_table = self.window.task_ui.tableWidget_objectives
+        constraint_table = self.window.task_ui.tableWidget_constraints
 
         existing_variable_rows = self._table_records(variable_table)
         variable_records: list[dict[str, str]] = []
@@ -388,8 +454,30 @@ class MachineController:
             )
         task_builder.fill_table_from_records(objective_table, objective_records)
 
+        existing_constraint_rows = self._table_records(constraint_table)
+        existing_constraints_by_name = {
+            str(row.get("Name", "")).strip(): row
+            for row in existing_constraint_rows
+            if str(row.get("Name", "")).strip()
+        }
+        constraint_records: list[dict[str, str]] = []
+        for index, entry in enumerate(mapped_constraints):
+            name = str(entry.name).strip() or f"cons{index}"
+            existing = existing_constraints_by_name.get(name, {})
+            constraint_records.append(
+                {
+                    "Enable": "Y",
+                    "Name": name,
+                    "Lower": self._coalesce(str(existing.get("Lower", "")), default=""),
+                    "Upper": self._coalesce(str(existing.get("Upper", "")), default=""),
+                    "Math": self._coalesce(str(existing.get("Math", "")), default="mean"),
+                }
+            )
+        task_builder.fill_table_from_records(constraint_table, constraint_records)
+
         self.view.log_console(
-            f"Synced Task Builder from PV Mapping: {len(mapped_knobs)} knob(s), {len(mapped_objectives)} objective(s)."
+            f"Synced Task Builder from PV Mapping: {len(mapped_knobs)} knob(s), "
+            f"{len(mapped_objectives)} objective(s), {len(mapped_constraints)} constraint(s)."
         )
         self.view.refresh_task_preview()
 
@@ -404,23 +492,28 @@ class MachineController:
             return
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
-        if not mapped_knobs and not mapped_objectives:
+        mapped_constraints = self._mapping_items_for_role("constraint")
+        if not mapped_knobs and not mapped_objectives and not mapped_constraints:
             QMessageBox.information(
                 self.window,
                 "Sync PV Mapping To Task",
-                "Add at least one knob or objective row to PV Mapping first.",
+                "Add at least one knob, objective, or constraint row to PV Mapping first.",
             )
             return
 
         self._align_task_builder_rows_to_mapping(
             mapped_knobs,
             mapped_objectives,
+            mapped_constraints,
         )
         self.view.append_overview_activity(
             "Machine",
-            status=f"Synced {len(mapped_knobs)} knob and {len(mapped_objectives)} objective mapping row(s) to Task Builder.",
+            status=(
+                f"Synced {len(mapped_knobs)} knob, {len(mapped_objectives)} objective, "
+                f"and {len(mapped_constraints)} constraint mapping row(s) to Task Builder."
+            ),
         )
-        self.update_pv_library_summary()
+        self.refresh_selected_library_tables()
 
     def set_machine_status(self, text: str) -> None:
         self.window.machine_ui.label_statusValue.setText(text)
@@ -451,11 +544,12 @@ class MachineController:
             if self.window.machine_ui.checkBox_readbackCheck.isChecked()
             else "readback off"
         )
-        interval = f"interval {self.window.machine_ui.doubleSpinBox_interval.value():g}s"
+        set_interval = f"set {self.window.machine_ui.doubleSpinBox_setInterval.value():g}s"
+        sample_interval = f"sample {self.window.machine_ui.doubleSpinBox_sampleInterval.value():g}s"
         status = self.window.machine_ui.label_statusValue.text().strip() or "Disconnected"
         self.window.machine_ui.label_machineSummary.setText(
             f"Status {status} · write policy {write_policy} · objective policies {objective_policy_summary} · "
-            f"{restore} · {readback} · {interval} · {auto_connect}"
+            f"{restore} · {readback} · {set_interval} · {sample_interval} · {auto_connect}"
         )
 
     def resolve_epics_read_pv(self, task: dict) -> str:

@@ -89,6 +89,10 @@ def build_optimizer(task_cfg: TaskConfig, objective_callable, bounds: np.ndarray
         from gotacc.algorithms.single_objective.bo import BOOptimizer
         return BOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
 
+    if name in {"consbo", "constrained_bo", "constrained_bayesian_optimization"}:
+        from gotacc.algorithms.single_objective.consbo import ConsBOOptimizer
+        return ConsBOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
+
     if name in {"turbo", "trust_region_bo"}:
         from gotacc.algorithms.single_objective.turbo import TuRBOOptimizer
         return TuRBOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
@@ -100,6 +104,14 @@ def build_optimizer(task_cfg: TaskConfig, objective_callable, bounds: np.ndarray
     if name in {"mobo"}:
         from gotacc.algorithms.multi_objective.mobo import MOBOOptimizer
         return MOBOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
+
+    if name in {"consmobo", "constrained_mobo", "constrained_multi_objective_bo"}:
+        from gotacc.algorithms.multi_objective.consmobo import ConsMOBOOptimizer
+        return ConsMOBOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
+
+    if name in {"consmggpo", "constrained_mggpo", "constrained_mg-gpo"}:
+        from gotacc.algorithms.multi_objective.consmggpo import ConsMGGPOOptimizer
+        return ConsMGGPOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
 
     if name in {"mggpo"}:
         from gotacc.algorithms.multi_objective.mggpo import MGGPOOptimizer
@@ -182,12 +194,15 @@ def validate_optimizer_backend_match(task_cfg: TaskConfig) -> None:
 
     single_objective_optimizers = {
         "bo", "bayesopt", "bayesian_optimization",
+        "consbo", "constrained_bo", "constrained_bayesian_optimization",
         "turbo", "trust_region_bo",
         "rcds",
     }
 
     multi_objective_optimizers = {
         "mobo",
+        "consmobo", "constrained_mobo", "constrained_multi_objective_bo",
+        "consmggpo", "constrained_mggpo", "constrained_mg-gpo",
         "mggpo",
         "mopso",
         "nsga2", "nsga-ii",
@@ -341,9 +356,26 @@ def run_task(task_cfg: TaskConfig) -> RunArtifacts:
     x0 = np.asarray(backend.init_knob_value(), dtype=float).reshape(-1)
     bounds = resolve_bounds(task_cfg, x0)
 
+    optimizer_name = str(task_cfg.optimizer.name).lower()
+    objective_callable = backend.evaluate
+    if optimizer_name in {
+        "consbo",
+        "constrained_bo",
+        "constrained_bayesian_optimization",
+        "consmobo",
+        "constrained_mobo",
+        "constrained_multi_objective_bo",
+        "consmggpo",
+        "constrained_mggpo",
+        "constrained_mg-gpo",
+    }:
+        if not hasattr(backend, "evaluate_with_constraints"):
+            raise TypeError("Constrained optimizer requires backend.evaluate_with_constraints().")
+        objective_callable = backend.evaluate_with_constraints
+
     optimizer = build_optimizer(
         task_cfg=task_cfg,
-        objective_callable=backend.evaluate,
+        objective_callable=objective_callable,
         bounds=bounds,
     )
 

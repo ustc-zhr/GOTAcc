@@ -115,10 +115,32 @@ class EngineWorker(QObject):
             x0 = np.asarray(backend.init_knob_value(), dtype=float).reshape(-1)
             bounds = resolve_bounds(task_cfg, x0)
             self._variable_names = list(task_cfg.backend.kwargs.get("variable_names", [])) or [f"x{i}" for i in range(len(x0))]
+            self._constraint_bounds = list(task_cfg.optimizer.kwargs.get("constraint_bounds", []) or [])
 
             objective_count = max(1, len(TaskService._enabled_rows(self.task.get("objectives", []))))
             optimizer_name = str(task_cfg.optimizer.name).lower()
-            self._single_objective = optimizer_name in {"bo", "bayesopt", "bayesian_optimization", "turbo", "trust_region_bo", "rcds"}
+            self._single_objective = optimizer_name in {
+                "bo",
+                "bayesopt",
+                "bayesian_optimization",
+                "consbo",
+                "constrained_bo",
+                "constrained_bayesian_optimization",
+                "turbo",
+                "trust_region_bo",
+                "rcds",
+            }
+            constrained_optimizers = {
+                "consbo",
+                "constrained_bo",
+                "constrained_bayesian_optimization",
+                "consmobo",
+                "constrained_mobo",
+                "constrained_multi_objective_bo",
+                "consmggpo",
+                "constrained_mggpo",
+                "constrained_mg-gpo",
+            }
 
             self.sig_log.emit(f"TaskConfig ready: optimizer={task_cfg.optimizer.name}, backend={task_cfg.backend.type}")
             self.sig_log.emit(f"Resolved bounds shape: {bounds.shape}")
@@ -129,10 +151,16 @@ class EngineWorker(QObject):
                     "eval_count": 0,
                     "best_value": None,
                     "feasibility_ratio": None,
+                    "initial_x": self._x_to_dict(x0),
                 }
             )
 
-            wrapped_callable = self._make_objective_wrapper(backend.evaluate)
+            evaluate_fn = backend.evaluate
+            if optimizer_name in constrained_optimizers:
+                if not hasattr(backend, "evaluate_with_constraints"):
+                    raise TypeError("Constrained optimizer requires backend.evaluate_with_constraints().")
+                evaluate_fn = backend.evaluate_with_constraints
+            wrapped_callable = self._make_objective_wrapper(evaluate_fn)
             optimizer = build_optimizer(task_cfg=task_cfg, objective_callable=wrapped_callable, bounds=bounds)
 
             out_stream = _SignalStream(self.sig_log.emit)
@@ -268,7 +296,7 @@ class EngineWorker(QObject):
         objective_values = normalized["objective_values"]
         scalar_for_display = objective_values[0] if objective_values.size > 0 else None
         best_changed = False
-        if self._single_objective and scalar_for_display is not None:
+        if self._single_objective and scalar_for_display is not None and normalized["feasible"]:
             current = float(scalar_for_display)
             if self._best_value is None or current > self._best_value:
                 self._best_value = current
@@ -306,6 +334,11 @@ class EngineWorker(QObject):
             cons = np.asarray(raw.get("constraints", []), dtype=float).reshape(-1)
             status = str(raw.get("status", "ok"))
             feasible = bool(raw.get("feasible", np.all(cons <= 0) if cons.size else True))
+        elif isinstance(raw, (tuple, list)) and len(raw) == 2:
+            obj = np.asarray(raw[0], dtype=float).reshape(-1)
+            cons = np.asarray(raw[1], dtype=float).reshape(-1)
+            feasible = self._constraints_feasible(cons)
+            status = "ok" if feasible else "infeasible"
         else:
             arr = np.asarray(raw, dtype=float)
             if arr.ndim == 0:
@@ -335,10 +368,38 @@ class EngineWorker(QObject):
             "constraint_summary": constraint_summary,
         }
 
+    def _constraints_feasible(self, cons: np.ndarray) -> bool:
+        cons = np.asarray(cons, dtype=float).reshape(-1)
+        bounds = getattr(self, "_constraint_bounds", []) or []
+        if cons.size == 0 or not bounds:
+            return True
+        feasible = True
+        for idx, value in enumerate(cons):
+            if idx >= len(bounds):
+                break
+            lower, upper = bounds[idx]
+            if lower is not None and value < float(lower):
+                feasible = False
+            if upper is not None and value > float(upper):
+                feasible = False
+        return feasible
+
     def _stack_outputs(self, outputs: List[Any]) -> Any:
         if not outputs:
             return np.array([])
         first = outputs[0]
+        if isinstance(first, (tuple, list)) and len(first) == 2:
+            obj_list = []
+            cons_list = []
+            for out in outputs:
+                norm = self._normalize_output(out)
+                obj_list.append(norm["objective_values"])
+                cons = np.asarray(out[1], dtype=float).reshape(-1)
+                cons_list.append(cons)
+            return (
+                np.vstack([np.asarray(v, dtype=float).reshape(1, -1) for v in obj_list]),
+                np.vstack([np.asarray(v, dtype=float).reshape(1, -1) for v in cons_list]),
+            )
         if isinstance(first, dict):
             obj_list = []
             cons_list = []

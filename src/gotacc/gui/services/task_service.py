@@ -69,8 +69,12 @@ SINGLE_OBJECTIVE_FUNCTIONS: dict[str, Callable[[np.ndarray], Any]] = {
 
 SUPPORTED_GUI_OPTIMIZERS = {
     "bo",
+    "consbo",
     "turbo",
     "mobo",
+    "consmobo",
+    "consmggpo",
+    "mggpo",
     "mopso",
     "nsga2",
 }
@@ -83,7 +87,6 @@ DEPRECATED_DYNAMIC_PARAM_KEYS = {
     "population_size",
     "maximize",
     "test_function",
-    "interval",
 }
 
 
@@ -329,10 +332,22 @@ class TaskService:
         mapping = {
             "bo": "bo",
             "bayesian optimization": "bo",
+            "consbo": "consbo",
+            "constrained bo": "consbo",
             "turbo": "turbo",
             "rcds": "rcds",
             "mobo": "mobo",
+            "consmobo": "consmobo",
+            "constrained mobo": "consmobo",
+            "constrained multi objective bo": "consmobo",
+            "constrained multi-objective bo": "consmobo",
+            "consmggpo": "consmggpo",
+            "constrained mggpo": "consmggpo",
+            "constrained_mggpo": "consmggpo",
+            "constrained mg-gpo": "consmggpo",
+            "constrained_mg-gpo": "consmggpo",
             "mggpo": "mggpo",
+            "mg-gpo": "mggpo",
             "mopso": "mopso",
             "nsga-ii": "nsga2",
             "nsga2": "nsga2",
@@ -342,7 +357,7 @@ class TaskService:
     @staticmethod
     def _infer_combine_mode(task: Dict[str, Any], algorithm: str, n_objectives: int) -> str:
         objective_type = str(task.get("objective_type", "Single Objective")).strip().lower()
-        if algorithm in {"mobo", "mggpo", "mopso", "nsga2"}:
+        if algorithm in {"mobo", "consmobo", "consmggpo", "mggpo", "mopso", "nsga2"}:
             return "vector"
         if objective_type == "multi objective":
             return "vector"
@@ -359,7 +374,7 @@ class TaskService:
         device = str(dyn.get("device", "cpu") or "cpu")
         ref_point = dyn.get("ref_point", None)
 
-        if algorithm in {"bo", "turbo", "mobo"}:
+        if algorithm in {"bo", "consbo", "turbo", "mobo", "consmobo"}:
             n_init = max(1, int(dyn.get("n_init", min(8, max_evals))))
             n_init = min(n_init, max_evals)
             iter_eval_cost = TaskService._bo_iteration_eval_cost(task, dyn, algorithm)
@@ -369,6 +384,16 @@ class TaskService:
             kwargs: Dict[str, Any] = {
                 "n_init": n_init,
                 "n_iter": n_iter,
+                "random_state": seed,
+                "verbose": verbose,
+                "device": device,
+            }
+        elif algorithm in {"mggpo", "consmggpo"}:
+            pop_size, evals_per_gen, n_generations = TaskService._mggpo_budget_params(task, dyn)
+            kwargs = {
+                "pop_size": pop_size,
+                "evals_per_gen": evals_per_gen,
+                "n_generations": n_generations,
                 "random_state": seed,
                 "verbose": verbose,
                 "device": device,
@@ -396,6 +421,12 @@ class TaskService:
                 kwargs["dtype"] = dtype_value
         if "acq" in dyn:
             kwargs["acq"] = str(dyn["acq"]).strip().lower()
+        elif algorithm == "consbo":
+            kwargs["acq"] = "ei"
+        elif algorithm == "consmobo":
+            kwargs["acq"] = "qehvi"
+        if "acq_mode" in dyn:
+            kwargs["acq_mode"] = str(dyn["acq_mode"]).strip().lower()
         if "acq_optimizer" in dyn:
             kwargs["acq_optimizer"] = str(dyn["acq_optimizer"]).strip()
         if "acq_para" in dyn:
@@ -404,7 +435,7 @@ class TaskService:
             kwargs["acq_opt_kwargs"] = dict(dyn["acq_opt_kwargs"])
         if "acq_para_kwargs" in dyn and isinstance(dyn["acq_para_kwargs"], Mapping):
             kwargs["acq_para_kwargs"] = dict(dyn["acq_para_kwargs"])
-        if algorithm == "mobo":
+        if algorithm in {"mobo", "consmobo"}:
             kwargs.setdefault("acq_opt_kwargs", {})
             batch_size = TaskService._mobo_batch_eval_cost(task, dyn)
             if batch_size > 1:
@@ -420,15 +451,32 @@ class TaskService:
             if key in dyn:
                 kwargs[key] = dyn[key]
 
-        if algorithm in {"mobo", "mopso", "nsga2"}:
+        if algorithm in {"mobo", "consmobo", "consmggpo", "mggpo", "mopso", "nsga2"}:
             kwargs["n_objectives"] = int(dyn.get("n_objectives", n_objectives))
             kwargs["maximize"] = True
             if ref_point is not None:
                 kwargs["ref_point"] = np.asarray(ref_point, dtype=float)
-            if algorithm in {"mopso", "nsga2"}:
+            if algorithm in {"mggpo", "consmggpo", "mopso", "nsga2"}:
                 for key in ["mutation_eta", "crossover_eta"]:
                     if key in dyn:
                         kwargs[key] = dyn[key]
+                if algorithm in {"mggpo", "consmggpo"}:
+                    for key in [
+                        "m1",
+                        "m2",
+                        "m3",
+                        "ucb_beta",
+                        "ucb_beta_kwargs",
+                        "use_all_history_for_gp",
+                        "gp_history_max",
+                        "w",
+                        "c1",
+                        "c2",
+                        "mutation_prob",
+                        "crossover_prob",
+                    ]:
+                        if key in dyn and dyn[key] != "":
+                            kwargs[key] = dyn[key]
                 if algorithm == "mopso":
                     for key in ["w", "c1", "c2", "mutation_prob", "archive_size"]:
                         if key in dyn:
@@ -441,10 +489,27 @@ class TaskService:
         return kwargs
 
     @staticmethod
+    def _constraint_bounds_from_rows(constraints: List[Dict[str, Any]]) -> list[tuple[float | None, float | None]]:
+        bounds: list[tuple[float | None, float | None]] = []
+        for idx, row in enumerate(constraints, start=1):
+            lower_text = str(row.get("Lower", "")).strip()
+            upper_text = str(row.get("Upper", "")).strip()
+            if not lower_text and not upper_text:
+                raise ValueError(f"Constraint row {idx} must define at least one of Lower or Upper.")
+            lower = float(lower_text) if lower_text else None
+            upper = float(upper_text) if upper_text else None
+            if lower is not None and upper is not None and lower > upper:
+                raise ValueError(f"Constraint row {idx} must satisfy Lower <= Upper.")
+            bounds.append((lower, upper))
+        return bounds
+
+    @staticmethod
     def _bo_iteration_eval_cost(task: Dict[str, Any], dyn: Dict[str, Any], algorithm: str) -> int:
         if algorithm == "turbo":
             return max(1, int(dyn.get("n_trust_regions", 1)))
-        if algorithm == "mobo":
+        if algorithm == "consmobo" and "acq" not in dyn:
+            dyn = {**dyn, "acq": "qehvi"}
+        if algorithm in {"mobo", "consmobo"}:
             return TaskService._mobo_batch_eval_cost(task, dyn)
         return 1
 
@@ -481,6 +546,32 @@ class TaskService:
             n_generations = max(0, min(int(requested_generations), max_generations))
         return pop_size, n_generations
 
+    @staticmethod
+    def _mggpo_budget_params(task: Dict[str, Any], dyn: Dict[str, Any]) -> Tuple[int, int, int]:
+        max_evals = max(1, int(task.get("max_evaluations", 20)))
+        requested_pop = dyn.get("pop_size")
+        if requested_pop in {None, ""}:
+            pop_size = min(12, max(2, max_evals // 2))
+        else:
+            pop_size = int(requested_pop)
+        pop_size = max(2, min(pop_size, max_evals))
+
+        remaining = max(0, max_evals - pop_size)
+        requested_evals_per_gen = dyn.get("evals_per_gen")
+        if requested_evals_per_gen in {None, ""}:
+            evals_per_gen = min(pop_size, max(1, remaining)) if remaining else 1
+        else:
+            evals_per_gen = int(requested_evals_per_gen)
+        evals_per_gen = max(1, min(evals_per_gen, pop_size))
+
+        max_generations = max(0, remaining // evals_per_gen)
+        requested_generations = dyn.get("n_generations")
+        if requested_generations in {None, ""}:
+            n_generations = max_generations
+        else:
+            n_generations = max(0, min(int(requested_generations), max_generations))
+        return pop_size, evals_per_gen, n_generations
+
     # ------------------------------------------------------------------
     # GUI collection / validation / preview
     # ------------------------------------------------------------------
@@ -516,7 +607,8 @@ class TaskService:
                 "restore_on_abort": machine_ui.checkBox_restore.isChecked(),
                 "readback_check": machine_ui.checkBox_readbackCheck.isChecked(),
                 "readback_tol": machine_ui.doubleSpinBox_readbackTol.value(),
-                "interval": machine_ui.doubleSpinBox_interval.value(),
+                "set_interval": machine_ui.doubleSpinBox_setInterval.value(),
+                "sample_interval": machine_ui.doubleSpinBox_sampleInterval.value(),
                 "max_delta": machine_ui.doubleSpinBox_delta.value(),
                 "write_timeout": machine_ui.doubleSpinBox_timeout.value(),
                 "write_policy": machine_ui.comboBox_policy.currentText(),
@@ -597,6 +689,30 @@ class TaskService:
             raise ValueError(
                 f"Cannot resolve EPICS objective PV for objective row {i + 1} ({name!r}). "
                 "Add a matching 'objective' row in Machine Setup -> PV Mapping."
+            )
+        return result
+
+    @staticmethod
+    def _resolve_online_constraint_pvs(task: Dict[str, Any], constraints: List[Dict[str, Any]]) -> List[str]:
+        mapping_rows = task.get("machine", {}).get("mapping", []) or []
+        by_name: Dict[str, str] = {}
+        for row in mapping_rows:
+            role = str(row.get("Role", "")).strip().lower()
+            pv = str(row.get("PV Name", "")).strip()
+            readback = str(row.get("Readback", "")).strip()
+            name = str(row.get("Name", "")).strip()
+            if role == "constraint" and pv and name:
+                by_name[name] = readback or pv
+
+        result: List[str] = []
+        for i, row in enumerate(constraints):
+            name = str(row.get("Name", f"cons{i}")).strip()
+            if name in by_name:
+                result.append(by_name[name])
+                continue
+            raise ValueError(
+                f"Cannot resolve EPICS constraint PV for constraint row {i + 1} ({name!r}). "
+                "Add a matching 'constraint' row in Machine Setup -> PV Mapping."
             )
         return result
 
@@ -703,6 +819,30 @@ class TaskService:
             errors.append(
                 f"Algorithm {task.get('algorithm', 'BO')!r} requires max_evaluations >= 2 for population initialization."
             )
+        enabled_constraints = TaskService._enabled_rows(task.get("constraints", []))
+        constrained_algorithms = {"consbo", "consmobo", "consmggpo"}
+        if algorithm in constrained_algorithms:
+            if mode != "Online EPICS":
+                errors.append(f"{task.get('algorithm', 'Constrained BO')} is currently wired for Online EPICS tasks in the GUI.")
+            if algorithm == "consbo" and objective_type != "Single Objective":
+                errors.append("ConsBO requires Objective Type = Single Objective.")
+            if algorithm in {"consmobo", "consmggpo"} and objective_type != "Multi Objective":
+                errors.append(f"{task.get('algorithm', 'Constrained MO optimizer')} requires Objective Type = Multi Objective.")
+            if algorithm in {"consmobo", "consmggpo"} and len(enabled_objectives) < 2:
+                errors.append(f"{task.get('algorithm', 'Constrained MO optimizer')} requires at least two enabled objectives.")
+            if not enabled_constraints:
+                errors.append(f"{task.get('algorithm', 'Constrained BO')} requires at least one enabled output constraint.")
+            dyn = TaskService._dynamic_params_to_dict(task.get("algorithm_params", []))
+            default_acq = "qehvi" if algorithm == "consmobo" else "ei"
+            acq = str(dyn.get("acq", default_acq)).strip().lower()
+            if algorithm == "consbo" and acq != "ei":
+                errors.append("ConsBO currently requires Algorithm Detail acq='ei'.")
+            if algorithm == "consmobo" and acq not in {"qehvi", "qnehvi"}:
+                errors.append("ConsMOBO currently requires Algorithm Detail acq='qehvi' or acq='qnehvi'.")
+            try:
+                TaskService._constraint_bounds_from_rows(enabled_constraints)
+            except Exception as exc:
+                errors.append(str(exc))
 
         for idx, row in enumerate(enabled_variables, start=1):
             try:
@@ -726,6 +866,11 @@ class TaskService:
                 TaskService._resolve_online_objective_pvs(task, enabled_objectives)
             except Exception as exc:
                 errors.append(str(exc))
+            if algorithm in constrained_algorithms:
+                try:
+                    TaskService._resolve_online_constraint_pvs(task, enabled_constraints)
+                except Exception as exc:
+                    errors.append(str(exc))
 
             sample_values: list[int] = []
             for idx, row in enumerate(enabled_objectives, start=1):
@@ -760,6 +905,13 @@ class TaskService:
                 if math_op not in {"mean", "std"}:
                     errors.append(
                         f"Objective row {idx} has unsupported Math value {math_op!r}. "
+                        "Use mean or std."
+                    )
+            for idx, row in enumerate(enabled_constraints, start=1):
+                math_op = str(row.get("Math", "mean")).strip().lower() or "mean"
+                if math_op not in {"mean", "std"}:
+                    errors.append(
+                        f"Constraint row {idx} has unsupported Math value {math_op!r}. "
                         "Use mean or std."
                     )
         elif objective_type == "Single Objective":
@@ -904,9 +1056,19 @@ class TaskService:
         objective_names = [
             (str(row.get("Name", "")).strip() or f"obj{i}") for i, row in enumerate(objectives)
         ]
+        constraints = TaskService._enabled_rows(task.get("constraints", []))
+        use_output_constraints = algorithm in {"consbo", "consmobo", "consmggpo"}
+        constraint_names = [
+            (str(row.get("Name", "")).strip() or f"cons{i}") for i, row in enumerate(constraints)
+        ] if use_output_constraints else []
         knobs_pvnames = TaskService._resolve_online_knob_pvs(task, variables)
         knob_readback_pvnames = TaskService._resolve_online_knob_readback_pvs(task, variables)
         obj_pvnames = TaskService._resolve_online_objective_pvs(task, objectives)
+        constraint_pvnames = (
+            TaskService._resolve_online_constraint_pvs(task, constraints)
+            if use_output_constraints
+            else []
+        )
 
         n_objectives = max(1, len(objectives))
         combine_mode = TaskService._infer_combine_mode(task, algorithm, n_objectives)
@@ -931,6 +1093,10 @@ class TaskService:
             str(row.get("Math", "mean")).strip().lower() or "mean"
             for row in objectives
         ]
+        constraint_math = [
+            str(row.get("Math", "mean")).strip().lower() or "mean"
+            for row in constraints
+        ] if use_output_constraints else []
 
         write_policy_name = str(machine.get("write_policy", "none")).strip().lower()
         objective_policy_specs = TaskService._build_objective_policy_specs(task)
@@ -944,7 +1110,10 @@ class TaskService:
             "obj_weights": obj_weights,
             "obj_samples": obj_samples,
             "obj_math": obj_math,
-            "interval": float(machine.get("interval", 0.2)),
+            "constraint_pvnames": constraint_pvnames,
+            "constraint_math": constraint_math,
+            "set_interval": float(machine.get("set_interval", 0.2)),
+            "sample_interval": float(machine.get("sample_interval", 0.2)),
             "log_path": str(Path(task.get("workdir", Path.cwd())) / "save" / f"{task.get('task_name', 'task')}.opt"),
             "readback_check": readback_check,
             "readback_tol": readback_tol,
@@ -957,6 +1126,7 @@ class TaskService:
             # but must be removed before build_backend() if strict factory is used.
             "variable_names": variable_names,
             "objective_names": objective_names,
+            "constraint_names": constraint_names,
         }
         return kwargs, n_objectives
 
@@ -1012,6 +1182,17 @@ class TaskService:
 
         dyn = TaskService._dynamic_params_to_dict(task.get("algorithm_params", []))
         algorithm = TaskService._optimizer_name_from_gui(task.get("algorithm", "BO"))
+        constrained_algorithms = {"consbo", "consmobo", "consmggpo"}
+        if algorithm in constrained_algorithms and mode != "online epics":
+            raise ValueError(f"{task.get('algorithm', 'Constrained BO')} is currently wired for Online EPICS tasks in the GUI.")
+        if algorithm == "consbo" and objective_type_text != "Single Objective":
+            raise ValueError("ConsBO requires Objective Type = Single Objective.")
+        if algorithm in {"consmobo", "consmggpo"} and objective_type_text != "Multi Objective":
+            raise ValueError(f"{task.get('algorithm', 'Constrained MO optimizer')} requires Objective Type = Multi Objective.")
+        if algorithm in {"consmobo", "consmggpo"} and len(objectives) < 2:
+            raise ValueError(f"{task.get('algorithm', 'Constrained MO optimizer')} requires at least two enabled objectives.")
+        if algorithm in constrained_algorithms and not TaskService._enabled_rows(task.get("constraints", [])):
+            raise ValueError(f"{task.get('algorithm', 'Constrained BO')} requires at least one enabled output constraint.")
 
         if mode == "online epics":
             backend_type = "epics"
@@ -1036,6 +1217,10 @@ class TaskService:
             machine_label = "offline-test-function"
 
         optimizer_kwargs = TaskService._build_optimizer_kwargs(task, dyn, n_objectives=n_objectives)
+        if algorithm in constrained_algorithms:
+            optimizer_kwargs["constraint_bounds"] = TaskService._constraint_bounds_from_rows(
+                TaskService._enabled_rows(task.get("constraints", []))
+            )
 
         workdir = Path(task.get("workdir", Path.cwd()))
         save_dir = workdir / "save"
@@ -1096,5 +1281,6 @@ class TaskService:
             # GUI helper metadata should not be consumed by the strict EPICS factory.
             kwargs.pop("variable_names", None)
             kwargs.pop("objective_names", None)
+            kwargs.pop("constraint_names", None)
         cfg.backend.kwargs = kwargs
         return cfg

@@ -20,5 +20,12 @@ class RunCompletionPresenter:
             self.view.log_event(f"Plot saved to: {payload['plot_path']}")
         self.view.update_results_after_finish(payload)
         self.view.redraw_plots()
+        try:
+            saved_images = self.window.results_controller.save_result_images()
+        except Exception as exc:
+            self.view.log_warning(f"GUI result image export failed: {exc}")
+        else:
+            if saved_images:
+                self.view.log_event(f"GUI result images saved: {len(saved_images)} file(s).")
         if run_phase == "Finished":
             self.view.go_to_page(self.window.PAGE_RESULTS)

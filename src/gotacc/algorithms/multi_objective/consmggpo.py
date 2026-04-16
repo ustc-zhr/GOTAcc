@@ -1,6 +1,7 @@
 import time
 import warnings
 from datetime import datetime
+from pathlib import Path
 from typing import Callable, Optional, Tuple, Dict, Any, List
 
 import matplotlib.pyplot as plt
@@ -30,9 +31,13 @@ torch.set_default_dtype(torch.float64)
 # 更新了pso生成子代方式，更符合经典方法
 # 增加acq_mode选线：ucb/ehvi/combine(ucb+ehvi)
 
-class MGGPOOptimizer:
+class MultiObjectiveMGGPO:
     """
-    A version closer to the original MG-GPO paper.
+    Constrained MG-GPO optimizer.
+
+    With output constraints, pass ``constraint_bounds`` and make ``func(X)``
+    return ``(objective_values, constraint_values)``, matching ConsBO and
+    ConsMOBO. The number of constraints is inferred from ``constraint_bounds``.
     """
 
     def __init__(
@@ -40,7 +45,7 @@ class MGGPOOptimizer:
         func: Callable,
         bounds: np.ndarray,
         n_objectives: int = 2,
-        n_constraints: int = 0,
+        constraint_bounds: Optional[List[Tuple[Optional[float], Optional[float]]]] = None,
         kernel_type: str = "rbf",
         gp_restarts: int = 5,
         pop_size: int = 80,
@@ -72,7 +77,13 @@ class MGGPOOptimizer:
         self.bounds = np.asarray(bounds, dtype=float)
         self.dim = self.bounds.shape[0]
         self.n_objectives = int(n_objectives)
-        self.n_constraints = int(n_constraints)
+        self.constraint_bounds = (
+            [(lb, ub) for lb, ub in constraint_bounds]
+            if constraint_bounds
+            else None
+        )
+        self.n_constraints = len(self.constraint_bounds) if self.constraint_bounds is not None else 0
+        self.has_constraints = self.n_constraints > 0
         self.kernel_type = kernel_type.lower()
         self.gp_restarts = int(gp_restarts)
 
@@ -157,18 +168,45 @@ class MGGPOOptimizer:
     def _empty_constraints(self, n: int) -> np.ndarray:
         return np.zeros((n, self.n_constraints), dtype=float)
 
+    def _get_feasible_mask(self, C_np: Optional[np.ndarray] = None) -> np.ndarray:
+        """Return rows satisfying all configured output-space constraints."""
+        if self.n_constraints == 0:
+            if C_np is None:
+                n = self.history_Y.shape[0]
+            else:
+                arr = np.asarray(C_np)
+                n = arr.shape[0] if arr.ndim > 1 else 1
+            return np.ones(n, dtype=bool)
+
+        C_np = self.history_C if C_np is None else np.asarray(C_np, dtype=float)
+        C_np = C_np.reshape(-1, self.n_constraints)
+        mask = np.ones(C_np.shape[0], dtype=bool)
+        for i, (lower, upper) in enumerate(self.constraint_bounds or []):
+            if lower is not None:
+                mask &= C_np[:, i] >= float(lower)
+            if upper is not None:
+                mask &= C_np[:, i] <= float(upper)
+        return mask
+
     def _is_feasible(self, c: Optional[np.ndarray]) -> bool:
         if self.n_constraints == 0:
             return True
         if c is None:
             return False
-        c = np.asarray(c, dtype=float).reshape(-1)
-        return bool(np.all(c <= 0))
+        c = np.asarray(c, dtype=float).reshape(1, self.n_constraints)
+        return bool(self._get_feasible_mask(c)[0])
 
     def _constraint_violation_scalar(self, C: np.ndarray) -> np.ndarray:
         if self.n_constraints == 0 or C.size == 0:
             return np.zeros(C.shape[0] if getattr(C, 'ndim', 0) > 0 else 0)
-        return np.sum(np.maximum(C, 0.0), axis=1)
+        C = np.asarray(C, dtype=float).reshape(-1, self.n_constraints)
+        violation = np.zeros(C.shape[0], dtype=float)
+        for i, (lower, upper) in enumerate(self.constraint_bounds or []):
+            if lower is not None:
+                violation += np.maximum(float(lower) - C[:, i], 0.0)
+            if upper is not None:
+                violation += np.maximum(C[:, i] - float(upper), 0.0)
+        return violation
 
     def _compare_solution_quality(self, y_a: np.ndarray, c_a: Optional[np.ndarray], y_b: np.ndarray, c_b: Optional[np.ndarray]) -> int:
         fa = self._is_feasible(c_a)
@@ -183,36 +221,84 @@ class MGGPOOptimizer:
             if self._is_better(y_b, y_a):
                 return -1
             return 0
-        va = float(np.sum(np.maximum(np.asarray(c_a, dtype=float).reshape(-1), 0.0)))
-        vb = float(np.sum(np.maximum(np.asarray(c_b, dtype=float).reshape(-1), 0.0)))
+        va = float(self._constraint_violation_scalar(np.asarray(c_a, dtype=float).reshape(1, -1))[0])
+        vb = float(self._constraint_violation_scalar(np.asarray(c_b, dtype=float).reshape(1, -1))[0])
         if va < vb - 1e-15:
             return 1
         if vb < va - 1e-15:
             return -1
         return 0
 
+    def _reshape_output_array(
+        self,
+        values: Any,
+        n_rows: int,
+        n_cols: int,
+        name: str,
+    ) -> np.ndarray:
+        arr = np.asarray(values, dtype=float)
+        if arr.size != n_rows * n_cols:
+            raise ValueError(
+                f"{name} output size mismatch: expected {n_rows * n_cols}, got {arr.size}."
+            )
+        return arr.reshape(n_rows, n_cols)
+
+    def _normalize_aux_list(self, values: Any, n: int, default: Any) -> List[Any]:
+        if values is None:
+            return [default for _ in range(n)]
+        if isinstance(values, np.ndarray):
+            values = values.tolist()
+        if isinstance(values, list):
+            if len(values) == n:
+                return values
+            if n == 1:
+                return [values]
+        return [values for _ in range(n)]
+
     def _parse_eval_output(self, out: Any, n: int) -> Dict[str, Any]:
-        """Normalize evaluator output into a structured dict."""
+        """Normalize objective-only or objective-plus-constraints output."""
         if isinstance(out, dict):
-            obj = np.asarray(out["objectives"], dtype=float).reshape(n, self.n_objectives)
-            if self.n_constraints > 0:
-                cons = np.asarray(out.get("constraints", self._empty_constraints(n)), dtype=float).reshape(n, self.n_constraints)
-            else:
-                cons = np.zeros((n, 0), dtype=float)
-            status = out.get("status", ["ok"] * n)
-            if isinstance(status, np.ndarray):
-                status = status.tolist()
+            obj = self._reshape_output_array(out["objectives"], n, self.n_objectives, "Objective")
+            cons = (
+                self._reshape_output_array(
+                    out.get("constraints", self._empty_constraints(n)),
+                    n,
+                    self.n_constraints,
+                    "Constraint",
+                )
+                if self.n_constraints > 0
+                else self._empty_constraints(n)
+            )
+            status = self._normalize_aux_list(out.get("status"), n, "ok")
             feasible = out.get("feasible", None)
             if feasible is None:
-                feasible = np.all(cons <= 0, axis=1) if self.n_constraints > 0 else np.ones(n, dtype=bool)
+                feasible = self._get_feasible_mask(cons)
             feasible = np.asarray(feasible, dtype=bool).reshape(n)
-            raw = out.get("raw", [{} for _ in range(n)])
+            raw = self._normalize_aux_list(out.get("raw"), n, {})
             return {
                 "objectives": obj,
                 "constraints": cons,
-                "status": list(status),
+                "status": status,
                 "feasible": feasible,
-                "raw": list(raw),
+                "raw": raw,
+            }
+
+        if self.n_constraints > 0:
+            if not isinstance(out, (tuple, list)) or len(out) != 2:
+                raise ValueError(
+                    "When constraint_bounds is provided, func(X) must return "
+                    "(objective_values, constraint_values)."
+                )
+            obj_raw, cons_raw = out
+            obj = self._reshape_output_array(obj_raw, n, self.n_objectives, "Objective")
+            cons = self._reshape_output_array(cons_raw, n, self.n_constraints, "Constraint")
+            feasible = self._get_feasible_mask(cons)
+            return {
+                "objectives": obj,
+                "constraints": cons,
+                "status": ["ok" if f else "infeasible" for f in feasible],
+                "feasible": feasible,
+                "raw": [{} for _ in range(n)],
             }
 
         Y = np.asarray(out, dtype=float)
@@ -233,17 +319,8 @@ class MGGPOOptimizer:
         if X.ndim == 1:
             X = X.reshape(1, -1)
         n = X.shape[0]
-        # Try structured evaluator first.
-        try:
-            out = self.func(X, return_details=True)
-            return self._parse_eval_output(out, n)
-        except TypeError:
-            out = self.func(X)
-            return self._parse_eval_output(out, n)
-        except Exception:
-            # If the evaluator internally raises for return_details, fall back once.
-            out = self.func(X)
-            return self._parse_eval_output(out, n)
+        out = self.func(X)
+        return self._parse_eval_output(out, n)
 
     def _evaluate_batch(self, X: np.ndarray) -> Dict[str, Any]:
         details = self._call_func_structured(X)
@@ -271,56 +348,6 @@ class MGGPOOptimizer:
             raise RuntimeError('No finite training rows available after NaN/Inf filtering.')
         return X_out, Y_out, C_out
 
-    def _status_allows_gp(self, status: str) -> bool:
-        """
-        仅将“仿真成功且拿到了真实物理量”的样本用于 GP 回归。
-        - ok: 真实目标/约束可用
-        - physics_infeasible: 虽不满足物理约束，但物理量真实，仍可用于目标/约束 GP
-        - simulation_error / empty_file / parse_error / missing_file: 不进入 GP 回归
-        """
-        return str(status) in {"ok", "physics_infeasible"}
-
-    def _filter_training_rows_by_status(
-        self,
-        X_np: np.ndarray,
-        Y_np: np.ndarray,
-        C_np: Optional[np.ndarray] = None,
-        status: Optional[List[str]] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], np.ndarray]:
-        X_np = np.asarray(X_np, dtype=float)
-        Y_np = np.asarray(Y_np, dtype=float)
-        if status is None:
-            status_arr = np.array(["ok"] * len(X_np), dtype=object)
-        else:
-            status_arr = np.asarray(status, dtype=object).reshape(-1)
-            if len(status_arr) != len(X_np):
-                raise ValueError(
-                    f"status length mismatch: len(status)={len(status_arr)} vs len(X)={len(X_np)}"
-                )
-
-        keep_mask = np.array([self._status_allows_gp(s) for s in status_arr], dtype=bool)
-        if not np.any(keep_mask):
-            unique_status, counts = np.unique(status_arr.astype(str), return_counts=True)
-            summary = ", ".join([f"{s}:{c}" for s, c in zip(unique_status, counts)])
-            raise RuntimeError(
-                "No GP-usable rows after status filtering. "
-                f"Observed status counts: {summary}"
-            )
-
-        X_out = X_np[keep_mask]
-        Y_out = Y_np[keep_mask]
-        status_out = status_arr[keep_mask]
-
-        C_out = None
-        if C_np is not None:
-            C_np = np.asarray(C_np, dtype=float)
-            if C_np.size > 0:
-                C_out = C_np[keep_mask]
-            else:
-                C_out = C_np.reshape(len(X_np), 0)[keep_mask]
-
-        return X_out, Y_out, C_out, status_out
-
     def _predict_constraint_means(self, X_candidates: np.ndarray) -> np.ndarray:
         if self.n_constraints == 0 or self.constraint_model is None:
             return np.zeros((len(X_candidates), 0), dtype=float)
@@ -344,7 +371,7 @@ class MGGPOOptimizer:
         probs = []
         batch_size = 1000
         with torch.no_grad():
-            for model_j in self.constraint_model.models:
+            for j, model_j in enumerate(self.constraint_model.models):
                 mu_list, std_list = [], []
                 for i in range(0, len(X_t), batch_size):
                     post = model_j.posterior(X_t[i:i+batch_size])
@@ -352,8 +379,17 @@ class MGGPOOptimizer:
                     std_list.append(torch.sqrt(post.variance.view(-1).clamp_min(1e-12)))
                 mu = torch.cat(mu_list).cpu().numpy()
                 std = torch.cat(std_list).cpu().numpy()
-                z = (0.0 - mu) / np.maximum(std, 1e-12)
-                probs.append(norm.cdf(z))
+                std = np.maximum(std, 1e-12)
+                lower, upper = (self.constraint_bounds or [])[j]
+                if lower is not None and upper is not None:
+                    p = norm.cdf((float(upper) - mu) / std) - norm.cdf((float(lower) - mu) / std)
+                elif lower is not None:
+                    p = 1.0 - norm.cdf((float(lower) - mu) / std)
+                elif upper is not None:
+                    p = norm.cdf((float(upper) - mu) / std)
+                else:
+                    p = np.ones_like(mu)
+                probs.append(np.clip(p, 0.0, 1.0))
         probs = np.vstack(probs).T
         return np.prod(probs, axis=1)
 
@@ -398,35 +434,28 @@ class MGGPOOptimizer:
         details = self._evaluate_batch(X)
         return details["objectives_internal"]
 
-    def _get_training_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _get_training_data(self):
         if self.use_all_history_for_gp:
             X_train = self.history_X
             Y_train = self.history_Y
-            C_train = self.history_C if self.n_constraints > 0 else self._empty_constraints(len(self.history_X))
-            status_train = np.asarray(self.history_status, dtype=object)
+            C_train = self.history_C if self.n_constraints > 0 else self._empty_constraints(len(X_train))
         else:
             if self.gp_history_max is None:
                 X_train = self.history_X
                 Y_train = self.history_Y
-                C_train = self.history_C if self.n_constraints > 0 else self._empty_constraints(len(self.history_X))
-                status_train = np.asarray(self.history_status, dtype=object)
+                C_train = self.history_C if self.n_constraints > 0 else self._empty_constraints(len(X_train))
             else:
                 n_keep = min(int(self.gp_history_max), len(self.history_X))
-                X_hist = self.history_X[-n_keep:]
-                Y_hist = self.history_Y[-n_keep:]
+                X_train = np.vstack([self.population_X, self.history_X[-n_keep:]])
+                Y_train = np.vstack([self.population_Y, self.history_Y[-n_keep:]])
                 C_hist = self.history_C[-n_keep:] if self.n_constraints > 0 else self._empty_constraints(n_keep)
-                status_hist = np.asarray(self.history_status[-n_keep:], dtype=object)
-
-                X_train = np.vstack([self.population_X, X_hist])
-                Y_train = np.vstack([self.population_Y, Y_hist])
                 C_train = np.vstack([self.population_C, C_hist]) if self.n_constraints > 0 else self._empty_constraints(len(X_train))
-                status_train = np.concatenate([np.asarray(self.population_status, dtype=object), status_hist])
 
-        # Remove exact/near duplicates to stabilize GP.
         X_round = np.round(X_train, 12)
         _, unique_idx = np.unique(X_round, axis=0, return_index=True)
         unique_idx = np.sort(unique_idx)
-        return X_train[unique_idx], Y_train[unique_idx], C_train[unique_idx], status_train[unique_idx]
+
+        return X_train[unique_idx], Y_train[unique_idx], C_train[unique_idx]
 
     def _fit_surrogate(self, X_np: np.ndarray, Y_np: np.ndarray, C_np: Optional[np.ndarray] = None):
         X_np, Y_np, C_np = self._sanitize_training_arrays(X_np, Y_np, C_np)
@@ -550,13 +579,18 @@ class MGGPOOptimizer:
             cand_Y = self.population_Y.copy()
             cand_C = pop_C.copy()
         else:
-            archive_C = self.archive_C if hasattr(self, "archive_C") and self.archive_C is not None else self._empty_constraints(len(self.archive_X))
+            archive_C = (
+                self.archive_C
+                if hasattr(self, "archive_C") and self.archive_C is not None
+                else self._empty_constraints(len(self.archive_X))
+            )
             cand_X = np.vstack([self.archive_X, self.population_X])
             cand_Y = np.vstack([self.archive_Y, self.population_Y])
             cand_C = np.vstack([archive_C, pop_C])
 
+        # 只保留可行解入 archive；若当前一个可行解都没有，则 archive 直接清空/返回
         if self.n_constraints > 0:
-            feas = np.all(cand_C <= 0, axis=1)
+            feas = self._get_feasible_mask(cand_C)
             if not np.any(feas):
                 self.archive_X = np.zeros((0, self.dim))
                 self.archive_Y = np.zeros((0, self.n_objectives))
@@ -580,6 +614,7 @@ class MGGPOOptimizer:
             return
 
         nd_idx = np.array(fronts[0], dtype=int)
+
         new_X = cand_X[nd_idx].copy()
         new_Y = cand_Y[nd_idx].copy()
         new_C = cand_C[nd_idx].copy()
@@ -641,10 +676,10 @@ class MGGPOOptimizer:
         idx = np.random.choice(np.arange(nA), p=probs)
         return self.archive_X[idx].copy()
     
-    def _select_by_nondom_crowding(self, X_pool: np.ndarray, Y_pool: np.ndarray, k: int, C_pool: Optional[np.ndarray] = None, return_indices: bool = False):
+    def _select_by_nondom_crowding(self, X_pool: np.ndarray, Y_pool: np.ndarray, k: int, C_pool: Optional[np.ndarray] = None):
         C_pool = self._empty_constraints(len(X_pool)) if C_pool is None else C_pool
         if self.n_constraints > 0:
-            feasible_mask = np.all(C_pool <= 0, axis=1)
+            feasible_mask = self._get_feasible_mask(C_pool)
             selected_idx: List[int] = []
             feasible_idx = np.where(feasible_mask)[0]
             infeasible_idx = np.where(~feasible_mask)[0]
@@ -677,8 +712,6 @@ class MGGPOOptimizer:
                     chosen.extend(sorted_front[: k - len(chosen)])
                     break
             chosen = np.array(chosen[:k], dtype=int)
-        if return_indices:
-            return X_pool[chosen], Y_pool[chosen], C_pool[chosen], chosen
         return X_pool[chosen], Y_pool[chosen], C_pool[chosen]
 
     def _beta_schedule(self, it: int, beta0: Optional[float] = None) -> float:
@@ -831,8 +864,7 @@ class MGGPOOptimizer:
 
     def _create_offspring(self) -> np.ndarray:
         cand = []
-        if self.m3 > 0:
-            self._best_update()
+        self._best_update()
         for i, x in enumerate(self.population_X):
             for _ in range(self.m1):
                 cand.append(self._polynomial_mutation(x))
@@ -912,7 +944,7 @@ class MGGPOOptimizer:
             return np.zeros((0, self.n_objectives), dtype=float)
 
         if self.n_constraints > 0 and len(self.history_C) > 0:
-            feas = np.all(self.history_C <= 0, axis=1)
+            feas = self._get_feasible_mask(self.history_C)
             if np.any(feas):
                 return Y_hist[feas]
 
@@ -969,7 +1001,7 @@ class MGGPOOptimizer:
             return
         Y_hist = self.history_Y
         if self.n_constraints > 0 and len(self.history_C) > 0:
-            feas = np.all(self.history_C <= 0, axis=1)
+            feas = self._get_feasible_mask(self.history_C)
             if np.any(feas):
                 Y_hist = Y_hist[feas]
         worst = np.min(Y_hist, axis=0) if len(Y_hist) > 0 else np.zeros(self.n_objectives)
@@ -981,7 +1013,7 @@ class MGGPOOptimizer:
         if self.hv_calc is None:
             self.hv_calc = Hypervolume(ref_point=self._to_torch(self.ref_point))
         if self.n_constraints > 0 and C is not None and C.size > 0:
-            feas = np.all(C <= 0, axis=1)
+            feas = self._get_feasible_mask(C)
             Y = Y[feas]
         if len(Y) == 0:
             return 0.0
@@ -1019,15 +1051,10 @@ class MGGPOOptimizer:
             if self.verbose:
                 print(f"=== Generation {gen + 1}/{self.n_generations} ===")
 
-            # fit surrogate with status-aware filtering
-            X_train, Y_train, C_train, status_train = self._get_training_data()
-            n_total_before = len(X_train)
-            X_train, Y_train, C_train, status_train = self._filter_training_rows_by_status(
-                X_train, Y_train, C_train, status_train
-            )
+            # fit surrogate with selected population
+            X_train, Y_train, C_train = self._get_training_data()
             if self.verbose:
-                n_removed = n_total_before - len(X_train)
-                print(f"GP 训练数据量: {len(X_train)} (status 过滤移除 {n_removed})")
+                print(f"GP 训练数据量: {len(X_train)}")
             self._fit_surrogate(X_train, Y_train, C_train)
 
             # b) create offspring
@@ -1051,15 +1078,9 @@ class MGGPOOptimizer:
             pool_X = np.vstack([self.population_X, x_eval])
             pool_Y = np.vstack([self.population_Y, y_eval])
             pool_C = np.vstack([self.population_C, c_eval]) if self.n_constraints > 0 else self._empty_constraints(len(pool_X))
-            pool_status = list(self.population_status) + list(eval_details["status"])
-            self.population_X, self.population_Y, self.population_C, chosen = self._select_by_nondom_crowding(
-                pool_X, pool_Y, self.pop_size, pool_C, return_indices=True
-            )
-            self.population_status = [pool_status[i] for i in chosen]
+            self.population_X, self.population_Y, self.population_C = self._select_by_nondom_crowding(pool_X, pool_Y, self.pop_size, pool_C)
             if self.n_constraints > 0:
-                self.population_feasible = np.all(self.population_C <= 0, axis=1)
-            else:
-                self.population_feasible = np.ones(len(self.population_X), dtype=bool)
+                self.population_feasible = self._get_feasible_mask(self.population_C)
 
             # update history
             self.history_X = np.vstack([self.history_X, x_eval])
@@ -1084,145 +1105,338 @@ class MGGPOOptimizer:
         if self.verbose:
             print(f"完成，总时间 {time.time() - t0:.2f}s")
 
-    #
+    def _get_display_objectives(self, Y_np: np.ndarray) -> np.ndarray:
+        """Convert internal maximization objectives back to user-facing orientation."""
+        return Y_np if self.maximize else -Y_np
+
+    def _get_feasible_pareto_data(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        """Return feasible non-dominated design points, objectives, and constraints."""
+        if len(self.history_Y) == 0:
+            empty_X = np.zeros((0, self.dim))
+            empty_Y = np.zeros((0, self.n_objectives))
+            empty_C = np.zeros((0, self.n_constraints)) if self.has_constraints else None
+            return empty_X, empty_Y, empty_C
+
+        if self.has_constraints:
+            feasible_mask = self._get_feasible_mask(self.history_C)
+            feasible_X = self.history_X[feasible_mask]
+            feasible_Y = self.history_Y[feasible_mask]
+            feasible_C = self.history_C[feasible_mask]
+        else:
+            feasible_X = self.history_X
+            feasible_Y = self.history_Y
+            feasible_C = None
+
+        if len(feasible_Y) == 0:
+            empty_X = np.zeros((0, self.dim))
+            empty_Y = np.zeros((0, self.n_objectives))
+            empty_C = np.zeros((0, self.n_constraints)) if self.has_constraints else None
+            return empty_X, empty_Y, empty_C
+
+        pareto_mask = is_non_dominated(self._to_torch(feasible_Y)).cpu().numpy()
+        pareto_X = feasible_X[pareto_mask]
+        pareto_Y = feasible_Y[pareto_mask]
+        pareto_C = feasible_C[pareto_mask] if feasible_C is not None else None
+        return pareto_X, pareto_Y, pareto_C
+
     def get_pareto_front(self) -> Tuple[np.ndarray, np.ndarray]:
-        X = self.history_X
-        Y = self.history_Y
-        if self.n_constraints > 0 and len(self.history_C) > 0:
-            feas = np.all(self.history_C <= 0, axis=1)
-            X = X[feas]
-            Y = Y[feas]
-        if len(Y) == 0:
-            return np.zeros((0, self.dim)), np.zeros((0, self.n_objectives))
-        Y_t = self._to_torch(Y)
-        mask = is_non_dominated(Y_t).cpu().numpy()
-        Xp = X[mask]
-        Yp = Y[mask]
-        if not self.maximize:
-            Yp = -Yp
-        return Xp, Yp
+        """Get feasible Pareto front and corresponding solutions."""
+        pareto_X, pareto_Y, _ = self._get_feasible_pareto_data()
+        return pareto_X, self._get_display_objectives(pareto_Y)
 
-    def plot_convergence(self, path=None):
-        plt.figure(figsize=(14, 9))
-        evals = [self.pop_size + i * self.evals_per_gen for i in range(len(self.hypervolume_history))]
+    def plot_convergence(self, path: Optional[str] = None):
+        """Plot convergence metrics in the same style as ConsMOBO."""
+        has_constraints = self.has_constraints
+        fig = plt.figure(figsize=(16, 14) if has_constraints else (15, 10))
+        nrows, ncols = (3, 2) if has_constraints else (2, 2)
+        all_Y = self._get_display_objectives(self.history_Y)
+        feasible_mask = self._get_feasible_mask() if has_constraints else np.ones(len(self.history_Y), dtype=bool)
 
-        plt.subplot(2, 2, 1)
-        plt.plot(evals, self.hypervolume_history, "o-", linewidth=2)
-        plt.xlabel("Evaluations")
-        plt.ylabel("Hypervolume")
-        plt.title("Hypervolume Convergence")
-        plt.grid(True)
+        ax1 = fig.add_subplot(nrows, ncols, 1)
+        ax1.plot(self.hypervolume_history, 'o-', linewidth=2)
+        ax1.set_xlabel('Evaluations')
+        ax1.set_ylabel('Feasible Hypervolume' if has_constraints else 'Hypervolume')
+        ax1.set_title('Hypervolume Convergence')
+        ax1.grid(True)
 
+        _, pareto_Y = self.get_pareto_front()
         if self.n_objectives == 2:
-            plt.subplot(2, 2, 2)
-            _, Yp = self.get_pareto_front()
-            all_Y = self.history_Y if self.maximize else -self.history_Y
-            plt.scatter(all_Y[:, 0], all_Y[:, 1], s=18, alpha=0.25, label="All")
-            plt.scatter(Yp[:, 0], Yp[:, 1], s=32, label="Pareto")
-            plt.xlabel("f1")
-            plt.ylabel("f2")
-            plt.title("Pareto Front")
-            plt.legend()
-            plt.grid(True)
+            ax2 = fig.add_subplot(nrows, ncols, 2)
+            if has_constraints:
+                infeasible_mask = ~feasible_mask
+                if np.any(infeasible_mask):
+                    ax2.scatter(
+                        all_Y[infeasible_mask, 0],
+                        all_Y[infeasible_mask, 1],
+                        alpha=0.3,
+                        color='gray',
+                        label='Infeasible points',
+                    )
+                if np.any(feasible_mask):
+                    ax2.scatter(
+                        all_Y[feasible_mask, 0],
+                        all_Y[feasible_mask, 1],
+                        alpha=0.4,
+                        color='tab:blue',
+                        label='Feasible points',
+                    )
+            else:
+                ax2.scatter(all_Y[:, 0], all_Y[:, 1], alpha=0.3, label='All points')
 
-        plt.subplot(2, 2, 3)
+            if len(pareto_Y) > 0:
+                ax2.scatter(
+                    pareto_Y[:, 0],
+                    pareto_Y[:, 1],
+                    color='red',
+                    s=50,
+                    label='Feasible Pareto front' if has_constraints else 'Pareto front',
+                )
+            ax2.set_xlabel('Objective 1')
+            ax2.set_ylabel('Objective 2')
+            ax2.set_title('Pareto Front')
+            ax2.legend()
+            ax2.grid(True)
+        elif self.n_objectives == 3:
+            ax2 = fig.add_subplot(nrows, ncols, 2, projection='3d')
+            if has_constraints:
+                infeasible_mask = ~feasible_mask
+                if np.any(infeasible_mask):
+                    ax2.scatter(
+                        all_Y[infeasible_mask, 0],
+                        all_Y[infeasible_mask, 1],
+                        all_Y[infeasible_mask, 2],
+                        alpha=0.3,
+                        color='gray',
+                        label='Infeasible points',
+                    )
+                if np.any(feasible_mask):
+                    ax2.scatter(
+                        all_Y[feasible_mask, 0],
+                        all_Y[feasible_mask, 1],
+                        all_Y[feasible_mask, 2],
+                        alpha=0.4,
+                        color='tab:blue',
+                        label='Feasible points',
+                    )
+            else:
+                ax2.scatter(all_Y[:, 0], all_Y[:, 1], all_Y[:, 2], alpha=0.3, label='All points')
+
+            if len(pareto_Y) > 0:
+                ax2.scatter(
+                    pareto_Y[:, 0],
+                    pareto_Y[:, 1],
+                    pareto_Y[:, 2],
+                    color='red',
+                    s=50,
+                    label='Feasible Pareto front' if has_constraints else 'Pareto front',
+                )
+            ax2.set_xlabel('Objective 1')
+            ax2.set_ylabel('Objective 2')
+            ax2.set_zlabel('Objective 3')
+            ax2.set_title('Pareto Front')
+            ax2.legend()
+        else:
+            ax2 = fig.add_subplot(nrows, ncols, 2)
+            ax2.axis('off')
+            ax2.text(0.05, 0.5, 'Pareto plot only supports 2 or 3 objectives.', fontsize=12)
+
+        ax3 = fig.add_subplot(nrows, ncols, 3)
         for i in range(self.dim):
-            plt.plot(self.history_X[:, i], ".-", label=f"x{i + 1}")
-        plt.xlabel("Evaluation index")
-        plt.ylabel("Value")
-        plt.title("Design variables")
-        plt.legend()
-        plt.grid(True)
+            ax3.plot(self.history_X[:, i], '.-', label=f'Dim {i+1}')
+        ax3.set_xlabel('Evaluations')
+        ax3.set_ylabel('Parameter values')
+        ax3.set_title('Parameter Evolution')
+        ax3.legend()
+        ax3.grid(True)
 
-        plt.subplot(2, 2, 4)
-        all_Y = self.history_Y if self.maximize else -self.history_Y
-        for j in range(self.n_objectives):
-            plt.plot(all_Y[:, j], ".-", label=f"obj{j + 1}")
-        plt.xlabel("Evaluation index")
-        plt.ylabel("Objective")
-        plt.title("Objective traces")
-        plt.legend()
-        plt.grid(True)
+        ax4 = fig.add_subplot(nrows, ncols, 4)
+        for i in range(self.n_objectives):
+            ax4.plot(all_Y[:, i], '.-', label=f'Objective {i+1}')
+        ax4.set_xlabel('Evaluations')
+        ax4.set_ylabel('Objective values')
+        ax4.set_title('Objective Values Evolution')
+        ax4.legend()
+        ax4.grid(True)
+
+        if has_constraints:
+            ax5 = fig.add_subplot(nrows, ncols, 5)
+            for i in range(self.n_constraints):
+                color = f'C{i % 10}'
+                ax5.plot(self.history_C[:, i], '.-', color=color, label=f'Constraint {i+1}')
+                lower, upper = self.constraint_bounds[i]
+                if lower is not None:
+                    ax5.axhline(lower, linestyle='--', color=color, alpha=0.6)
+                if upper is not None:
+                    ax5.axhline(upper, linestyle='--', color=color, alpha=0.6)
+            ax5.set_xlabel('Evaluations')
+            ax5.set_ylabel('Constraint values')
+            ax5.set_title('Constraint Evolution')
+            ax5.legend()
+            ax5.grid(True)
+
+            ax6 = fig.add_subplot(nrows, ncols, 6)
+            feasible_float = feasible_mask.astype(float)
+            ax6.step(np.arange(len(feasible_float)), feasible_float, where='mid')
+            ax6.set_xlabel('Evaluations')
+            ax6.set_ylabel('Feasible')
+            ax6.set_title('Feasibility History')
+            ax6.set_ylim(-0.1, 1.1)
+            ax6.set_yticks([0.0, 1.0])
+            ax6.grid(True)
 
         plt.tight_layout()
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
             path = f"save/mggpo_{timestamp}.png"
+        path_obj = Path(path)
+        if path_obj.parent != Path("."):
+            path_obj.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(path)
         plt.show()
 
     def save_history(self, path: Optional[str] = None):
+        """
+        Save optimization history, hypervolume history, Pareto front, and metadata.
+        """
         if path is None:
             timestamp = datetime.now().strftime("%Y%m%d%H%M")
-            path = f"save/mggpo_{timestamp}.dat"
+            prefix = "ConsMGGPO" if self.has_constraints else "MGGPO"
+            path = f"save/{prefix}_{timestamp}.dat"
 
-        Y_save = self.history_Y if self.maximize else -self.history_Y
-        data_parts = [self.history_X, Y_save]
-        if self.n_constraints > 0:
-            data_parts.append(self.history_C)
-            data_parts.append(self.history_feasible.reshape(-1, 1).astype(int))
-        data = np.hstack(data_parts)
-        np.savetxt(path, data, fmt="%.8f")
-        np.savetxt(path.replace(".dat", "_hv.dat"), np.asarray(self.hypervolume_history), fmt="%.8f")
+        path_obj = Path(path)
+        if path_obj.parent != Path("."):
+            path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        Y_save = self._get_display_objectives(self.history_Y)
+        data_cols = [self.history_X, Y_save]
+        if self.has_constraints:
+            feasible_col = self._get_feasible_mask().astype(float).reshape(-1, 1)
+            data_cols.extend([self.history_C, feasible_col])
+        data = np.hstack(data_cols)
+        np.savetxt(path, data, fmt="%.6f")
+
+        hv_path = path.replace('.dat', '_hypervolume.dat')
+        np.savetxt(hv_path, np.asarray(self.hypervolume_history), fmt="%.6f")
 
         Xp, Yp = self.get_pareto_front()
+        _, _, Cp = self._get_feasible_pareto_data()
         pareto_path = path.replace(".dat", "_pareto.dat")
-        if len(Xp) > 0:
-            np.savetxt(pareto_path, np.hstack([Xp, Yp]), fmt="%.8f")
+        if self.has_constraints:
+            pareto_data = (
+                np.hstack([Xp, Yp, Cp])
+                if len(Xp) > 0
+                else np.zeros((0, self.dim + self.n_objectives + self.n_constraints))
+            )
         else:
-            open(pareto_path, 'w').close()
-        if self.n_constraints > 0:
-            np.savetxt(path.replace('.dat', '_constraints.dat'), self.history_C, fmt='%.8f')
+            pareto_data = (
+                np.hstack([Xp, Yp])
+                if len(Xp) > 0
+                else np.zeros((0, self.dim + self.n_objectives))
+            )
+        np.savetxt(pareto_path, pareto_data, fmt="%.6f")
+
         print(f"Saved to {path}")
+        print(f"Hypervolume history saved to {hv_path}")
+        print(f"Pareto front saved to {pareto_path}")
+        if self.has_constraints:
+            feasible_total = int(np.sum(self._get_feasible_mask()))
+            print(f"Found {len(Xp)} feasible Pareto solutions. Total feasible evaluations: {feasible_total}")
+        else:
+            print(f"Found {len(Xp)} Pareto solutions:")
+        for i, (x, y) in enumerate(zip(Xp, Yp)):
+            print(f"{i+1}: x={x}, y={y}")
+
+        meta_path = path.replace('.dat', '_meta.txt')
+        with open(meta_path, 'w') as f:
+            f.write(f"bounds: {self.bounds}\n")
+            f.write(f"n_objectives: {self.n_objectives}\n")
+            f.write(f"kernel_type: {self.kernel_type}\n")
+            f.write(f"gp_restarts: {self.gp_restarts}\n")
+            f.write(f"acq_mode: {self.acq_mode}\n")
+            f.write(f"ref_point: {self.ref_point}\n")
+            f.write(f"maximize: {self.maximize}\n")
+            f.write(f"pop_size: {self.pop_size}\n")
+            f.write(f"evals_per_gen: {self.evals_per_gen}\n")
+            f.write(f"n_generations: {self.n_generations}\n")
+            f.write(f"m1: {self.m1}\n")
+            f.write(f"m2: {self.m2}\n")
+            f.write(f"m3: {self.m3}\n")
+            f.write(f"ucb_beta: {self.ucb_beta}\n")
+            f.write(f"ucb_beta_kwargs: {self.ucb_beta_kwargs}\n")
+            f.write(f"use_all_history_for_gp: {self.use_all_history_for_gp}\n")
+            f.write(f"gp_history_max: {self.gp_history_max}\n")
+            f.write(f"mutation_eta: {self.mutation_eta}\n")
+            f.write(f"crossover_eta: {self.crossover_eta}\n")
+            f.write(f"mutation_prob: {self.mutation_prob}\n")
+            f.write(f"crossover_prob: {self.crossover_prob}\n")
+            f.write(f"w: {self.w}\n")
+            f.write(f"c1: {self.c1}\n")
+            f.write(f"c2: {self.c2}\n")
+            f.write(f"constraint_bounds: {self.constraint_bounds}\n")
+            f.write(f"n_constraints: {self.n_constraints}\n")
+            if self.has_constraints:
+                f.write(f"feasible_evaluations: {int(np.sum(self._get_feasible_mask()))}\n")
 
 
-MultiObjectiveMGGPO = MGGPOOptimizer
+ConsMGGPOOptimizer = MultiObjectiveMGGPO
 
 
 if __name__ == "__main__":
-    def zdt1(X):
+    def constrained_zdt1(X):
+        """Constrained ZDT1-like test function for minimization."""
         if X.ndim == 1:
             X = X.reshape(1, -1)
+
         n = X.shape[1]
         f1 = X[:, 0]
         g = 1 + 9 / (n - 1) * np.sum(X[:, 1:], axis=1)
         h = 1 - np.sqrt(f1 / g)
         f2 = g * h
-        return np.vstack([f1, f2]).T
+
+        c1 = X[:, 0] + X[:, 1]  # c1 <= 0.8
+        c2 = X[:, 0]            # c2 >= 0.2
+
+        objectives = np.column_stack([f1, f2])
+        constraints = np.column_stack([c1, c2])
+        return objectives, constraints
 
     dim = 30
     bounds = np.tile([0.0, 1.0], (dim, 1))
 
-    opt = MGGPOOptimizer(
-        func=zdt1,
+    opt = MultiObjectiveMGGPO(
+        func=constrained_zdt1,
         bounds=bounds,
         n_objectives=2,
-        n_constraints=0,
+        constraint_bounds=[
+            (None, 0.8),
+            (0.2, None),
+        ],
         kernel_type="rbf",
         gp_restarts=5,
         pop_size=80,
-        acq_mode = "ucb", # 'ehvi', 'ucb', 'combine'
-        ref_point=np.array([1.0, 1.0]),  #
+        acq_mode="ucb",  # 'ehvi', 'ucb', 'combine'
+        ref_point=np.array([1, 1]),
         ucb_beta=3.0,
         ucb_beta_kwargs={"beta_strategy": "scale_decay", "beta_lam": 0.85},
         m1=20,
         m2=20,
         m3=10,
         evals_per_gen=80,
-        n_generations=10,
+        n_generations=50,
         use_all_history_for_gp=False,
-        gp_history_max = 160,
-        mutation_eta   = 20.0,
-        crossover_eta  = 20.0,
-        mutation_prob  = 0.5,
-        crossover_prob = 1,
-        w  = 0.4,   # inertia weight
-        c1 = 3.0,  # cognitive coefficient
-        c2 = 3.0,  # social coefficient
+        gp_history_max=160,
+        mutation_eta=20.0,
+        crossover_eta=20.0,
+        mutation_prob=0.5,
+        crossover_prob=1,
+        w=0.4,   # inertia weight
+        c1=3.0,  # cognitive coefficient
+        c2=3.0,  # social coefficient
         maximize=False,
         random_state=100,
         verbose=True,
-        device = 'cuda'
     )
     opt.optimize()
     opt.plot_convergence()

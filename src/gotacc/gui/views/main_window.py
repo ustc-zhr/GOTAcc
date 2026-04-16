@@ -322,7 +322,8 @@ class MainWindow(QMainWindow):
         self.machine_ui.label_statusValue.setText("Disconnected")
         self.machine_ui.checkBox_restore.setChecked(True)
         self.machine_ui.checkBox_confirm.setChecked(True)
-        self.machine_ui.doubleSpinBox_interval.setValue(0.2)
+        self.machine_ui.doubleSpinBox_setInterval.setValue(0.2)
+        self.machine_ui.doubleSpinBox_sampleInterval.setValue(0.2)
         self.machine_ui.doubleSpinBox_delta.setValue(0.10)
         self.machine_ui.doubleSpinBox_timeout.setValue(2.0)
 
@@ -375,7 +376,7 @@ class MainWindow(QMainWindow):
     def _init_task_builder_tables(self) -> None:
         variables_headers = ["Enable", "Name", "Lower", "Upper", "Initial", "Group"]
         objectives_headers = ["Enable", "Name", "Direction", "Weight", "Samples", "Math"]
-        constraints_headers = ["Enable", "Name", "Comparator", "Threshold", "Penalty"]
+        constraints_headers = ["Enable", "Name", "Lower", "Upper", "Math"]
         dynamic_headers = ["Parameter", "Value", "Type", "Description"]
 
         self._setup_table(self.task_ui.tableWidget_variables, variables_headers, 2)
@@ -399,7 +400,22 @@ class MainWindow(QMainWindow):
                 }
             ],
         )
-        self._set_table_row(self.task_ui.tableWidget_constraints, 0, ["N", "cons0", "<=", "0.0", "soft"])
+        self.task_builder_controller.fill_table_from_records(
+            self.task_ui.tableWidget_constraints,
+            [
+                {
+                    "Enable": "N",
+                    "Name": "cons0",
+                    "Lower": "",
+                    "Upper": "1.0",
+                    "Math": "mean",
+                }
+            ],
+        )
+        self.task_builder_controller.sync_algorithm_options_with_objective_type(
+            preferred_algorithm="BO",
+            update_params=False,
+        )
         self.task_builder_controller.apply_recommended_dynamic_params(
             "BO",
             preserve_custom=False,
@@ -544,7 +560,7 @@ class MainWindow(QMainWindow):
 
         self.task_ui.lineEdit_taskName.textChanged.connect(self._refresh_task_preview)
         self.task_ui.comboBox_mode.currentTextChanged.connect(self._refresh_task_preview)
-        self.task_ui.comboBox_objectiveType.currentTextChanged.connect(self._refresh_task_preview)
+        self.task_ui.comboBox_objectiveType.currentTextChanged.connect(self._on_objective_type_changed)
         self.task_ui.comboBox_algorithm.currentTextChanged.connect(self._on_algorithm_changed)
         self.task_ui.comboBox_testFunction.currentTextChanged.connect(self._refresh_task_preview)
         self.task_ui.spinBox_seed.valueChanged.connect(self._refresh_task_preview)
@@ -568,6 +584,7 @@ class MainWindow(QMainWindow):
         self.task_ui.tableWidget_constraints.itemChanged.connect(lambda *_: self._refresh_task_preview())
         self.task_ui.tableWidget_dynamicParams.itemChanged.connect(self._on_dynamic_param_table_changed)
         self.machine_ui.tableWidget_mapping.itemChanged.connect(lambda *_: self._refresh_task_preview())
+        self.machine_ui.tableWidget_mapping.itemChanged.connect(lambda *_: self.machine_controller.refresh_selected_library_tables())
         self.machine_ui.tableWidget_writeLinks.itemChanged.connect(lambda *_: self._refresh_task_preview())
 
         self.machine_ui.pushButton_connect.clicked.connect(self.connect_machine)
@@ -578,6 +595,8 @@ class MainWindow(QMainWindow):
         self.machine_ui.pushButton_clearSelectedKnobs.clicked.connect(self._clear_selected_knobs)
         self.machine_ui.pushButton_pickObjectivesFromLibrary.clicked.connect(self._open_objective_library_dialog)
         self.machine_ui.pushButton_clearSelectedObjectives.clicked.connect(self._clear_selected_objectives)
+        self.machine_ui.pushButton_pickConstraintsFromLibrary.clicked.connect(self._open_constraint_library_dialog)
+        self.machine_ui.pushButton_clearSelectedConstraints.clicked.connect(self._clear_selected_constraints)
         self.machine_ui.pushButton_applySelectedPvLibrary.clicked.connect(self._apply_selected_pv_library_entries)
         self.machine_ui.pushButton_addWriteLink.clicked.connect(self._add_write_link_row)
         self.machine_ui.pushButton_removeWriteLink.clicked.connect(self._remove_write_link_rows)
@@ -589,7 +608,8 @@ class MainWindow(QMainWindow):
         self.machine_ui.checkBox_restore.toggled.connect(self._refresh_task_preview)
         self.machine_ui.checkBox_readbackCheck.toggled.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_readbackTol.valueChanged.connect(self._refresh_task_preview)
-        self.machine_ui.doubleSpinBox_interval.valueChanged.connect(self._refresh_task_preview)
+        self.machine_ui.doubleSpinBox_setInterval.valueChanged.connect(self._refresh_task_preview)
+        self.machine_ui.doubleSpinBox_sampleInterval.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_delta.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_timeout.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.lineEdit_caAddress.textChanged.connect(self._refresh_task_preview)
@@ -600,6 +620,7 @@ class MainWindow(QMainWindow):
         self.run_ui.pushButton_resume.clicked.connect(self.resume_run)
         self.run_ui.pushButton_stop.clicked.connect(self.stop_run)
         self.run_ui.pushButton_abortRestore.clicked.connect(self.abort_and_restore)
+        self.run_ui.pushButton_restoreInitial.clicked.connect(self.restore_initial_to_machine)
         self.run_ui.pushButton_setBest.clicked.connect(self.set_best_to_machine)
 
         self.ui.treeWidget_templates.itemSelectionChanged.connect(self._update_template_details)
@@ -725,6 +746,9 @@ class MainWindow(QMainWindow):
 
     def _on_algorithm_changed(self, text: str) -> None:
         self.task_builder_controller.on_algorithm_changed(text)
+
+    def _on_objective_type_changed(self, text: str) -> None:
+        self.task_builder_controller.on_objective_type_changed(text)
 
     def _set_table_row(self, table, row: int, values) -> None:
         if table.rowCount() <= row:
@@ -997,6 +1021,12 @@ class MainWindow(QMainWindow):
     def _clear_selected_objectives(self) -> None:
         self.machine_controller.clear_selected_objectives()
 
+    def _open_constraint_library_dialog(self) -> None:
+        self.machine_controller.open_constraint_library_dialog()
+
+    def _clear_selected_constraints(self) -> None:
+        self.machine_controller.clear_selected_constraints()
+
     def _apply_selected_pv_library_entries(self) -> None:
         self.machine_controller.apply_selected_pv_library_entries()
 
@@ -1020,6 +1050,9 @@ class MainWindow(QMainWindow):
 
     def set_best_to_machine(self) -> None:
         self.run_controller.set_best_to_machine()
+
+    def restore_initial_to_machine(self) -> None:
+        self.run_controller.restore_initial_to_machine()
 
     def _update_runtime_labels(self) -> None:
         self.runtime_status_controller.update_runtime_labels()
@@ -1149,6 +1182,13 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        export_dir = Path(path).parent
+        export_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._redraw_plots()
+            self.results_controller.save_result_images(export_dir)
+        except Exception as exc:
+            self._log_warning(f"Results image export failed: {exc}")
         summary = {
             "task": self.state.latest_task_snapshot or self._current_task(),
             "run_state": self.state.latest_finish_payload.get("state", self.state.run.phase)
@@ -1158,12 +1198,12 @@ class MainWindow(QMainWindow):
             "best_x": self.state.latest_best_x,
             "history_path": self.state.latest_history_path,
             "plot_path": self.state.latest_plot_path,
+            "result_plot_paths": self.state.latest_result_plot_paths,
             "output_directory": self.state.latest_result_output_dir,
             "latest_evaluation": self.state.latest_eval_payload,
             "objective_dim": self.state.objective_dim,
             "eval_count": self.state.run.eval_count,
         }
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
         self._log_console(f"Results summary exported to: {path}")

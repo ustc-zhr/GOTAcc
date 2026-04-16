@@ -40,9 +40,10 @@ def obj_para():
     obj_weights = [-1.0, -1.0]
     obj_samples = 3
     obj_math = ["mean", "mean"]
-    interval = 1
+    set_interval = 1
+    sample_interval = 1
 
-    return obj_pvnames, obj_weights, obj_samples, obj_math, interval
+    return obj_pvnames, obj_weights, obj_samples, obj_math, set_interval, sample_interval
 
 
 def knob_para():
@@ -123,7 +124,7 @@ def task_config() -> TaskConfig:
     由 loader 直接调用 task_config() 获得完整 TaskConfig。
     """
     knobs_pvnames, knobs_bounds = knob_para()
-    obj_pvnames, obj_weights, obj_samples, obj_math, interval = obj_para()
+    obj_pvnames, obj_weights, obj_samples, obj_math, set_interval, sample_interval = obj_para()
 
     return TaskConfig(
         meta=MetaConfig(
@@ -141,7 +142,8 @@ def task_config() -> TaskConfig:
                 "obj_weights": obj_weights,
                 "obj_samples": obj_samples,
                 "obj_math": obj_math,
-                "interval": interval,
+                "set_interval": set_interval,
+                "sample_interval": sample_interval,
                 # 这几个字段由 factory.py 吸收后传给 EpicsObjective
                 "log_path": "template.opt",
                 "readback_check": False,

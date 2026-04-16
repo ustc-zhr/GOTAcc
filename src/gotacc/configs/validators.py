@@ -112,6 +112,7 @@ SUPPORTED_SINGLE_OBJECTIVE_OPTIMIZERS = {
     "bo",
     "bayesopt",
     "bayesian_optimization",
+    "consbo",
     "turbo",
     "trust_region_bo",
     "rcds",
@@ -119,6 +120,10 @@ SUPPORTED_SINGLE_OBJECTIVE_OPTIMIZERS = {
 
 SUPPORTED_MULTI_OBJECTIVE_OPTIMIZERS = {
     "mobo",
+    "consmobo",
+    "consmggpo",
+    "constrained_mggpo",
+    "constrained_mg-gpo",
     "mggpo",
     "mopso",
     "nsga2",
@@ -200,7 +205,8 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
         "obj_weights",
         "obj_samples",
         "obj_math",
-        "interval",
+        "set_interval",
+        "sample_interval",
         "combine_mode",
     ]
     _require_keys(kwargs, required_keys, what="EPICS backend.kwargs")
@@ -267,14 +273,15 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
                 f"Supported values: {sorted(SUPPORTED_OBJ_MATH)}"
             )
 
-    # interval
-    interval = kwargs["interval"]
-    try:
-        interval = float(interval)
-    except Exception as exc:
-        raise TypeError("backend.kwargs['interval'] must be numeric") from exc
-    if interval < 0:
-        raise ValueError("backend.kwargs['interval'] must be >= 0")
+    # set_interval / sample_interval
+    for key in ("set_interval", "sample_interval"):
+        interval = kwargs[key]
+        try:
+            interval = float(interval)
+        except Exception as exc:
+            raise TypeError(f"backend.kwargs['{key}'] must be numeric") from exc
+        if interval < 0:
+            raise ValueError(f"backend.kwargs['{key}'] must be >= 0")
 
     # combine_mode
     combine_mode = str(kwargs["combine_mode"]).lower()

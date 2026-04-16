@@ -90,6 +90,70 @@ class RunController:
         else:
             self.view.log_pv("Restore-on-abort is disabled for the current task.")
 
+    def restore_initial_to_machine(self) -> None:
+        if self.window.state.run.phase in {"Running", "Paused", "Stopping"}:
+            QMessageBox.information(
+                self.window,
+                "Restore Initial",
+                "Stop or finish the current run before restoring initial values.",
+            )
+            return
+        if not self.window.state.latest_initial_x:
+            QMessageBox.information(
+                self.window,
+                "Restore Initial",
+                "No saved initial knob values are available for the current run.",
+            )
+            return
+
+        task = self.view.current_task()
+        if not self.view.is_online_task(task):
+            QMessageBox.information(self.window, "Restore Initial", "Current task is not an online EPICS task.")
+            return
+        if not self.view.ensure_machine_ready_for_online(task):
+            QMessageBox.warning(self.window, "Restore Initial", "Connect the machine before writing setpoints.")
+            return
+        if self.window.machine_ui.checkBox_confirm.isChecked():
+            answer = QMessageBox.question(
+                self.window,
+                "Restore Initial",
+                "Write the saved initial knob values to the machine now?",
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+        try:
+            from gotacc.interfaces.factory import build_backend
+            from gotacc.runners.optimize import close_backend_if_possible
+
+            task_cfg = TaskService.build_task_config(task)
+            backend_task_cfg = TaskService.make_backend_build_ready_config(task_cfg)
+            backend = build_backend(backend_task_cfg)
+            variable_names = list(task_cfg.backend.kwargs.get("variable_names", []))
+            if not variable_names:
+                variable_names = list(self.window.state.latest_initial_x.keys())
+            missing = [name for name in variable_names if name not in self.window.state.latest_initial_x]
+            if missing:
+                raise ValueError(f"Saved initial values are missing variable(s): {', '.join(missing)}")
+            initial_vector = [float(self.window.state.latest_initial_x[name]) for name in variable_names]
+            if not hasattr(backend, "_apply_setpoints"):
+                raise TypeError("Current backend does not expose GUI setpoint writing support.")
+            backend._apply_setpoints(initial_vector)
+        except Exception as exc:
+            self.view.log_warning(f"Restore initial failed: {exc}")
+            QMessageBox.critical(self.window, "Restore Initial Failed", str(exc))
+            return
+        finally:
+            if "backend" in locals():
+                try:
+                    close_backend_if_possible(backend)
+                except Exception:
+                    pass
+
+        self.view.log_pv(f"Initial knob values restored: {self.window.state.latest_initial_x}")
+        self.view.log_event("Initial knob values restored to machine.")
+        QMessageBox.information(self.window, "Restore Initial", "Saved initial knob values were written to the machine.")
+
     def set_best_to_machine(self) -> None:
         if not self.window.state.latest_best_x:
             QMessageBox.information(self.window, "Set Best", "No best point is available yet.")

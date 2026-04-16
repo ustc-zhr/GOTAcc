@@ -165,6 +165,12 @@
       "pv_name": "IRFEL:BD:CT:CH4:WAV:ASUM",
       "readback": "IRFEL:BD:CT:CH4:WAV:ASUM",
       "group": "CT"
+    },
+    {
+      "name": "FEL_ENE",
+      "pv_name": "FEL:Energy",
+      "readback": "FEL:Energy",
+      "group": "Radiation"
     }
   ]
 }

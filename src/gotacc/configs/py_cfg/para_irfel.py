@@ -81,9 +81,10 @@ def obj_para():
 
     obj_samples = 3
     obj_math = ["mean", "mean"]
-    interval = 1
+    set_interval = 1
+    sample_interval = 1
 
-    return obj_pvnames, obj_weights, obj_samples, obj_math, interval
+    return obj_pvnames, obj_weights, obj_samples, obj_math, set_interval, sample_interval
 
 
 # =============================================================================
@@ -424,7 +425,7 @@ def _build_algo_section(algo_mode: str):
 # =============================================================================
 def task_config() -> TaskConfig:
     knobs_pvnames, knobs_bounds = knob_para()
-    obj_pvnames, obj_weights, obj_samples, obj_math, interval = obj_para()
+    obj_pvnames, obj_weights, obj_samples, obj_math, set_interval, sample_interval = obj_para()
 
     task_suffix, description, backend_patch, optimizer_cfg, runtime_cfg = _build_algo_section(ALGO_MODE)
 
@@ -434,7 +435,8 @@ def task_config() -> TaskConfig:
         "obj_weights": obj_weights,
         "obj_samples": obj_samples,
         "obj_math": obj_math,
-        "interval": interval,
+        "set_interval": set_interval,
+        "sample_interval": sample_interval,
 
         # 通用 EPICS backend 行为
         "log_path": "template.opt",

@@ -303,7 +303,8 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         obj_weights
         obj_samples
         obj_math
-        interval
+        set_interval
+        sample_interval
 
     常用可选字段：
         log_path
@@ -344,7 +345,10 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         obj_weights = kwargs.pop("obj_weights")
         obj_samples = kwargs.pop("obj_samples")
         obj_math = kwargs.pop("obj_math")
-        interval = kwargs.pop("interval")
+        constraint_pvnames = kwargs.pop("constraint_pvnames", [])
+        constraint_math = kwargs.pop("constraint_math", [])
+        set_interval = kwargs.pop("set_interval")
+        sample_interval = kwargs.pop("sample_interval")
     except KeyError as exc:
         raise KeyError(
             f"Missing required EPICS backend kwarg: {exc.args[0]!r}"
@@ -363,7 +367,10 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         obj_weights=obj_weights,
         obj_samples=obj_samples,
         obj_math=obj_math,
-        interval=interval,
+        constraint_pvnames=constraint_pvnames,
+        constraint_math=constraint_math,
+        set_interval=set_interval,
+        sample_interval=sample_interval,
         log_path=log_path,
         readback_check=readback_check,
         readback_tol=readback_tol,

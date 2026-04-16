@@ -31,6 +31,10 @@ backend:
     obj_math:
       - mean
       - mean
+    constraint_pvnames:
+      - PV:CONS0
+    constraint_math:
+      - mean  
 
     set_interval: 1.0
     sample_interval: 1.0
@@ -49,16 +53,26 @@ backend:
       change_threshold: 1.0e-6
 
 optimizer:
-  name: mobo
+  name: consmobo
   kwargs:
-    n_init: 8
-    n_iter: 20
-    random_state: 120
+    n_objectives: 2
+    n_init: 5
+    n_iter: 10
+    random_state: 0
     verbose: true
-    # 如果你的 MOBOOptimizer 支持这些参数，可取消注释后使用
-    # ref_point: [-1.0, -1.0]
-    # acq: ehvi
-    # batch_size: 1
+    device: cpu
+    kernel_type: matern
+    acq: qehvi
+    ref_point:
+      - 0.0
+      - 0.0
+    maximize: true
+    acq_opt_kwargs:
+      num_restarts: 8
+      raw_samples: 256
+      qehvi_batch: 1
+    constraint_bounds:
+      - [null, 100.0]
 
 runtime:
   save_history: true

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,7 +59,7 @@ class ResultsController:
         state = self.window.state
         objective_type = self.window.task_ui.comboBox_objectiveType.currentText().strip().lower()
         algorithm = self.window.task_ui.comboBox_algorithm.currentText().strip().lower()
-        if objective_type == "multi objective" or algorithm in {"mobo", "mopso", "nsga2"}:
+        if objective_type == "multi objective" or algorithm in {"mobo", "consmobo", "mopso", "nsga2"}:
             objective_dim = 2
         else:
             objective_dim = 1
@@ -157,18 +158,41 @@ class ResultsController:
         import numpy as np
 
         X = np.array(self.window.state.eval_x_history)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        variable_names = self._current_variable_names(X.shape[1])
         for canvas in targets:
             canvas.figure.clear()
             ax = canvas.figure.add_subplot(111)
 
-            for i in range(X.shape[1]):
-                ax.plot(X[:, i], label=f"x{i}")
-
+            x_axis = range(1, X.shape[0] + 1)
+            for i, name in enumerate(variable_names):
+                ax.plot(x_axis, X[:, i], ".-", linewidth=1.1, markersize=3, label=name)
             ax.set_title("Variable Trajectories")
             ax.set_xlabel("Evaluation")
             ax.set_ylabel("Value")
-            ax.legend()
+            ax.grid(True, alpha=0.3)
+            if X.shape[1] <= 30:
+                ax.legend(fontsize=7, ncol=max(1, min(4, (X.shape[1] + 7) // 8)))
+            canvas.figure.subplots_adjust(left=0.12, right=0.98, top=0.88, bottom=0.16)
             canvas.draw_idle()
+
+    def _current_variable_names(self, count: int) -> list[str]:
+        table = getattr(self.window.task_ui, "tableWidget_variables", None)
+        names: list[str] = []
+        if table is not None:
+            for row in range(table.rowCount()):
+                enabled_item = table.item(row, 0)
+                enabled = enabled_item is None or enabled_item.text().strip().lower() not in {"n", "no", "false", "0"}
+                name_item = table.item(row, 1)
+                name = name_item.text().strip() if name_item is not None else ""
+                if enabled and name:
+                    names.append(name)
+                if len(names) >= count:
+                    break
+        while len(names) < count:
+            names.append(f"x{len(names)}")
+        return names[:count]
 
     def populate_history_table(self) -> None:
         table = getattr(self.window.ui, "tableWidget_history", None)
@@ -271,6 +295,10 @@ class ResultsController:
             item = QTreeWidgetItem(["Convergence Plot", state.latest_plot_path])
             item.setData(0, Qt.UserRole, {"kind": "path", "path": state.latest_plot_path})
             artifacts.addChild(item)
+        for label, path in state.latest_result_plot_paths.items():
+            item = QTreeWidgetItem([label, path])
+            item.setData(0, Qt.UserRole, {"kind": "path", "path": path})
+            artifacts.addChild(item)
         if state.latest_result_output_dir:
             item = QTreeWidgetItem(["Output Directory", state.latest_result_output_dir])
             item.setData(0, Qt.UserRole, {"kind": "path", "path": state.latest_result_output_dir})
@@ -327,6 +355,7 @@ class ResultsController:
         rows.append(("Best Value", "--" if state.run.best_value is None else f"{state.run.best_value:.6f}"))
         rows.append(("Best Point", self.summarize_x_values(state.latest_best_x)))
         rows.append(("History Path", state.latest_history_path or "--"))
+        rows.append(("Result Images", str(len(state.latest_result_plot_paths))))
         rows.append(("Output Directory", state.latest_result_output_dir or "--"))
         if state.objective_dim > 1:
             rows.append(("Pareto Points", str(len(state.pareto_front_points) or len(state.pareto_points))))
@@ -366,9 +395,11 @@ class ResultsController:
         state.latest_task_snapshot = dict(task)
         state.latest_eval_payload.clear()
         state.latest_finish_payload.clear()
+        state.latest_initial_x.clear()
         state.latest_best_x.clear()
         state.latest_history_path = ""
         state.latest_plot_path = ""
+        state.latest_result_plot_paths.clear()
         state.pareto_front_points.clear()
         state.hypervolume_history.clear()
         state.latest_result_output_dir = str(Path(task.get("workdir", Path.cwd())).resolve())
@@ -411,3 +442,38 @@ class ResultsController:
         state.latest_result_output_dir = output_dir
         self.populate_results_tree()
         self.update_results_summary_table()
+
+    def save_result_images(self, output_dir: str | Path | None = None) -> dict[str, str]:
+        state = self.window.state
+        target_dir = Path(output_dir or state.latest_result_output_dir or Path.cwd()).resolve()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stem = self._result_artifact_stem()
+        canvases = {
+            "Results Convergence": getattr(self.window, "results_conv_canvas", None),
+            "Results Variables": getattr(self.window, "var_canvas", None),
+            "Results Pareto": getattr(self.window, "results_pareto_canvas", None),
+        }
+        suffixes = {
+            "Results Convergence": "results_convergence",
+            "Results Variables": "results_variables",
+            "Results Pareto": "results_pareto",
+        }
+        saved: dict[str, str] = {}
+        for label, canvas in canvases.items():
+            if canvas is None:
+                continue
+            path = target_dir / f"{stem}_{suffixes[label]}.png"
+            canvas.figure.savefig(str(path), dpi=160, bbox_inches="tight")
+            saved[label] = str(path)
+        state.latest_result_plot_paths = saved
+        if saved:
+            state.latest_result_output_dir = str(target_dir)
+        self.populate_results_tree()
+        self.update_results_summary_table()
+        return saved
+
+    def _result_artifact_stem(self) -> str:
+        state_task = self.window.state.latest_task_snapshot or {}
+        raw_name = str(state_task.get("task_name") or self.window.task_ui.lineEdit_taskName.text() or "task")
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name.strip()).strip("._")
+        return stem or "task"

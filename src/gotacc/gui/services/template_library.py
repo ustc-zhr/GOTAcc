@@ -21,7 +21,8 @@ def _base_machine_config() -> dict[str, Any]:
         "restore_on_abort": True,
         "readback_check": False,
         "readback_tol": 1e-6,
-        "interval": 0.2,
+        "set_interval": 0.2,
+        "sample_interval": 0.2,
         "max_delta": 0.1,
         "write_timeout": 1.0,
         "write_policy": "none",
@@ -112,6 +113,39 @@ def _online_objectives() -> list[dict[str, str]]:
     ]
 
 
+def _online_multi_objectives() -> list[dict[str, str]]:
+    return [
+        {
+            "Enable": "Y",
+            "Name": "obj0",
+            "Direction": "maximize",
+            "Weight": "1.0",
+            "Samples": "3",
+            "Math": "mean",
+        },
+        {
+            "Enable": "Y",
+            "Name": "obj1",
+            "Direction": "maximize",
+            "Weight": "1.0",
+            "Samples": "3",
+            "Math": "mean",
+        },
+    ]
+
+
+def _online_constraints() -> list[dict[str, str]]:
+    return [
+        {
+            "Enable": "Y",
+            "Name": "cons0",
+            "Lower": "",
+            "Upper": "1.0",
+            "Math": "mean",
+        }
+    ]
+
+
 def _online_mapping() -> list[dict[str, str]]:
     return [
         {
@@ -133,6 +167,43 @@ def _online_mapping() -> list[dict[str, str]]:
     ]
 
 
+def _online_constrained_multi_mapping() -> list[dict[str, str]]:
+    return [
+        {
+            "Role": "knob",
+            "Name": "k0",
+            "PV Name": "TEST:K0",
+            "Readback": "TEST:K0",
+            "Group": "main",
+            "Note": "Demo knob PV",
+        },
+        {
+            "Role": "objective",
+            "Name": "obj0",
+            "PV Name": "TEST:Y0",
+            "Readback": "TEST:Y0",
+            "Group": "metric",
+            "Note": "Demo objective PV",
+        },
+        {
+            "Role": "objective",
+            "Name": "obj1",
+            "PV Name": "TEST:Y1",
+            "Readback": "TEST:Y1",
+            "Group": "metric",
+            "Note": "Demo second objective PV",
+        },
+        {
+            "Role": "constraint",
+            "Name": "cons0",
+            "PV Name": "TEST:C0",
+            "Readback": "TEST:C0",
+            "Group": "constraint",
+            "Note": "Demo output constraint PV",
+        },
+    ]
+
+
 def _task(
     *,
     task_name: str,
@@ -144,6 +215,7 @@ def _task(
     variables: list[dict[str, str]],
     objectives: list[dict[str, str]],
     algorithm_params: list[dict[str, str]],
+    constraints: list[dict[str, str]] | None = None,
     machine: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -159,7 +231,7 @@ def _task(
         "description": description,
         "variables": variables,
         "objectives": objectives,
-        "constraints": [],
+        "constraints": constraints if constraints is not None else [],
         "algorithm_params": algorithm_params,
         "machine": machine if machine is not None else _base_machine_config(),
     }
@@ -268,7 +340,8 @@ TEMPLATE_LIBRARY: tuple[TemplateDefinition, ...] = (
             machine={
                 **_base_machine_config(),
                 "ca_address": "127.0.0.1",
-                "interval": 0.2,
+                "set_interval": 0.2,
+                "sample_interval": 0.2,
                 "objective_policies": [
                     {
                         "Enabled": "True",
@@ -302,8 +375,39 @@ TEMPLATE_LIBRARY: tuple[TemplateDefinition, ...] = (
             machine={
                 **_base_machine_config(),
                 "ca_address": "127.0.0.1",
-                "interval": 0.2,
+                "set_interval": 0.2,
+                "sample_interval": 0.2,
                 "mapping": _online_mapping(),
+            },
+        ),
+    ),
+    TemplateDefinition(
+        key="online_epics_consmggpo",
+        category="Online",
+        title="EPICS / ConsMGGPO",
+        description="Constrained multi-objective EPICS template using output constraints and MG-GPO population search.",
+        task=_task(
+            task_name="online_epics_consmggpo",
+            mode="Online EPICS",
+            objective_type="Multi Objective",
+            algorithm="ConsMGGPO",
+            description="Built-in online EPICS ConsMGGPO template with one knob, two objectives and one output constraint.",
+            variables=_online_variables(),
+            objectives=_online_multi_objectives(),
+            constraints=_online_constraints(),
+            algorithm_params=[
+                {"Parameter": "pop_size", "Value": "12", "Type": "int", "Description": "Initial population size"},
+                {"Parameter": "evals_per_gen", "Value": "6", "Type": "int", "Description": "True evaluations per generation"},
+                {"Parameter": "n_generations", "Value": "2", "Type": "int", "Description": "Generation count"},
+                {"Parameter": "acq_mode", "Value": "ucb", "Type": "str", "Description": "MGGPO acquisition mode"},
+                {"Parameter": "ref_point", "Value": "[0.0, 0.0]", "Type": "json", "Description": "Hypervolume reference point"},
+            ],
+            machine={
+                **_base_machine_config(),
+                "ca_address": "127.0.0.1",
+                "set_interval": 0.2,
+                "sample_interval": 0.2,
+                "mapping": _online_constrained_multi_mapping(),
             },
         ),
     ),

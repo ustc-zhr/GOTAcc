@@ -49,16 +49,24 @@ GOTACC_ROOT = CURRENT_DIR.parents[2]
 
 ALGORITHM_INIT_SOURCES = {
     "BO": (GOTACC_ROOT / "algorithms" / "single_objective" / "bo.py", "BOOptimizer"),
+    "ConsBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "consbo.py", "ConsBOOptimizer"),
     "TuRBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "turbo.py", "TuRBOOptimizer"),
     "MOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mobo.py", "MOBOOptimizer"),
+    "ConsMOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmobo.py", "ConsMOBOOptimizer"),
+    "ConsMGGPO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmggpo.py", "ConsMGGPOOptimizer"),
+    "MGGPO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mggpo.py", "MGGPOOptimizer"),
     "MOPSO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mopso.py", "MOPSOOptimizer"),
     "NSGA-II": (GOTACC_ROOT / "algorithms" / "multi_objective" / "nsga2.py", "NSGA2Optimizer"),
 }
 
 EXCLUDED_INIT_PARAMS = {
     "BO": {"self", "func", "bounds", "random_state", "n_iter"},
+    "ConsBO": {"self", "func", "bounds", "random_state", "n_iter", "constraint_bounds"},
     "TuRBO": {"self", "func", "bounds", "random_state", "n_iter"},
     "MOBO": {"self", "func", "bounds", "random_state", "n_objectives", "n_iter", "maximize"},
+    "ConsMOBO": {"self", "func", "bounds", "random_state", "n_objectives", "n_iter", "maximize", "constraint_bounds"},
+    "ConsMGGPO": {"self", "func", "bounds", "random_state", "n_objectives", "maximize", "constraint_bounds"},
+    "MGGPO": {"self", "func", "bounds", "random_state", "n_objectives", "n_constraints", "maximize"},
     "MOPSO": {"self", "func", "bounds", "random_state", "n_objectives", "maximize"},
     "NSGA-II": {"self", "func", "bounds", "random_state", "n_objectives", "maximize"},
 }
@@ -71,6 +79,7 @@ PARAM_NOTES = {
     "acq_para_kwargs": "Additional acquisition parameter kwargs as JSON.",
     "acq_optimizer": "Acquisition optimizer name.",
     "acq_opt_kwargs": "Acquisition optimizer kwargs as JSON.",
+    "acq_mode": "MGGPO acquisition mode: ucb, ehvi or combine.",
     "n_init": "Initial design size. Total evaluations are still capped by Max Evaluations.",
     "device": "Torch device name, for example cpu or cuda.",
     "dtype": "Torch dtype name, for example float64.",
@@ -82,6 +91,14 @@ PARAM_NOTES = {
     "ref_point": "Reference point as JSON array.",
     "pop_size": "Population size.",
     "n_generations": "Generation count. Budget is still clipped by Max Evaluations.",
+    "evals_per_gen": "MGGPO true evaluations selected from each generated offspring pool.",
+    "m1": "MGGPO mutation offspring count.",
+    "m2": "MGGPO crossover offspring count.",
+    "m3": "MGGPO PSO-assisted offspring count.",
+    "ucb_beta": "MGGPO UCB exploration coefficient.",
+    "ucb_beta_kwargs": "MGGPO beta schedule kwargs as JSON.",
+    "use_all_history_for_gp": "Use all evaluated points for GP fitting instead of recent/history-filtered data.",
+    "gp_history_max": "Maximum recent history rows used for GP fitting. Leave blank for all available rows.",
     "w": "PSO inertia weight.",
     "c1": "PSO cognitive coefficient.",
     "c2": "PSO social coefficient.",
@@ -119,12 +136,46 @@ ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
         "acq_para_kwargs": {"beta_strategy": "inv_decay", "beta_lam": 0.01},
         "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "n_candidates": 8192},
     },
+    "ConsBO": {
+        "acq": "ei",
+        "acq_para_kwargs": {"beta_strategy": "inv_decay", "beta_lam": 0.01},
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "n_candidates": 8192},
+    },
     "TuRBO": {
         "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 512, "n_candidates": 8192},
     },
     "MOBO": {
         "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "qehvi_batch": 1},
         "ref_point": [0.0, 0.0],
+    },
+    "ConsMOBO": {
+        "acq": "qehvi",
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "qehvi_batch": 1},
+        "ref_point": [0.0, 0.0],
+    },
+    "ConsMGGPO": {
+        "pop_size": 50,
+        "evals_per_gen": 50,
+        "n_generations": 2,
+        "acq_mode": "ucb",
+        "ref_point": [0.0, 0.0],
+        "ucb_beta_kwargs": {"beta_strategy": "scale_decay", "beta_lam": 0.85},
+        "gp_history_max": 100,
+        "mutation_prob": 0.5,
+        "c1": 3.0,
+        "c2": 3.0,
+    },
+    "MGGPO": {
+        "pop_size": 50,
+        "evals_per_gen": 50,
+        "n_generations": 2,
+        "acq_mode": "ucb",
+        "ref_point": [0.0, 0.0],
+        "ucb_beta_kwargs": {"beta_strategy": "scale_decay", "beta_lam": 0.85},
+        "gp_history_max": 100,
+        "mutation_prob": 0.5,
+        "c1": 3.0,
+        "c2": 3.0,
     },
     "MOPSO": {
         "ref_point": [0.0, 0.0],
@@ -135,6 +186,13 @@ ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
 }
 
 OBJECTIVE_MATH_OPTIONS = ("mean", "std")
+
+SINGLE_OBJECTIVE_ALGORITHMS = ("BO", "ConsBO", "TuRBO")
+MULTI_OBJECTIVE_ALGORITHMS = ("MOBO", "ConsMOBO", "MGGPO", "ConsMGGPO", "MOPSO", "NSGA-II")
+ALGORITHM_OBJECTIVE_TYPE = {
+    **{name: "Single Objective" for name in SINGLE_OBJECTIVE_ALGORITHMS},
+    **{name: "Multi Objective" for name in MULTI_OBJECTIVE_ALGORITHMS},
+}
 
 
 def _safe_eval_ast(node: ast.AST):
@@ -200,6 +258,7 @@ class TaskBuilderController:
         self._algorithm_param_specs_cache: dict[str, list[tuple[str, str, str, str]]] = {}
         self._algorithm_overrides_expanded = False
         self._algorithm_detail_dialog: AlgorithmDetailDialog | None = None
+        self._syncing_objective_algorithm = False
         self._last_bounds_preview = ""
         self._bounds_dialog: BoundsToolsDialog | None = None
         self._bounds_tool_state: dict[str, object] = {
@@ -216,11 +275,54 @@ class TaskBuilderController:
         lowered = text.lower()
         if lowered == "turbo":
             return "TuRBO"
+        if lowered == "consbo":
+            return "ConsBO"
         if lowered == "mobo":
             return "MOBO"
+        if lowered == "consmobo":
+            return "ConsMOBO"
+        if lowered in {"consmggpo", "constrained mggpo", "constrained_mggpo", "constrained mg-gpo", "constrained_mg-gpo"}:
+            return "ConsMGGPO"
+        if lowered in {"mggpo", "mg-gpo"}:
+            return "MGGPO"
         if lowered == "bo":
             return "BO"
         return text
+
+    def objective_type_for_algorithm(self, algorithm_text: str) -> str:
+        algorithm = self.algorithm_template_key(algorithm_text)
+        return ALGORITHM_OBJECTIVE_TYPE.get(algorithm, "Single Objective")
+
+    def algorithms_for_objective_type(self, objective_type_text: str) -> tuple[str, ...]:
+        text = str(objective_type_text or "").strip().lower()
+        if text == "multi objective":
+            return MULTI_OBJECTIVE_ALGORITHMS
+        return SINGLE_OBJECTIVE_ALGORITHMS
+
+    def sync_algorithm_options_with_objective_type(
+        self,
+        *,
+        preferred_algorithm: str | None = None,
+        update_params: bool = True,
+    ) -> str:
+        objective_type = self.window.task_ui.comboBox_objectiveType.currentText()
+        allowed = self.algorithms_for_objective_type(objective_type)
+        combo = self.window.task_ui.comboBox_algorithm
+        previous = self.algorithm_template_key(preferred_algorithm or combo.currentText())
+        selected = previous if previous in allowed else allowed[0]
+
+        old_state = combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItems(list(allowed))
+            combo.setCurrentText(selected)
+        finally:
+            combo.blockSignals(old_state)
+
+        if update_params and previous != selected and not self.window._suppress_autofill:
+            self.apply_recommended_dynamic_params(selected, preserve_custom=False, log_change=True)
+            self.update_algorithm_guidance()
+        return selected
 
     def dynamic_table_records(self):
         return self._parameter_table_records(self.window.task_ui.tableWidget_dynamicParams)
@@ -528,7 +630,10 @@ class TaskBuilderController:
 
         recommended_records = []
         for name, default, dtype, note in recommended:
-            value_text, stored_dtype, stored_note = current_lookup.get(name, (str(default), dtype, note))
+            if preserve_custom:
+                value_text, stored_dtype, stored_note = current_lookup.get(name, (str(default), dtype, note))
+            else:
+                value_text, stored_dtype, stored_note = str(default), dtype, note
             recommended_records.append(
                 [
                     name,
@@ -597,10 +702,40 @@ class TaskBuilderController:
         self._algorithm_detail_dialog = None
 
     def on_algorithm_changed(self, text: str) -> None:
+        if self._syncing_objective_algorithm:
+            return
+        expected_objective_type = self.objective_type_for_algorithm(text)
+        current_objective_type = self.window.task_ui.comboBox_objectiveType.currentText()
+        if expected_objective_type != current_objective_type:
+            self._syncing_objective_algorithm = True
+            try:
+                self.window.task_ui.comboBox_objectiveType.setCurrentText(expected_objective_type)
+                self.sync_algorithm_options_with_objective_type(
+                    preferred_algorithm=text,
+                    update_params=False,
+                )
+            finally:
+                self._syncing_objective_algorithm = False
         if self.window._suppress_autofill:
             return
         self.apply_recommended_dynamic_params(text, preserve_custom=False, log_change=True)
         self.update_algorithm_guidance()
+
+    def on_objective_type_changed(self, text: str) -> None:
+        if self._syncing_objective_algorithm:
+            return
+        previous_algorithm = self.window.task_ui.comboBox_algorithm.currentText()
+        selected_algorithm = self.sync_algorithm_options_with_objective_type(
+            preferred_algorithm=previous_algorithm,
+            update_params=not self.window._suppress_autofill,
+        )
+        if not self.window._suppress_autofill:
+            if self.algorithm_template_key(previous_algorithm) != selected_algorithm:
+                self.view.log_console(
+                    f"Objective Type changed to {text}; Algorithm switched to {selected_algorithm}."
+                )
+            self.update_algorithm_guidance()
+            self.refresh_task_preview()
 
     def on_dynamic_param_table_changed(self) -> None:
         self.render_algorithm_param_form(self.window.task_ui.comboBox_algorithm.currentText())
@@ -614,7 +749,7 @@ class TaskBuilderController:
         return headers
 
     def _install_objective_math_widgets(self, table) -> None:
-        if table is not self.window.task_ui.tableWidget_objectives:
+        if table not in {self.window.task_ui.tableWidget_objectives, self.window.task_ui.tableWidget_constraints}:
             return
         headers = self.table_headers(table)
         if "Math" not in headers:
@@ -1196,6 +1331,10 @@ class TaskBuilderController:
             self.window.task_ui.comboBox_objectiveType.setCurrentText(
                 str(task.get("objective_type", "Single Objective"))
             )
+            self.sync_algorithm_options_with_objective_type(
+                preferred_algorithm=str(task.get("algorithm", "BO")),
+                update_params=False,
+            )
             self.window.task_ui.comboBox_algorithm.setCurrentText(str(task.get("algorithm", "BO")))
             test_function = str(task.get("test_function", "rosenbrock")).strip().lower() or "rosenbrock"
             test_function_index = self.window.task_ui.comboBox_testFunction.findText(
@@ -1217,8 +1356,8 @@ class TaskBuilderController:
                 task.get("algorithm_params", []),
             )
             self.apply_recommended_dynamic_params(
-                str(task.get("algorithm", "BO")),
-                preserve_custom=False,
+                self.window.task_ui.comboBox_algorithm.currentText(),
+                preserve_custom=True,
                 log_change=False,
             )
 
@@ -1230,7 +1369,8 @@ class TaskBuilderController:
             self.window.machine_ui.doubleSpinBox_readbackTol.setValue(
                 float(machine.get("readback_tol", 1e-6) or 0.0)
             )
-            self.window.machine_ui.doubleSpinBox_interval.setValue(float(machine.get("interval", 0.2)))
+            self.window.machine_ui.doubleSpinBox_setInterval.setValue(float(machine.get("set_interval", 0.2)))
+            self.window.machine_ui.doubleSpinBox_sampleInterval.setValue(float(machine.get("sample_interval", 0.2)))
             self.window.machine_ui.doubleSpinBox_delta.setValue(float(machine.get("max_delta", 0.1)))
             self.window.machine_ui.doubleSpinBox_timeout.setValue(float(machine.get("write_timeout", 2.0)))
             self.window.machine_ui.comboBox_policy.setCurrentText(
@@ -1260,6 +1400,7 @@ class TaskBuilderController:
         self.window.task_ui.lineEdit_taskName.setText("offline_task")
         self.window.task_ui.comboBox_mode.setCurrentText("Offline")
         self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
+        self.sync_algorithm_options_with_objective_type(preferred_algorithm="BO", update_params=False)
         self.window.task_ui.comboBox_algorithm.setCurrentText("BO")
         self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
         self.refresh_task_preview()
@@ -1271,6 +1412,7 @@ class TaskBuilderController:
         self.window.task_ui.lineEdit_taskName.setText("online_task")
         self.window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
         self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
+        self.sync_algorithm_options_with_objective_type(preferred_algorithm="TuRBO", update_params=False)
         self.window.task_ui.comboBox_algorithm.setCurrentText("TuRBO")
         self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
         self.refresh_task_preview()
@@ -1383,7 +1525,7 @@ class TaskBuilderController:
                 f"Current parameter mapping could not be derived for {normalized_name}: {exc}"
             )
 
-        if algorithm in {"bo", "turbo", "mobo"}:
+        if algorithm in {"bo", "consbo", "turbo", "mobo", "consmobo"}:
             n_init = int(kwargs.get("n_init", 0))
             n_iter = int(kwargs.get("n_iter", 0))
             iter_cost = int(TaskService._bo_iteration_eval_cost(task, dyn, algorithm))
@@ -1401,7 +1543,22 @@ class TaskBuilderController:
             )
 
         pop_size = int(kwargs.get("pop_size", 0))
+        evals_per_gen = int(kwargs.get("evals_per_gen", pop_size))
         n_generations = int(kwargs.get("n_generations", 0))
+        if algorithm in {"mggpo", "consmggpo"}:
+            planned = pop_size + n_generations * evals_per_gen
+            slack = max(0, max_evals - planned)
+            slack_text = (
+                f" Budget slack: {slack} evaluation(s) remain unused because generations consume fixed batches."
+                if slack
+                else ""
+            )
+            label = "ConsMGGPO" if algorithm == "consmggpo" else "MGGPO"
+            return (
+                f"{label} spends one population to initialize and evals_per_gen per generation.\n"
+                f"Total planned evaluations = pop_size ({pop_size}) + n_generations ({n_generations}) x evals_per_gen ({evals_per_gen}) = {planned} / {max_evals}.{slack_text}"
+            )
+
         planned = pop_size * (1 + n_generations)
         slack = max(0, max_evals - planned)
         slack_text = (
@@ -1444,35 +1601,52 @@ class TaskBuilderController:
                 f"Current TuRBO step cost follows n_trust_regions={trust_regions}. "
                 "The top-level Batch Size field is not used by the current TuRBO runner."
             )
-        if algorithm == "mobo":
+        if algorithm in {"mobo", "consmobo"}:
             acq = str(dyn.get("acq", "ehvi")).strip().lower()
             if "q" in acq:
+                label = "ConsMOBO" if algorithm == "consmobo" else "MOBO"
                 return (
-                    f"Current MOBO step cost follows acquisition={acq} with q-batch={iter_cost}. "
+                    f"Current {label} step cost follows acquisition={acq} with q-batch={iter_cost}. "
                     "The GUI uses Batch Size as the fallback q-batch value."
                 )
+            label = "ConsMOBO" if algorithm == "consmobo" else "MOBO"
             return (
-                f"Current MOBO acquisition={acq} evaluates one new point per iteration. "
+                f"Current {label} acquisition={acq} evaluates one new point per iteration. "
                 "Batch Size only matters for q-acquisition variants."
             )
+        if algorithm == "consbo":
+            return "Current ConsBO wiring evaluates one constrained point per iteration after the initial design."
         return "Current BO wiring evaluates one new point per iteration after the initial design."
 
     def _batch_size_tooltip(self, algorithm: str) -> str:
-        if algorithm == "mobo":
+        if algorithm in {"mobo", "consmobo"}:
+            label = "ConsMOBO" if algorithm == "consmobo" else "MOBO"
+            suffix = (
+                "ConsMOBO currently supports constrained qEHVI/qNEHVI."
+                if algorithm == "consmobo"
+                else "With EHVI, each iteration still adds one point."
+            )
             return (
-                "For MOBO, this acts as the fallback q-batch size when acquisition is qEHVI/qNEHVI. "
-                "With EHVI, each iteration still adds one point."
+                f"For {label}, this acts as the fallback q-batch size when acquisition is qEHVI/qNEHVI. "
+                f"{suffix}"
             )
         if algorithm == "turbo":
             return (
                 "The current TuRBO runner does not use this field directly. "
                 "Per-iteration cost comes from the dynamic parameter n_trust_regions."
             )
-        if algorithm in {"mopso", "nsga2"}:
+        if algorithm in {"consmggpo", "mopso", "nsga2"}:
+            if algorithm == "consmggpo":
+                return (
+                    "ConsMGGPO does not use this field to define budget. "
+                    "Use pop_size, evals_per_gen and n_generations instead."
+                )
             return (
                 "Population algorithms do not use this field to define budget. "
                 "Use pop_size and n_generations instead."
             )
+        if algorithm == "consbo":
+            return "Current ConsBO wiring uses single-point constrained iterations; this field is reserved."
         return "Current BO wiring uses single-point iterations; this field is reserved for future batch BO support."
 
     def _dynamic_params_tooltip(self, algorithm: str) -> str:
@@ -1484,6 +1658,12 @@ class TaskBuilderController:
             return common + " For TuRBO, n_trust_regions determines the per-iteration evaluation cost."
         if algorithm == "mobo":
             return common + " For MOBO, qEHVI/qNEHVI batch behavior is configured through acq_opt_kwargs or the top-level Batch Size fallback."
+        if algorithm == "consmobo":
+            return common + " For ConsMOBO, constraints come from Task Builder constraints and Machine PV Mapping; qEHVI/qNEHVI batch behavior is configured through acq_opt_kwargs or Batch Size."
+        if algorithm == "consmggpo":
+            return common + " For ConsMGGPO, constraints come from Task Builder constraints and Machine PV Mapping; total evaluations scale with pop_size and evals_per_gen per generation."
+        if algorithm == "consbo":
+            return common + " For ConsBO, constraints come from Task Builder constraints and Machine PV Mapping."
         if algorithm in {"mopso", "nsga2"}:
             return common + " For population algorithms, total evaluations scale as pop_size x (1 + n_generations)."
         return common

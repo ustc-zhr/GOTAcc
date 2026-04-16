@@ -42,6 +42,10 @@ class RuntimeStatusController:
         self.window.run_ui.pushButton_resume.setEnabled(resume)
         self.window.run_ui.pushButton_stop.setEnabled(stop)
         self.window.run_ui.pushButton_abortRestore.setEnabled(not start)
+        if hasattr(self.window.run_ui, "pushButton_restoreInitial"):
+            self.window.run_ui.pushButton_restoreInitial.setEnabled(
+                bool(start and self.window.state.latest_initial_x)
+            )
         self.window.run_ui.pushButton_setBest.setEnabled(self.window.state.run.best_value is not None)
 
     def set_run_phase(self, text: str) -> None:
@@ -83,3 +87,7 @@ class RuntimeStatusController:
                 f"{run.phase} · {run.eval_count} evaluation(s) · best {best_text} · feasibility {run.feasibility_ratio:.2f}"
             )
         self.window.run_ui.pushButton_setBest.setEnabled(run.best_value is not None)
+        if hasattr(self.window.run_ui, "pushButton_restoreInitial"):
+            self.window.run_ui.pushButton_restoreInitial.setEnabled(
+                bool(run.phase not in {"Running", "Paused", "Stopping"} and self.window.state.latest_initial_x)
+            )

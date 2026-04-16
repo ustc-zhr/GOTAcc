@@ -72,12 +72,14 @@
          <item row="2" column="1"><widget class="QCheckBox" name="checkBox_readbackCheck"><property name="text"><string>Verify knob readback after write</string></property></widget></item>
          <item row="3" column="0"><widget class="QLabel" name="label_readbackTol"><property name="text"><string>Readback Tol</string></property></widget></item>
          <item row="3" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_readbackTol"><property name="decimals"><number>8</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.000001000000000</double></property><property name="value"><double>0.000001000000000</double></property></widget></item>
-         <item row="4" column="0"><widget class="QLabel" name="label_interval"><property name="text"><string>Interval [s]</string></property></widget></item>
-         <item row="4" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_interval"><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>0.200000000000000</double></property></widget></item>
-         <item row="5" column="0"><widget class="QLabel" name="label_delta"><property name="text"><string>Max Delta</string></property></widget></item>
-         <item row="5" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_delta"><property name="maximum"><double>999999999.000000000000000</double></property></widget></item>
-         <item row="6" column="0"><widget class="QLabel" name="label_timeout"><property name="text"><string>Timeout [s]</string></property></widget></item>
-         <item row="6" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_timeout"><property name="maximum"><double>999999999.000000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
+         <item row="4" column="0"><widget class="QLabel" name="label_setInterval"><property name="text"><string>Set Interval [s]</string></property></widget></item>
+         <item row="4" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_setInterval"><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>0.200000000000000</double></property></widget></item>
+         <item row="5" column="0"><widget class="QLabel" name="label_sampleInterval"><property name="text"><string>Sample Interval [s]</string></property></widget></item>
+         <item row="5" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_sampleInterval"><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>0.200000000000000</double></property></widget></item>
+         <item row="6" column="0"><widget class="QLabel" name="label_delta"><property name="text"><string>Max Delta</string></property></widget></item>
+         <item row="6" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_delta"><property name="maximum"><double>999999999.000000000000000</double></property></widget></item>
+         <item row="7" column="0"><widget class="QLabel" name="label_timeout"><property name="text"><string>Timeout [s]</string></property></widget></item>
+         <item row="7" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_timeout"><property name="maximum"><double>999999999.000000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
         </layout>
        </item>
       </layout>
@@ -151,7 +153,7 @@
             <item>
              <widget class="QPushButton" name="pushButton_pickKnobsFromLibrary">
               <property name="text">
-               <string>Select Knobs From Library...</string>
+               <string>Select Knobs</string>
               </property>
              </widget>
             </item>
@@ -163,13 +165,16 @@
              </widget>
             </item>
             <item>
-             <spacer name="horizontalSpacer_pvPickerMid">
+             <spacer name="horizontalSpacer_pvPickerKnobObjective">
               <property name="orientation">
                <enum>Qt::Horizontal</enum>
               </property>
+              <property name="sizeType">
+               <enum>QSizePolicy::Fixed</enum>
+              </property>
               <property name="sizeHint" stdset="0">
                <size>
-                <width>20</width>
+                <width>24</width>
                 <height>20</height>
                </size>
               </property>
@@ -178,7 +183,7 @@
             <item>
              <widget class="QPushButton" name="pushButton_pickObjectivesFromLibrary">
               <property name="text">
-               <string>Select Objectives From Library...</string>
+               <string>Select Objectives</string>
               </property>
              </widget>
             </item>
@@ -188,15 +193,58 @@
                <string>Clear Objectives</string>
               </property>
              </widget>
+           </item>
+            <item>
+             <spacer name="horizontalSpacer_pvPickerObjectiveConstraint">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeType">
+               <enum>QSizePolicy::Fixed</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>24</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
             </item>
-           </layout>
-          </item>
+            <item>
+             <widget class="QPushButton" name="pushButton_pickConstraintsFromLibrary">
+              <property name="text">
+               <string>Select Constraints</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="pushButton_clearSelectedConstraints">
+              <property name="text">
+               <string>Clear Constraints</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_constraintPicker">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+          </layout>
+         </item>
           <item>
            <widget class="QFrame" name="frame_selectedLibrarySummary">
             <property name="frameShape">
              <enum>QFrame::StyledPanel</enum>
             </property>
-            <layout class="QVBoxLayout" name="verticalLayout_selectedLibrarySummary">
+            <layout class="QHBoxLayout" name="horizontalLayout_selectedLibrarySummary">
              <item>
               <widget class="QLabel" name="label_selectedKnobsSummary">
                 <property name="text">
@@ -211,6 +259,16 @@
               <widget class="QLabel" name="label_selectedObjectivesSummary">
                 <property name="text">
                 <string>Mapped Objectives: none</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="label_selectedConstraintsSummary">
+                <property name="text">
+                <string>Mapped Constraints: none</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
