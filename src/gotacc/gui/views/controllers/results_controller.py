@@ -2,11 +2,22 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PyQt5.QtCore import QUrl, Qt
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem, QTreeWidgetItem, QVBoxLayout
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTreeWidgetItem,
+    QVBoxLayout,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
@@ -23,6 +34,7 @@ class ResultsController:
         tree.setColumnCount(2)
         tree.setHeaderLabels(["Run / Artifact", "Path / Value"])
         tree.header().setStretchLastSection(True)
+        self._ensure_pareto_solution_controls()
         self.populate_results_tree()
         self.update_results_summary_table()
 
@@ -54,6 +66,48 @@ class ResultsController:
         canvas = self.canvas_class(frame)
         layout.addWidget(canvas)
         return canvas
+
+    def _ensure_pareto_solution_controls(self) -> None:
+        if hasattr(self.window.ui, "tableWidget_paretoSolutions"):
+            return
+        layout = getattr(self.window.ui, "verticalLayout_pareto", None)
+        if layout is None:
+            return
+
+        group = QGroupBox("Pareto Solutions", self.window.ui.tab_pareto)
+        group_layout = QVBoxLayout(group)
+        hint = QLabel(
+            "Select one Pareto solution to inspect its objectives, constraints and machine setpoints.",
+            group,
+        )
+        hint.setWordWrap(True)
+        group_layout.addWidget(hint)
+
+        table = QTableWidget(group)
+        table.setObjectName("tableWidget_paretoSolutions")
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["Index", "Feasible", "Objectives", "Constraints", "Variables"])
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.itemSelectionChanged.connect(self.on_pareto_solution_selection_changed)
+        table.horizontalHeader().setStretchLastSection(True)
+        group_layout.addWidget(table)
+
+        actions = QHBoxLayout()
+        button = QPushButton("Write Selected Pareto Point to Machine", group)
+        button.setObjectName("pushButton_writeSelectedPareto")
+        button.setEnabled(False)
+        button.clicked.connect(self.window.set_selected_pareto_to_machine)
+        actions.addStretch(1)
+        actions.addWidget(button)
+        group_layout.addLayout(actions)
+
+        layout.addWidget(group)
+        self.window.ui.groupBox_paretoSolutions = group
+        self.window.ui.label_paretoSolutionsHint = hint
+        self.window.ui.tableWidget_paretoSolutions = table
+        self.window.ui.pushButton_writeSelectedPareto = button
 
     def reset_plot_data(self) -> None:
         state = self.window.state
@@ -248,6 +302,183 @@ class ResultsController:
             return "--"
         return ", ".join(f"{k}={float(v):.6g}" for k, v in x_values.items())
 
+    def _format_vector(self, prefix: str, values: list[float] | tuple[float, ...] | None) -> str:
+        if not values:
+            return "--"
+        return ", ".join(f"{prefix}{i}={float(v):.6g}" for i, v in enumerate(values))
+
+    def _coerce_float_list(self, value: Any) -> list[float]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple)):
+            return [float(v) for v in value]
+        return [float(value)]
+
+    def _coerce_bool(self, value: Any, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"true", "1", "yes", "y", "on", "feasible"}:
+            return True
+        if text in {"false", "0", "no", "n", "off", "infeasible"}:
+            return False
+        return default
+
+    def _row_enabled(self, row: dict[str, Any]) -> bool:
+        value = row.get("Enabled", "")
+        if value == "":
+            return True
+        return self._coerce_bool(value, default=True)
+
+    def _pareto_variable_names(self, count: int) -> list[str]:
+        task = self.window.state.latest_task_snapshot or self.view.current_task()
+        names: list[str] = []
+        for row in task.get("variables", []) or []:
+            if not isinstance(row, dict) or not self._row_enabled(row):
+                continue
+            name = str(row.get("Name", "")).strip()
+            names.append(name or f"x{len(names)}")
+            if len(names) >= count:
+                break
+        if len(names) < count:
+            names = self._current_variable_names(count)
+        while len(names) < count:
+            names.append(f"x{len(names)}")
+        return names[:count]
+
+    def _build_pareto_solutions(self, payload: dict) -> list[dict[str, Any]]:
+        pareto_x = payload.get("pareto_x") or []
+        pareto_y = payload.get("pareto_y") or []
+        if not isinstance(pareto_x, list) or not isinstance(pareto_y, list):
+            return []
+        count = min(len(pareto_x), len(pareto_y))
+        if count == 0:
+            return []
+
+        first_x = self._coerce_float_list(pareto_x[0])
+        variable_names = self._pareto_variable_names(len(first_x))
+        feasible_values = payload.get("pareto_feasible") or []
+        constraint_values = payload.get("pareto_constraints") or []
+
+        solutions: list[dict[str, Any]] = []
+        for i in range(count):
+            x_vec = self._coerce_float_list(pareto_x[i])
+            y_vec = self._coerce_float_list(pareto_y[i])
+            names = variable_names
+            if len(names) < len(x_vec):
+                names = [*names, *[f"x{j}" for j in range(len(names), len(x_vec))]]
+            x_dict = {names[j]: float(x_vec[j]) for j in range(len(x_vec))}
+            if isinstance(feasible_values, list) and i < len(feasible_values):
+                feasible = self._coerce_bool(feasible_values[i], default=True)
+            else:
+                feasible = True
+            constraints = []
+            if isinstance(constraint_values, list) and i < len(constraint_values):
+                constraints = self._coerce_float_list(constraint_values[i])
+            solutions.append(
+                {
+                    "index": i,
+                    "x": x_dict,
+                    "x_values": x_vec,
+                    "y": y_vec,
+                    "constraints": constraints,
+                    "feasible": feasible,
+                }
+            )
+        return solutions
+
+    def populate_pareto_solution_table(self) -> None:
+        table = getattr(self.window.ui, "tableWidget_paretoSolutions", None)
+        if table is None or not self.view.qobj_alive(table):
+            return
+
+        solutions = self.window.state.latest_pareto_solutions
+        was_blocked = table.blockSignals(True)
+        try:
+            table.clearSelection()
+            table.setRowCount(len(solutions))
+            for row, solution in enumerate(solutions):
+                values = [
+                    str(solution.get("index", row)),
+                    "yes" if solution.get("feasible", True) else "no",
+                    self._format_vector("f", solution.get("y", [])),
+                    self._format_vector("c", solution.get("constraints", [])),
+                    self.summarize_x_values(solution.get("x", {})),
+                ]
+                for col, value in enumerate(values):
+                    item = QTableWidgetItem(value)
+                    if col == 0:
+                        item.setTextAlignment(Qt.AlignCenter)
+                        item.setData(Qt.UserRole, int(solution.get("index", row)))
+                    table.setItem(row, col, item)
+        finally:
+            table.blockSignals(was_blocked)
+        table.resizeColumnsToContents()
+        self._sync_pareto_write_button()
+
+    def selected_pareto_solution(self) -> dict[str, Any] | None:
+        table = getattr(self.window.ui, "tableWidget_paretoSolutions", None)
+        selected_index = self.window.state.selected_pareto_index
+        if table is not None and self.view.qobj_alive(table):
+            selected_rows = table.selectionModel().selectedRows() if table.selectionModel() else []
+            if selected_rows:
+                row = int(selected_rows[0].row())
+                item = table.item(row, 0)
+                if item is not None and item.data(Qt.UserRole) is not None:
+                    selected_index = int(item.data(Qt.UserRole))
+        if selected_index is None:
+            return None
+        for solution in self.window.state.latest_pareto_solutions:
+            if int(solution.get("index", -1)) == int(selected_index):
+                return solution
+        return None
+
+    def on_pareto_solution_selection_changed(self) -> None:
+        solution = self.selected_pareto_solution()
+        self.window.state.selected_pareto_index = (
+            None if solution is None else int(solution.get("index", 0))
+        )
+        self._sync_pareto_write_button()
+        if solution is not None:
+            self.show_pareto_solution_details(solution)
+
+    def show_pareto_solution_details(self, solution: dict[str, Any]) -> None:
+        inspector = getattr(self.window.ui, "tableWidget_solutionInspector", None)
+        if not self.view.qobj_alive(inspector):
+            return
+        rows = [
+            ("Selected Pareto", str(solution.get("index", "--"))),
+            ("Feasible", "yes" if solution.get("feasible", True) else "no"),
+            ("Objectives", self._format_vector("f", solution.get("y", []))),
+            ("Constraints", self._format_vector("c", solution.get("constraints", []))),
+            ("Point", self.summarize_x_values(solution.get("x", {}))),
+        ]
+        inspector.setRowCount(0)
+        for field, value in rows:
+            row = inspector.rowCount()
+            inspector.insertRow(row)
+            self.view.set_table_row(inspector, row, [field, value])
+
+    def _sync_pareto_write_button(self) -> None:
+        button = getattr(self.window.ui, "pushButton_writeSelectedPareto", None)
+        if button is None or not self.view.qobj_alive(button):
+            return
+        solution = self.selected_pareto_solution()
+        task = self.window.state.latest_task_snapshot or self.view.current_task()
+        is_online = self.view.is_online_task(task)
+        feasible = bool(solution and solution.get("feasible", True))
+        button.setEnabled(bool(solution and feasible and is_online))
+        if not solution:
+            button.setToolTip("Select a Pareto solution first.")
+        elif not is_online:
+            button.setToolTip("Writing to machine is available for Online EPICS tasks.")
+        elif not feasible:
+            button.setToolTip("This Pareto point is marked infeasible and will not be written.")
+        else:
+            button.setToolTip("Write the selected Pareto point's variables to the machine.")
+
     def populate_results_tree(self) -> None:
         state = self.window.state
         tree = self.window.ui.treeWidget_runList
@@ -397,12 +628,15 @@ class ResultsController:
         state.latest_finish_payload.clear()
         state.latest_initial_x.clear()
         state.latest_best_x.clear()
+        state.latest_pareto_solutions.clear()
+        state.selected_pareto_index = None
         state.latest_history_path = ""
         state.latest_plot_path = ""
         state.latest_result_plot_paths.clear()
         state.pareto_front_points.clear()
         state.hypervolume_history.clear()
         state.latest_result_output_dir = str(Path(task.get("workdir", Path.cwd())).resolve())
+        self.populate_pareto_solution_table()
         self.populate_results_tree()
         self.update_results_summary_table()
 
@@ -420,6 +654,8 @@ class ResultsController:
         best_x = payload.get("best_x")
         if isinstance(best_x, dict) and best_x:
             state.latest_best_x = dict(best_x)
+        state.latest_pareto_solutions = self._build_pareto_solutions(payload)
+        state.selected_pareto_index = None
         pareto_y = payload.get("pareto_y")
         if isinstance(pareto_y, list):
             state.pareto_front_points = [
@@ -440,6 +676,7 @@ class ResultsController:
         elif state.latest_task_snapshot:
             output_dir = str(Path(state.latest_task_snapshot.get("workdir", Path.cwd())).resolve())
         state.latest_result_output_dir = output_dir
+        self.populate_pareto_solution_table()
         self.populate_results_tree()
         self.update_results_summary_table()
 

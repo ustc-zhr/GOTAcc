@@ -197,6 +197,8 @@ class EngineWorker(QObject):
 
             pareto_x = None
             pareto_y = None
+            pareto_feasible = None
+            pareto_constraints = None
             hypervolume_history = None
             if not self._single_objective:
                 if hasattr(optimizer, "get_pareto_front"):
@@ -204,6 +206,8 @@ class EngineWorker(QObject):
                         pareto_x, pareto_y = optimizer.get_pareto_front()
                     except Exception:
                         pareto_x, pareto_y = None, None
+                if pareto_x is not None:
+                    pareto_feasible, pareto_constraints = self._pareto_metadata(optimizer, pareto_x)
                 hv_raw = getattr(optimizer, "hypervolume_history", None)
                 if hv_raw is not None:
                     try:
@@ -222,6 +226,8 @@ class EngineWorker(QObject):
                 "optimize_result": optimize_result,
                 "pareto_x": None if pareto_x is None else np.asarray(pareto_x, dtype=float).tolist(),
                 "pareto_y": None if pareto_y is None else np.asarray(pareto_y, dtype=float).tolist(),
+                "pareto_feasible": pareto_feasible,
+                "pareto_constraints": pareto_constraints,
                 "hypervolume_history": hypervolume_history,
             }
             self.sig_finished.emit(payload)
@@ -427,6 +433,62 @@ class EngineWorker(QObject):
         if len(arrs[0]) == 1:
             return np.asarray([a[0] for a in arrs], dtype=float).reshape(-1, 1)
         return np.vstack(arrs)
+
+    def _pareto_metadata(self, optimizer: Any, pareto_x: Any) -> tuple[list[bool] | None, list[list[float]] | None]:
+        Xp = np.asarray(pareto_x, dtype=float)
+        if Xp.size == 0:
+            return [], []
+        if Xp.ndim == 1:
+            Xp = Xp.reshape(1, -1)
+
+        feasible = np.ones(Xp.shape[0], dtype=bool)
+        constraints: list[list[float]] = [[] for _ in range(Xp.shape[0])]
+
+        hist_X_raw = getattr(optimizer, "history_X", None)
+        if hist_X_raw is None:
+            return feasible.tolist(), constraints
+
+        hist_X = np.asarray(hist_X_raw, dtype=float)
+        if hist_X.ndim == 1:
+            hist_X = hist_X.reshape(1, -1)
+        if hist_X.size == 0 or hist_X.shape[1] != Xp.shape[1]:
+            return feasible.tolist(), constraints
+
+        hist_C_raw = getattr(optimizer, "history_C", None)
+        hist_C = None
+        if hist_C_raw is not None:
+            hist_C = np.asarray(hist_C_raw, dtype=float)
+            if hist_C.ndim == 1:
+                hist_C = hist_C.reshape(-1, 1)
+            if hist_C.shape[0] != hist_X.shape[0] or hist_C.shape[1] == 0:
+                hist_C = None
+
+        hist_feasible = None
+        if hasattr(optimizer, "_get_feasible_mask") and hist_C is not None:
+            try:
+                hist_feasible = np.asarray(optimizer._get_feasible_mask(hist_C), dtype=bool).reshape(-1)
+            except Exception:
+                hist_feasible = None
+        if hist_feasible is None:
+            raw_feasible = getattr(optimizer, "history_feasible", None)
+            if raw_feasible is not None:
+                hist_feasible = np.asarray(raw_feasible, dtype=bool).reshape(-1)
+        if hist_feasible is not None and hist_feasible.shape[0] != hist_X.shape[0]:
+            hist_feasible = None
+
+        for i, x in enumerate(Xp):
+            matches = np.where(
+                np.all(np.isclose(hist_X, x.reshape(1, -1), rtol=1e-7, atol=1e-9), axis=1)
+            )[0]
+            if matches.size == 0:
+                continue
+            idx = int(matches[-1])
+            if hist_feasible is not None:
+                feasible[i] = bool(hist_feasible[idx])
+            if hist_C is not None:
+                constraints[i] = hist_C[idx].astype(float).reshape(-1).tolist()
+
+        return feasible.tolist(), constraints
 
     def _x_to_dict(self, x: np.ndarray) -> Dict[str, float]:
         arr = np.asarray(x, dtype=float).reshape(-1)

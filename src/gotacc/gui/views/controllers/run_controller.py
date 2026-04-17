@@ -204,6 +204,97 @@ class RunController:
         self.view.log_pv(f"Best point written to machine: best={best_text}")
         QMessageBox.information(self.window, "Set Best", f"Best point written to machine.\nBest={best_text}")
 
+    def set_selected_pareto_to_machine(self) -> None:
+        solution = self.window.results_controller.selected_pareto_solution()
+        if not solution:
+            QMessageBox.information(
+                self.window,
+                "Set Pareto Point",
+                "Select a Pareto point first.",
+            )
+            return
+        if not bool(solution.get("feasible", True)):
+            QMessageBox.warning(
+                self.window,
+                "Set Pareto Point",
+                "The selected Pareto point is marked infeasible and will not be written.",
+            )
+            return
+
+        task = self.window.state.latest_task_snapshot or self.view.current_task()
+        if not self.view.is_online_task(task):
+            QMessageBox.information(
+                self.window,
+                "Set Pareto Point",
+                "Current task is not an online EPICS task.",
+            )
+            return
+        if not self.view.ensure_machine_ready_for_online(task):
+            QMessageBox.warning(
+                self.window,
+                "Set Pareto Point",
+                "Connect the machine before writing setpoints.",
+            )
+            return
+        if self.window.machine_ui.checkBox_confirm.isChecked():
+            answer = QMessageBox.question(
+                self.window,
+                "Set Pareto Point",
+                "Write the selected Pareto point to the machine now?",
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+        try:
+            from gotacc.interfaces.factory import build_backend
+            from gotacc.runners.optimize import close_backend_if_possible
+
+            task_cfg = TaskService.build_task_config(task)
+            backend_task_cfg = TaskService.make_backend_build_ready_config(task_cfg)
+            backend = build_backend(backend_task_cfg)
+            variable_names = list(task_cfg.backend.kwargs.get("variable_names", []))
+
+            x_dict = solution.get("x", {}) if isinstance(solution.get("x", {}), dict) else {}
+            x_values = solution.get("x_values", [])
+            if variable_names and x_dict:
+                missing = [name for name in variable_names if name not in x_dict]
+                if missing:
+                    raise ValueError(
+                        "Selected Pareto point is missing variable(s): "
+                        + ", ".join(missing)
+                    )
+                vector = [float(x_dict[name]) for name in variable_names]
+            elif x_values:
+                vector = [float(v) for v in x_values]
+            else:
+                raise ValueError("Selected Pareto point has no writable variable vector.")
+
+            if not hasattr(backend, "_apply_setpoints"):
+                raise TypeError("Current backend does not expose GUI setpoint writing support.")
+            backend._apply_setpoints(vector)
+        except Exception as exc:
+            self.view.log_warning(f"Set Pareto point failed: {exc}")
+            QMessageBox.critical(self.window, "Set Pareto Point Failed", str(exc))
+            return
+        finally:
+            if "backend" in locals():
+                try:
+                    close_backend_if_possible(backend)
+                except Exception:
+                    pass
+
+        objective_text = ", ".join(
+            f"f{i}={float(v):.6g}" for i, v in enumerate(solution.get("y", []))
+        ) or "--"
+        self.view.log_pv(
+            f"Selected Pareto point written to machine: index={solution.get('index')}, objectives={objective_text}"
+        )
+        QMessageBox.information(
+            self.window,
+            "Set Pareto Point",
+            f"Selected Pareto point written to machine.\nObjectives={objective_text}",
+        )
+
     def on_session_log(self, message: str) -> None:
         self.view.log_event(message)
 

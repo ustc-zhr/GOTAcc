@@ -1051,6 +1051,9 @@ class MainWindow(QMainWindow):
     def set_best_to_machine(self) -> None:
         self.run_controller.set_best_to_machine()
 
+    def set_selected_pareto_to_machine(self) -> None:
+        self.run_controller.set_selected_pareto_to_machine()
+
     def restore_initial_to_machine(self) -> None:
         self.run_controller.restore_initial_to_machine()
 
