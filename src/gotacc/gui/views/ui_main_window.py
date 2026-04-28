@@ -744,7 +744,7 @@ class Ui_MainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "GOTAcc Studio"))
         self.label_appTitle.setText(_translate("MainWindow", "GOTAcc Studio"))
-        self.label_appSubtitle.setText(_translate("MainWindow", "Optimization Workbench for Accelerator Applications"))
+        self.label_appSubtitle.setText(_translate("MainWindow", ""))
         self.groupBox_primaryNav.setTitle(_translate("MainWindow", "Workspace"))
         __sortingEnabled = self.listWidget_navPages.isSortingEnabled()
         self.listWidget_navPages.setSortingEnabled(False)

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
@@ -14,7 +14,7 @@ if TYPE_CHECKING:  # pragma: no cover
 try:
     from ...services.pv_library import PVLibraryDocument, PVLibraryItem, load_pv_library_file
     from ...services.task_service import TaskService
-    from ..tool_dialogs import PVLibrarySelectorDialog
+    from ..tool_dialogs import PVLibrarySelectorDialog, PVMappingSelectorDialog
 except ImportError:  # pragma: no cover - local script fallback
     CURRENT_DIR = Path(__file__).resolve().parent
     GUI_ROOT = CURRENT_DIR.parents[1]
@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - local script fallback
             sys.path.insert(0, str(path))
     from pv_library import PVLibraryDocument, PVLibraryItem, load_pv_library_file
     from task_service import TaskService
-    from tool_dialogs import PVLibrarySelectorDialog
+    from tool_dialogs import PVLibrarySelectorDialog, PVMappingSelectorDialog
 
 
 class MachineController:
@@ -38,8 +38,74 @@ class MachineController:
         return configs_dir if configs_dir.exists() else Path.cwd()
 
     def init_machine_page(self) -> None:
+        self._configure_simplified_machine_page()
         self.refresh_selected_library_tables()
         self.refresh_machine_summary()
+
+    def _configure_simplified_machine_page(self) -> None:
+        ui = self.window.machine_ui
+        if hasattr(ui, "tab_advancedMachine"):
+            return
+
+        self._configure_pv_mapping_actions()
+        self._move_advanced_machine_controls()
+
+    def _configure_pv_mapping_actions(self) -> None:
+        ui = self.window.machine_ui
+        select_button = QPushButton("Select PVs...", ui.frame_pvPresetLibrary)
+        select_button.setObjectName("pushButton_selectPvs")
+        select_button.setToolTip("Load a PV library if needed, then choose knobs, objectives and constraints in one flow.")
+        select_button.clicked.connect(self.open_pv_mapping_dialog)
+        ui.horizontalLayout_pvLibraryControls.insertWidget(0, select_button)
+        ui.pushButton_selectPvs = select_button
+
+        ui.pushButton_loadPvLibrary.setVisible(False)
+        for widget in (
+            ui.pushButton_pickKnobsFromLibrary,
+            ui.pushButton_clearSelectedKnobs,
+            ui.pushButton_pickObjectivesFromLibrary,
+            ui.pushButton_clearSelectedObjectives,
+            ui.pushButton_pickConstraintsFromLibrary,
+            ui.pushButton_clearSelectedConstraints,
+            ui.label_pvLibrarySource,
+            ui.label_pvLibrarySummary,
+            ui.frame_selectedLibrarySummary,
+        ):
+            widget.setVisible(False)
+
+    def _move_advanced_machine_controls(self) -> None:
+        ui = self.window.machine_ui
+        main_tabs = ui.tabWidget_machine
+
+        for page in (ui.tab_writePolicy, ui.tab_objectivePolicy):
+            index = main_tabs.indexOf(page)
+            if index >= 0:
+                main_tabs.removeTab(index)
+
+        ui.groupBox_guard.setParent(None)
+
+        advanced_page = QWidget(main_tabs)
+        advanced_page.setObjectName("tab_advancedMachine")
+        advanced_layout = QVBoxLayout(advanced_page)
+        advanced_tabs = QTabWidget(advanced_page)
+        advanced_tabs.setObjectName("tabWidget_machineAdvanced")
+        advanced_layout.addWidget(advanced_tabs)
+
+        safeguards_page = QWidget(advanced_tabs)
+        safeguards_page.setObjectName("tab_safeguardsAdvanced")
+        safeguards_layout = QVBoxLayout(safeguards_page)
+        safeguards_layout.addWidget(ui.groupBox_guard)
+        ui.groupBox_guard.show()
+
+        advanced_tabs.addTab(safeguards_page, "Safeguards")
+        advanced_tabs.addTab(ui.tab_writePolicy, "Write Links")
+        advanced_tabs.addTab(ui.tab_objectivePolicy, "Objective Policy")
+        main_tabs.addTab(advanced_page, "Advanced")
+        main_tabs.setCurrentWidget(ui.tab_mapping)
+
+        ui.tab_advancedMachine = advanced_page
+        ui.tabWidget_machineAdvanced = advanced_tabs
+        ui.tab_safeguardsAdvanced = safeguards_page
 
     @staticmethod
     def _mapping_row_value(row: dict, key: str, default: str = "") -> str:
@@ -216,7 +282,7 @@ class MachineController:
         if apply_button is not None:
             apply_button.setEnabled(bool(mapped_knobs or mapped_objectives or mapped_constraints))
 
-    def load_external_pv_library(self) -> None:
+    def load_external_pv_library(self) -> bool:
         path, _ = QFileDialog.getOpenFileName(
             self.window,
             "Load Machine PV Library",
@@ -224,19 +290,70 @@ class MachineController:
             "PV libraries (*.json *.yaml *.yml)",
         )
         if not path:
-            return
+            return False
         try:
             document = load_pv_library_file(path)
         except Exception as exc:
             QMessageBox.critical(self.window, "Load Machine PV Library", str(exc))
             self.view.log_warning(f"Failed to load PV library {Path(path).name}: {exc}")
-            return
+            return False
 
         self._loaded_pv_library = document
         self.refresh_selected_library_tables()
         self.view.log_console(f"Loaded machine PV library from {path}.")
         self.view.append_overview_activity("Machine", status=f"Loaded PV library {Path(path).name}.")
         self.view.status_message(f"Loaded PV library: {Path(path).name}", 4000)
+        return True
+
+    def open_pv_mapping_dialog(self) -> None:
+        if self._loaded_pv_library is None and not self.load_external_pv_library():
+            return
+        if self._loaded_pv_library is None:
+            return
+
+        dialog = PVMappingSelectorDialog(
+            knob_entries=list(self._loaded_pv_library.knobs),
+            objective_entries=list(self._loaded_pv_library.objectives),
+            constraint_entries=list(self._loaded_pv_library.objectives),
+            current_keys=self._current_mapping_keys_by_role(),
+            source_label=str(self._loaded_pv_library.source),
+            parent=self.window,
+        )
+        if dialog.exec_() != dialog.Accepted:
+            return
+
+        selected = dialog.selected_entries_by_role()
+        self._rewrite_mapping_rows(
+            knob_rows=self._entries_to_mapping_rows(selected["knob"], role="knob"),
+            objective_rows=self._entries_to_mapping_rows(selected["objective"], role="objective"),
+            constraint_rows=self._entries_to_mapping_rows(selected["constraint"], role="constraint"),
+        )
+        self.view.log_console(
+            "Updated PV Mapping from selector: "
+            f"{len(selected['knob'])} knob(s), "
+            f"{len(selected['objective'])} objective(s), "
+            f"{len(selected['constraint'])} constraint(s)."
+        )
+        self.view.append_overview_activity(
+            "Machine",
+            status=(
+                f"Selected {len(selected['knob'])} knob, "
+                f"{len(selected['objective'])} objective, "
+                f"{len(selected['constraint'])} constraint PV row(s)."
+            ),
+        )
+
+    def _current_mapping_keys_by_role(self) -> dict[str, set[str]]:
+        keys = {"knob": set(), "objective": set(), "constraint": set()}
+        for row in TaskService.table_to_records(self.window.machine_ui.tableWidget_mapping):
+            role = self._normalize_mapping_role(self._mapping_row_value(row, "Role"))
+            if role not in keys:
+                continue
+            for field in ("Name", "PV Name"):
+                value = self._mapping_row_value(row, field).lower()
+                if value:
+                    keys[role].add(value)
+        return keys
 
     def _open_library_dialog(
         self,

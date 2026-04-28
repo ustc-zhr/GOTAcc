@@ -5,7 +5,19 @@ from datetime import datetime
 from typing import Callable
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QAbstractItemView, QDialog, QMessageBox, QTableWidgetItem
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QMessageBox,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QTableWidgetSelectionRange,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from .ui_dialog_algorithm_detail import Ui_AlgorithmDetailDialog
@@ -103,6 +115,127 @@ class PVLibrarySelectorDialog(QDialog):
             return []
         rows = sorted({index.row() for index in selection_model.selectedRows()})
         return [self._visible_entries[row] for row in rows if 0 <= row < len(self._visible_entries)]
+
+
+class PVMappingSelectorDialog(QDialog):
+    ROLE_TITLES = {
+        "knob": "Knobs",
+        "objective": "Objectives",
+        "constraint": "Constraints",
+    }
+
+    def __init__(
+        self,
+        *,
+        knob_entries: list[PVLibraryItem],
+        objective_entries: list[PVLibraryItem],
+        constraint_entries: list[PVLibraryItem],
+        current_keys: dict[str, set[str]] | None = None,
+        source_label: str = "",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Select PV Mapping")
+        self.resize(980, 660)
+
+        self._entries = {
+            "knob": list(knob_entries),
+            "objective": list(objective_entries),
+            "constraint": list(constraint_entries),
+        }
+        self._current_keys = current_keys or {}
+        self._tables: dict[str, QTableWidget] = {}
+
+        layout = QVBoxLayout(self)
+        intro = QLabel(
+            "Select PV rows for each role, then apply them into the Machine PV Mapping table. "
+            "Leaving a role empty clears that role from the mapping.",
+            self,
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        if source_label:
+            source = QLabel(f"Library: {source_label}", self)
+            source.setWordWrap(True)
+            layout.addWidget(source)
+
+        tabs = QTabWidget(self)
+        for role in ("knob", "objective", "constraint"):
+            tabs.addTab(self._build_role_tab(role), self.ROLE_TITLES[role])
+        layout.addWidget(tabs)
+
+        self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        self.buttonBox.accepted.connect(self._accept_with_confirmation)
+        self.buttonBox.rejected.connect(self.reject)
+        layout.addWidget(self.buttonBox)
+
+    def _build_role_tab(self, role: str) -> QWidget:
+        tab = QWidget(self)
+        layout = QVBoxLayout(tab)
+        table = QTableWidget(tab)
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["Name", "PV Name", "Readback", "Group", "Note"])
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.MultiSelection)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(table)
+        self._tables[role] = table
+        self._populate_table(role)
+        return tab
+
+    def _populate_table(self, role: str) -> None:
+        table = self._tables[role]
+        entries = self._entries[role]
+        table.setRowCount(len(entries))
+        current_keys = self._current_keys.get(role, set())
+        for row, entry in enumerate(entries):
+            values = [entry.name, entry.pv_name, entry.readback, entry.group, entry.note]
+            for col, value in enumerate(values):
+                table.setItem(row, col, QTableWidgetItem(str(value)))
+            if self._entry_matches_current(entry, current_keys):
+                table.setRangeSelected(
+                    QTableWidgetSelectionRange(row, 0, row, table.columnCount() - 1),
+                    True,
+                )
+        table.resizeColumnsToContents()
+
+    @staticmethod
+    def _entry_matches_current(entry: PVLibraryItem, current_keys: set[str]) -> bool:
+        return (
+            str(entry.name).strip().lower() in current_keys
+            or str(entry.pv_name).strip().lower() in current_keys
+        )
+
+    def selected_entries(self, role: str) -> list[PVLibraryItem]:
+        table = self._tables.get(role)
+        if table is None or table.selectionModel() is None:
+            return []
+        entries = self._entries.get(role, [])
+        rows = sorted({index.row() for index in table.selectionModel().selectedRows()})
+        return [entries[row] for row in rows if 0 <= row < len(entries)]
+
+    def selected_entries_by_role(self) -> dict[str, list[PVLibraryItem]]:
+        return {
+            role: self.selected_entries(role)
+            for role in ("knob", "objective", "constraint")
+        }
+
+    def _accept_with_confirmation(self) -> None:
+        selected = self.selected_entries_by_role()
+        if any(selected.values()):
+            self.accept()
+            return
+        answer = QMessageBox.question(
+            self,
+            self.windowTitle(),
+            "No PV rows are selected. Clear all PV Mapping roles?",
+        )
+        if answer == QMessageBox.Yes:
+            self.accept()
 
 
 class BoundsToolsDialog(QDialog):

@@ -21,9 +21,8 @@ def _base_machine_config() -> dict[str, Any]:
         "restore_on_abort": True,
         "readback_check": False,
         "readback_tol": 1e-6,
-        "set_interval": 0.2,
+        "set_interval": 1.0,
         "sample_interval": 0.2,
-        "max_delta": 0.1,
         "write_timeout": 1.0,
         "write_policy": "none",
         "objective_policies": [],
@@ -340,7 +339,7 @@ TEMPLATE_LIBRARY: tuple[TemplateDefinition, ...] = (
             machine={
                 **_base_machine_config(),
                 "ca_address": "127.0.0.1",
-                "set_interval": 0.2,
+                "set_interval": 1.0,
                 "sample_interval": 0.2,
                 "objective_policies": [
                     {
@@ -375,7 +374,7 @@ TEMPLATE_LIBRARY: tuple[TemplateDefinition, ...] = (
             machine={
                 **_base_machine_config(),
                 "ca_address": "127.0.0.1",
-                "set_interval": 0.2,
+                "set_interval": 1.0,
                 "sample_interval": 0.2,
                 "mapping": _online_mapping(),
             },
@@ -405,7 +404,7 @@ TEMPLATE_LIBRARY: tuple[TemplateDefinition, ...] = (
             machine={
                 **_base_machine_config(),
                 "ca_address": "127.0.0.1",
-                "set_interval": 0.2,
+                "set_interval": 1.0,
                 "sample_interval": 0.2,
                 "mapping": _online_constrained_multi_mapping(),
             },

@@ -375,7 +375,7 @@ class TaskService:
         ref_point = dyn.get("ref_point", None)
 
         if algorithm in {"bo", "consbo", "turbo", "mobo", "consmobo"}:
-            n_init = max(1, int(dyn.get("n_init", min(8, max_evals))))
+            n_init = max(1, int(dyn.get("n_init", min(20, max_evals))))
             n_init = min(n_init, max_evals)
             iter_eval_cost = TaskService._bo_iteration_eval_cost(task, dyn, algorithm)
             # Keep the total BO-style budget aligned with the GUI max_evaluations setting,
@@ -609,7 +609,6 @@ class TaskService:
                 "readback_tol": machine_ui.doubleSpinBox_readbackTol.value(),
                 "set_interval": machine_ui.doubleSpinBox_setInterval.value(),
                 "sample_interval": machine_ui.doubleSpinBox_sampleInterval.value(),
-                "max_delta": machine_ui.doubleSpinBox_delta.value(),
                 "write_timeout": machine_ui.doubleSpinBox_timeout.value(),
                 "write_policy": machine_ui.comboBox_policy.currentText(),
                 "objective_policies": TaskService.table_to_records(machine_ui.tableWidget_objectivePolicies),
@@ -1112,7 +1111,7 @@ class TaskService:
             "obj_math": obj_math,
             "constraint_pvnames": constraint_pvnames,
             "constraint_math": constraint_math,
-            "set_interval": float(machine.get("set_interval", 0.2)),
+            "set_interval": float(machine.get("set_interval", 1.0)),
             "sample_interval": float(machine.get("sample_interval", 0.2)),
             "log_path": str(Path(task.get("workdir", Path.cwd())) / "save" / f"{task.get('task_name', 'task')}.opt"),
             "readback_check": readback_check,

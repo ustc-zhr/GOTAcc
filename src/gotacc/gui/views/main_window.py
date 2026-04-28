@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
         self.ui.listWidget_navPages.setCurrentRow(self.PAGE_OVERVIEW)
         self.ui.stackedWidget_pages.setCurrentIndex(self.PAGE_OVERVIEW)
         self.ui.listWidget_navPages.setSpacing(8)
+        self.ui.label_appSubtitle.setVisible(False)
         self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
         self.ui.tabWidget_runWorkspace.setCurrentIndex(self.RUN_TAB_LIVE)
 
@@ -322,9 +323,8 @@ class MainWindow(QMainWindow):
         self.machine_ui.label_statusValue.setText("Disconnected")
         self.machine_ui.checkBox_restore.setChecked(True)
         self.machine_ui.checkBox_confirm.setChecked(True)
-        self.machine_ui.doubleSpinBox_setInterval.setValue(0.2)
+        self.machine_ui.doubleSpinBox_setInterval.setValue(1.0)
         self.machine_ui.doubleSpinBox_sampleInterval.setValue(0.2)
-        self.machine_ui.doubleSpinBox_delta.setValue(0.10)
         self.machine_ui.doubleSpinBox_timeout.setValue(2.0)
 
         self.run_ui.label_evalValue.setText("0")
@@ -501,8 +501,16 @@ class MainWindow(QMainWindow):
         self.results_controller.on_history_row_clicked(row)
 
     def _init_dashboard(self) -> None:
+        self._configure_dashboard_layout()
         self._refresh_overview_activity_table()
         self._refresh_overview_readiness()
+
+    def _configure_dashboard_layout(self) -> None:
+        self.ui.frame_dashboardHero.setVisible(False)
+        self.ui.groupBox_dashboardSummary.setTitle("Current Task")
+        self.ui.label_recentActivityHint.setVisible(False)
+        self.ui.label_readinessHint.setVisible(False)
+        self.ui.label_recentActivityEmpty.setText("No recent activity.")
 
     def _init_theme_menu(self) -> None:
         self._theme_action_group = QActionGroup(self)
@@ -610,7 +618,6 @@ class MainWindow(QMainWindow):
         self.machine_ui.doubleSpinBox_readbackTol.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_setInterval.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_sampleInterval.valueChanged.connect(self._refresh_task_preview)
-        self.machine_ui.doubleSpinBox_delta.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_timeout.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.lineEdit_caAddress.textChanged.connect(self._refresh_task_preview)
         self.machine_ui.tableWidget_objectivePolicies.itemChanged.connect(lambda *_: self._refresh_task_preview())
@@ -846,7 +853,7 @@ class MainWindow(QMainWindow):
         if online_task:
             self.ui.label_readinessMachineValue.setText(machine_status)
         else:
-            self.ui.label_readinessMachineValue.setText("Not required (offline)")
+            self.ui.label_readinessMachineValue.setText("Offline")
 
         self.ui.label_readinessTestReadValue.setText(self.state.last_test_read_status or "Not checked")
 
@@ -856,15 +863,15 @@ class MainWindow(QMainWindow):
             inherited_ca = os.environ.get("EPICS_CA_ADDR_LIST", "").strip()
             auto_discovery = os.environ.get("EPICS_CA_AUTO_ADDR_LIST", "").strip()
             if gui_ca:
-                detail_parts.append(f"GUI CA list: {gui_ca}")
+                detail_parts.append(f"CA: {gui_ca}")
             elif inherited_ca:
-                detail_parts.append(f"Inherited CA list: {inherited_ca}")
+                detail_parts.append(f"CA: {inherited_ca}")
             elif auto_discovery:
-                detail_parts.append(f"EPICS auto-discovery: {auto_discovery}")
+                detail_parts.append(f"CA auto: {auto_discovery}")
             else:
-                detail_parts.append("No CA override set; using inherited defaults or network discovery.")
+                detail_parts.append("CA: default/network discovery")
         else:
-            detail_parts.append("Current task is offline; machine connectivity is optional.")
+            detail_parts.append("Offline task. Machine optional.")
 
         if self.state.last_test_read_detail:
             detail_parts.append(self.state.last_test_read_detail)
@@ -945,6 +952,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_task_preview(self) -> None:
         self.task_builder_controller.refresh_task_preview()
+        self.runtime_status_controller.sync_run_workspace()
 
     def _show_task_preview(self) -> None:
         self.task_builder_controller.show_task_preview()
@@ -1094,12 +1102,15 @@ class MainWindow(QMainWindow):
 
     def _update_results_after_start(self, task: dict) -> None:
         self.results_controller.update_results_after_start(task)
+        self.runtime_status_controller.sync_run_workspace(task)
 
     def _update_results_after_evaluation(self, payload: dict) -> None:
         self.results_controller.update_results_after_evaluation(payload)
+        self.runtime_status_controller.sync_run_workspace()
 
     def _update_results_after_finish(self, payload: dict) -> None:
         self.results_controller.update_results_after_finish(payload)
+        self.runtime_status_controller.sync_run_workspace()
 
     # ------------------------------------------------------------------
     # Templates / tools / dialogs
@@ -1172,7 +1183,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "About GOTAcc Studio",
-            "GOTAcc Studio\nPyQt5 GUI shell for task configuration, machine connection,\nrun monitoring, and results inspection.",
+            "GOTAcc Studio\n"
+            "Optimization Workbench for Accelerator Applications\n\n"
+            "PyQt5 GUI shell for task configuration, machine connection,\n"
+            "run monitoring, and results inspection.",
         )
 
     def export_results(self) -> None:

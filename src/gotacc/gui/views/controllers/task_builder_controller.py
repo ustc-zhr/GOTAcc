@@ -443,6 +443,14 @@ class TaskBuilderController:
 
     @staticmethod
     def _algorithm_param_default_override(algorithm_key: str, name: str):
+        if str(name or "").strip() == "n_init" and str(algorithm_key or "").strip() in {
+            "BO",
+            "ConsBO",
+            "TuRBO",
+            "MOBO",
+            "ConsMOBO",
+        }:
+            return 20
         return ALGORITHM_PARAM_DEFAULT_OVERRIDES.get(str(algorithm_key or "").strip(), {}).get(
             str(name or "").strip(),
             _NO_DEFAULT_OVERRIDE,
@@ -1369,9 +1377,8 @@ class TaskBuilderController:
             self.window.machine_ui.doubleSpinBox_readbackTol.setValue(
                 float(machine.get("readback_tol", 1e-6) or 0.0)
             )
-            self.window.machine_ui.doubleSpinBox_setInterval.setValue(float(machine.get("set_interval", 0.2)))
+            self.window.machine_ui.doubleSpinBox_setInterval.setValue(float(machine.get("set_interval", 1.0)))
             self.window.machine_ui.doubleSpinBox_sampleInterval.setValue(float(machine.get("sample_interval", 0.2)))
-            self.window.machine_ui.doubleSpinBox_delta.setValue(float(machine.get("max_delta", 0.1)))
             self.window.machine_ui.doubleSpinBox_timeout.setValue(float(machine.get("write_timeout", 2.0)))
             self.window.machine_ui.comboBox_policy.setCurrentText(
                 str(machine.get("write_policy", self.window.machine_ui.comboBox_policy.currentText()))

@@ -74,7 +74,7 @@
            </font>
           </property>
           <property name="text">
-           <string>Optimization Workbench for Accelerator Applications</string>
+           <string></string>
           </property>
           <property name="wordWrap">
            <bool>true</bool>

@@ -83,8 +83,8 @@ QListWidget#listWidget_navPages::item {
     color: $nav_item_text;
     padding: 16px 18px;
     margin: 3px 0;
-    font-size: 17px;
-    font-weight: 800;
+    font-size: 21px;
+    font-weight: 900;
     min-height: 60px;
 }
 
@@ -97,7 +97,7 @@ QListWidget#listWidget_navPages::item:selected {
     background: $nav_item_selected_bg;
     border-color: $nav_item_selected_bg;
     color: $nav_item_selected_text;
-    font-weight: 900;
+    font-weight: 950;
 }
 
 QGroupBox {

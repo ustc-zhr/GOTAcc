@@ -5,26 +5,43 @@ import numpy as np
 from GOTAcc.src.gotacc.algorithms.single_objective.bo import BOOptimizer
 
 
-def sphere_objective(x: np.ndarray) -> float:
+def ackley_objective(x: np.ndarray) -> float:
     """
-    Simple toy objective for smoke testing.
-
-    Here we write it as a maximization problem:
-        max  -sum((x - 0.2)^2)
-
-    If your BO implementation assumes minimization internally,
-    flip the sign here.
+    Ackley function (standard minimization form) then negated for maximization.
+    
+    Standard Ackley: f(x) = -a * exp(-b * sqrt(1/d * sum(x_i^2))) 
+                           - exp(1/d * sum(cos(c * x_i))) + a + exp(1)
+    with a=20, b=0.2, c=2π.
+    Global minimum at x = (0,...,0), f_min = 0.
+    
+    Here we return -f(x) so that maximizing this objective corresponds
+    to minimizing the standard Ackley function.
     """
     x = np.asarray(x, dtype=float)
-    return float(-np.sum((x - 0.2) ** 2))
+    d = len(x)
+    a = 20.0
+    b = 0.2
+    c = 2.0 * np.pi
+    
+    sum_sq = np.sum(x ** 2)
+    sum_cos = np.sum(np.cos(c * x))
+    
+    term1 = -a * np.exp(-b * np.sqrt(sum_sq / d))
+    term2 = -np.exp(sum_cos / d)
+    f = term1 + term2 + a + np.exp(1.0)
+    
+    # Return negative for maximization (BO internally minimizes by default)
+    return float(-f)
 
 
 def main():
-    dim = 3
+    dim = 2
+    # Ackley function is usually explored on [-32, 32] or [-5, 5],
+    # but we keep the original bounds for consistency with the test setup.
     bounds = np.tile(np.array([[-2.0, 2.0]], dtype=float), (dim, 1))
 
     opt = BOOptimizer(
-        func=sphere_objective,
+        func=ackley_objective,          # <-- changed to Ackley
         bounds=bounds,
         kernel_type="matern",
         gp_restarts=3,
@@ -41,8 +58,8 @@ def main():
 
     opt.optimize()
 
-    # Optional 
-    opt.save_history()
+    # Optional
+    # opt.save_history()
     opt.plot_convergence()
 
 

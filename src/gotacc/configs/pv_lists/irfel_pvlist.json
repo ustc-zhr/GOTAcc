@@ -171,6 +171,126 @@
       "pv_name": "FEL:Energy",
       "readback": "FEL:Energy",
       "group": "Radiation"
+    },
+    {
+      "name": "BPM01_x",
+      "pv_name": "IRFEL-BI:BPM01:BPM_PX2",
+      "readback": "IRFEL-BI:BPM01:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM02_x",
+      "pv_name": "IRFEL-BI:BPM02:BPM_PX2",
+      "readback": "IRFEL-BI:BPM02:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM03_x",
+      "pv_name": "IRFEL-BI:BPM03:BPM_PX2",
+      "readback": "IRFEL-BI:BPM03:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM04_x",
+      "pv_name": "IRFEL-BI:BPM04:BPM_PX2",
+      "readback": "IRFEL-BI:BPM04:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM05_x",
+      "pv_name": "IRFEL-BI:BPM05:BPM_PX2",
+      "readback": "IRFEL-BI:BPM05:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM06_x",
+      "pv_name": "IRFEL-BI:BPM06:BPM_PX2",
+      "readback": "IRFEL-BI:BPM06:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM07_x",
+      "pv_name": "IRFEL-BI:BPM07:BPM_PX2",
+      "readback": "IRFEL-BI:BPM07:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM08_x",
+      "pv_name": "IRFEL-BI:BPM08:BPM_PX2",
+      "readback": "IRFEL-BI:BPM08:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM09_x",
+      "pv_name": "IRFEL-BI:BPM09:BPM_PX2",
+      "readback": "IRFEL-BI:BPM09:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM10_x",
+      "pv_name": "IRFEL-BI:BPM10:BPM_PX2",
+      "readback": "IRFEL-BI:BPM10:BPM_PX2",
+      "group": "BPM-x"
+    },
+    {
+      "name": "BPM01_y",
+      "pv_name": "IRFEL-BI:BPM01:BPM_PY2",
+      "readback": "IRFEL-BI:BPM01:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM02_y",
+      "pv_name": "IRFEL-BI:BPM02:BPM_PY2",
+      "readback": "IRFEL-BI:BPM02:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM03_y",
+      "pv_name": "IRFEL-BI:BPM03:BPM_PY2",
+      "readback": "IRFEL-BI:BPM03:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM04_y",
+      "pv_name": "IRFEL-BI:BPM04:BPM_PY2",
+      "readback": "IRFEL-BI:BPM04:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM05_y",
+      "pv_name": "IRFEL-BI:BPM05:BPM_PY2",
+      "readback": "IRFEL-BI:BPM05:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM06_y",
+      "pv_name": "IRFEL-BI:BPM06:BPM_PY2",
+      "readback": "IRFEL-BI:BPM06:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM07_y",
+      "pv_name": "IRFEL-BI:BPM07:BPM_PY2",
+      "readback": "IRFEL-BI:BPM07:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM08_y",
+      "pv_name": "IRFEL-BI:BPM08:BPM_PY2",
+      "readback": "IRFEL-BI:BPM08:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM09_y",
+      "pv_name": "IRFEL-BI:BPM09:BPM_PY2",
+      "readback": "IRFEL-BI:BPM09:BPM_PY2",
+      "group": "BPM-y"
+    },
+    {
+      "name": "BPM10_y",
+      "pv_name": "IRFEL-BI:BPM10:BPM_PY2",
+      "readback": "IRFEL-BI:BPM10:BPM_PY2",
+      "group": "BPM-y"
     }
   ]
 }

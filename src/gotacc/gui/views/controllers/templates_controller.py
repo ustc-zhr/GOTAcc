@@ -262,11 +262,17 @@ class TemplatesController:
 
     def show_policy_editor(self) -> None:
         self.window.ui.tabWidget_configure.setCurrentIndex(self.window.CONFIGURE_TAB_MACHINE)
-        self.window.machine_ui.tabWidget_machine.setCurrentWidget(self.window.machine_ui.tab_objectivePolicy)
+        if hasattr(self.window.machine_ui, "tab_advancedMachine"):
+            self.window.machine_ui.tabWidget_machine.setCurrentWidget(self.window.machine_ui.tab_advancedMachine)
+            self.window.machine_ui.tabWidget_machineAdvanced.setCurrentWidget(self.window.machine_ui.tab_objectivePolicy)
+            location = "Machine Setup -> Advanced -> Objective Policy"
+        else:
+            self.window.machine_ui.tabWidget_machine.setCurrentWidget(self.window.machine_ui.tab_objectivePolicy)
+            location = "Machine Setup -> Objective Policy"
         QMessageBox.information(
             self.window,
             "Policy Editor",
-            "Objective policies are now edited directly in Machine Setup -> Objective Policy.",
+            f"Objective policies are now edited directly in {location}.",
         )
         self.view.go_to_page(self.window.PAGE_MACHINE)
-        self.view.log_console("Opened Machine Setup -> Objective Policy.")
+        self.view.log_console(f"Opened {location}.")
