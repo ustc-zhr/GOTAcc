@@ -116,6 +116,15 @@ SUPPORTED_SINGLE_OBJECTIVE_OPTIMIZERS = {
     "turbo",
     "trust_region_bo",
     "rcds",
+    "smggpo",
+    "mggpo_so",
+    "single_objective_mggpo",
+    "single_objective_mg-gpo",
+    "consmggpo_so",
+    "constrained_mggpo_so",
+    "single_objective_consmggpo",
+    "single_objective_constrained_mggpo",
+    "single_objective_constrained_mg-gpo",
 }
 
 SUPPORTED_MULTI_OBJECTIVE_OPTIMIZERS = {
@@ -141,18 +150,52 @@ SUPPORTED_COMBINE_MODES = {
 }
 
 SUPPORTED_WRITE_POLICIES = {
+    "none",
+    "equal",
     "xiaosesan_symmetry",
 }
 
 SUPPORTED_OBJECTIVE_POLICIES = {
     "fel_energy_guard",
+    "zero_guard",
     "xiaosesan_zero_guard",
+}
+
+SUPPORTED_CONSTRAINT_POLICIES = {
+    "bpm_guard",
+    "bpm_zero_guard",
 }
 
 SUPPORTED_OBJ_MATH = {
     "mean",
     "std",
 }
+
+
+def _validate_policy_specs(
+    specs: Any,
+    *,
+    field_name: str,
+    supported_names: set[str],
+) -> None:
+    if specs is None:
+        return
+    if not isinstance(specs, list):
+        raise TypeError(f"{field_name} must be a list")
+    for i, spec in enumerate(specs):
+        if not isinstance(spec, dict):
+            raise TypeError(f"{field_name}[{i}] must be a dict")
+        name = str(spec.get("name", "")).lower()
+        if not name:
+            raise ValueError(f"{field_name}[{i}] must define a non-empty 'name'")
+        if name not in supported_names:
+            raise ValueError(
+                f"Unsupported {field_name}[{i}].name={name!r}. "
+                f"Supported values: {sorted(supported_names)}"
+            )
+        kwargs = spec.get("kwargs", {})
+        if not isinstance(kwargs, dict):
+            raise TypeError(f"{field_name}[{i}]['kwargs'] must be a dict")
 
 
 # =============================================================================
@@ -273,6 +316,64 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
                 f"Supported values: {sorted(SUPPORTED_OBJ_MATH)}"
             )
 
+    constraint_pvnames = kwargs.get("constraint_pvnames", [])
+    if constraint_pvnames is None:
+        constraint_pvnames = []
+    else:
+        constraint_pvnames = _ensure_list_of_str(
+            constraint_pvnames,
+            "backend.kwargs['constraint_pvnames']",
+        )
+
+    constraint_math = kwargs.get("constraint_math", [])
+    if not isinstance(constraint_math, list):
+        raise TypeError("backend.kwargs['constraint_math'] must be a list")
+    if len(constraint_math) != len(constraint_pvnames):
+        raise ValueError(
+            f"len(constraint_math) ({len(constraint_math)}) must match "
+            f"len(constraint_pvnames) ({len(constraint_pvnames)})"
+        )
+    for i, op in enumerate(constraint_math):
+        if op not in SUPPORTED_OBJ_MATH:
+            raise ValueError(
+                f"Unsupported constraint_math[{i}]={op!r}. "
+                f"Supported values: {sorted(SUPPORTED_OBJ_MATH)}"
+            )
+
+    if "constraint_bounds" in kwargs and kwargs["constraint_bounds"] is not None:
+        constraint_bounds = kwargs["constraint_bounds"]
+        if not isinstance(constraint_bounds, list):
+            raise TypeError("backend.kwargs['constraint_bounds'] must be a list")
+        if len(constraint_bounds) != len(constraint_pvnames):
+            raise ValueError(
+                f"len(constraint_bounds) ({len(constraint_bounds)}) must match "
+                f"len(constraint_pvnames) ({len(constraint_pvnames)})"
+            )
+        for i, bound in enumerate(constraint_bounds):
+            if not isinstance(bound, (list, tuple)) or len(bound) != 2:
+                raise TypeError(
+                    f"backend.kwargs['constraint_bounds'][{i}] must be a (lower, upper) pair"
+                )
+            lower, upper = bound
+            if lower is not None:
+                try:
+                    float(lower)
+                except Exception as exc:
+                    raise TypeError(
+                        f"backend.kwargs['constraint_bounds'][{i}][0] must be numeric or None"
+                    ) from exc
+            if upper is not None:
+                try:
+                    float(upper)
+                except Exception as exc:
+                    raise TypeError(
+                        f"backend.kwargs['constraint_bounds'][{i}][1] must be numeric or None"
+                    ) from exc
+            if lower is not None and upper is not None and float(lower) > float(upper):
+                raise ValueError(
+                    f"backend.kwargs['constraint_bounds'][{i}] must satisfy lower <= upper"
+                )
+
     # set_interval / sample_interval
     for key in ("set_interval", "sample_interval"):
         interval = kwargs[key]
@@ -330,6 +431,29 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
                 f"Unsupported objective_policy={name!r}. "
                 f"Supported values: {sorted(SUPPORTED_OBJECTIVE_POLICIES)}"
             )
+
+    _validate_policy_specs(
+        kwargs.get("objective_policies", None),
+        field_name="backend.kwargs['objective_policies']",
+        supported_names=SUPPORTED_OBJECTIVE_POLICIES,
+    )
+
+    constraint_policy_names = _normalize_policy_names(
+        kwargs.get("constraint_policy", None),
+        "backend.kwargs['constraint_policy']",
+    )
+    for name in constraint_policy_names:
+        if str(name).lower() not in SUPPORTED_CONSTRAINT_POLICIES:
+            raise ValueError(
+                f"Unsupported constraint_policy={name!r}. "
+                f"Supported values: {sorted(SUPPORTED_CONSTRAINT_POLICIES)}"
+            )
+
+    _validate_policy_specs(
+        kwargs.get("constraint_policies", None),
+        field_name="backend.kwargs['constraint_policies']",
+        supported_names=SUPPORTED_CONSTRAINT_POLICIES,
+    )
 
 
 # =============================================================================

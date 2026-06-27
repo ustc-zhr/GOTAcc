@@ -395,6 +395,61 @@
        </item>
       </layout>
      </widget>
+     <widget class="QWidget" name="tab_constraintPolicy">
+      <attribute name="title"><string>Constraint Policy</string></attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_constraintPolicy">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_constraintPolicyTop">
+         <item>
+          <spacer name="horizontalSpacer_constraintPolicyToolbar">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="pushButton_addConstraintPolicy">
+           <property name="text">
+            <string>Add Policy</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="pushButton_removeConstraintPolicy">
+           <property name="text">
+            <string>Remove Selected</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="tableWidget_constraintPolicies">
+         <column>
+          <property name="text">
+           <string>Enabled</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Policy Name</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Kwargs JSON</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
   </layout>

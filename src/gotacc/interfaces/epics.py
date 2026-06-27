@@ -319,6 +319,144 @@ class ZeroGuardPolicy(BaseObjectivePolicy):
 
 
 # =============================================================================
+# Constraint policy：负责“约束采样后的特殊处理”
+# =============================================================================
+class BaseConstraintPolicy:
+    """
+    约束策略基类。
+
+    一个约束策略可以在两个阶段做事：
+
+    1. preprocess_total():
+       原始约束采样矩阵 total，shape = (obj_samples, n_constraints)
+       适合做原始采样层面的预清洗。
+
+    2. post_reduce():
+       total 经 mean/std 聚合后得到 results，shape = (n_constraints,)
+       适合做约束修正、哨兵值替换等。
+    """
+
+    def preprocess_total(
+        self,
+        total: np.ndarray,
+        backend: "EpicsObjective",
+    ) -> np.ndarray:
+        return total
+
+    def post_reduce(
+        self,
+        results: np.ndarray,
+        total: np.ndarray,
+        backend: "EpicsObjective",
+    ) -> np.ndarray:
+        return results
+
+
+class CompositeConstraintPolicy(BaseConstraintPolicy):
+    """
+    组合多个约束策略，按顺序串行执行。
+    """
+
+    def __init__(self, policies: Sequence[BaseConstraintPolicy]) -> None:
+        self.policies = list(policies)
+
+    def preprocess_total(self, total: np.ndarray, backend: "EpicsObjective") -> np.ndarray:
+        for p in self.policies:
+            total = p.preprocess_total(total, backend)
+        return total
+
+    def post_reduce(
+        self,
+        results: np.ndarray,
+        total: np.ndarray,
+        backend: "EpicsObjective",
+    ) -> np.ndarray:
+        for p in self.policies:
+            results = p.post_reduce(results, total, backend)
+        return results
+
+
+class BPMGuardConstraintPolicy(BaseConstraintPolicy):
+    """
+    BPM 约束零值保护。
+
+    若某个约束列在一次 evaluate 的所有 sample 中都“几乎为 0”，
+    则认为这个约束读数不是正式物理值，而是用“刚刚越界”的 sentinel
+    替换 reduce 后的约束值。
+
+    sentinel 规则：
+      - 若该 constraint 有 upper bound，则返回 ub + delta
+      - 否则若有 lower bound，则返回 lb - delta
+
+    delta 规则：
+      - 双边约束：max(delta_min, delta_ratio * (ub - lb))
+      - 单边约束：max(delta_min, delta_ratio * max(abs(bound), scale_floor))
+    """
+
+    def __init__(
+        self,
+        target_col: int = 0,
+        zero_atol: float = 1e-9,
+        delta_ratio: float = 0.1,
+        delta_min: float = 1e-6,
+        scale_floor: float = 1.0,
+    ) -> None:
+        self.target_col = int(target_col)
+        self.zero_atol = float(zero_atol)
+        self.delta_ratio = float(delta_ratio)
+        self.delta_min = float(delta_min)
+        self.scale_floor = float(scale_floor)
+
+    def _sentinel_value(self, backend: "EpicsObjective") -> float | None:
+        bounds = getattr(backend, "constraint_bounds", []) or []
+        if self.target_col < 0 or self.target_col >= len(bounds):
+            return None
+
+        lower, upper = bounds[self.target_col]
+        if lower is None and upper is None:
+            return None
+
+        if lower is not None and upper is not None:
+            delta = max(self.delta_min, self.delta_ratio * (float(upper) - float(lower)))
+        else:
+            bound = float(upper) if upper is not None else float(lower)
+            delta = max(self.delta_min, self.delta_ratio * max(abs(bound), self.scale_floor))
+
+        if upper is not None:
+            return float(upper) + delta
+        return float(lower) - delta
+
+    def post_reduce(
+        self,
+        results: np.ndarray,
+        total: np.ndarray,
+        backend: "EpicsObjective",
+    ) -> np.ndarray:
+        results = np.asarray(results, dtype=float).copy()
+
+        if results.ndim != 1 or total.ndim != 2:
+            return results
+        if self.target_col < 0 or self.target_col >= len(results):
+            return results
+        if self.target_col >= total.shape[1]:
+            return results
+
+        col = np.asarray(total[:, self.target_col], dtype=float)
+        if col.size == 0 or not np.all(np.isfinite(col)):
+            return results
+
+        if np.max(np.abs(col)) > self.zero_atol:
+            return results
+
+        sentinel = self._sentinel_value(backend)
+        if sentinel is None:
+            return results
+
+        results[self.target_col] = sentinel
+        return results
+
+
+# =============================================================================
 # 通用 EPICS objective
 # =============================================================================
 class EpicsObjective(ObjectiveBackend):
@@ -371,6 +509,9 @@ class EpicsObjective(ObjectiveBackend):
     objective_policy:
         目标策略。若为 None，则不做额外处理
 
+    constraint_policy:
+        约束策略。若为 None，则不做额外处理
+
     best_selector_mode:
         当 backend 自己从 self.data 中选 best 时采用的策略。
         可选：
@@ -391,6 +532,7 @@ class EpicsObjective(ObjectiveBackend):
         obj_math: Sequence[str] | None = None,
         constraint_pvnames: Sequence[str] | None = None,
         constraint_math: Sequence[str] | None = None,
+        constraint_bounds: Sequence[tuple[float | None, float | None]] | None = None,
         set_interval: float | None = None,
         sample_interval: float | None = None,
         log_path: str = "template.opt",
@@ -399,6 +541,7 @@ class EpicsObjective(ObjectiveBackend):
         combine_mode: str = "weighted_sum",
         write_policy: BaseWritePolicy | None = None,
         objective_policy: BaseObjectivePolicy | None = None,
+        constraint_policy: BaseConstraintPolicy | None = None,
         best_selector_mode: str | None = None,
     ) -> None:
         # 延迟导入 EPICS
@@ -415,6 +558,7 @@ class EpicsObjective(ObjectiveBackend):
         self.obj_math = list(obj_math) if obj_math is not None else []
         self.constraint_pvnames = list(constraint_pvnames) if constraint_pvnames is not None else []
         self.constraint_math = list(constraint_math) if constraint_math is not None else []
+        self.constraint_bounds = list(constraint_bounds) if constraint_bounds is not None else []
         self.set_interval = float(set_interval) if set_interval is not None else 0.0
         self.sample_interval = float(sample_interval) if sample_interval is not None else 0.0
 
@@ -428,6 +572,7 @@ class EpicsObjective(ObjectiveBackend):
         # policy
         self.write_policy = write_policy if write_policy is not None else DefaultWritePolicy()
         self.objective_policy = objective_policy
+        self.constraint_policy = constraint_policy
 
         # 数据记录
         # self.data 每一行统一记录成：
@@ -461,6 +606,9 @@ class EpicsObjective(ObjectiveBackend):
 
         if len(self.constraint_math) != len(self.constraint_pvnames):
             raise ValueError("constraint_math length must match constraint_pvnames")
+
+        if self.constraint_bounds and len(self.constraint_bounds) != len(self.constraint_pvnames):
+            raise ValueError("constraint_bounds length must match constraint_pvnames")
 
         if self.obj_samples < 1:
             raise ValueError("obj_samples must be >= 1")
@@ -731,6 +879,8 @@ class EpicsObjective(ObjectiveBackend):
         # 5) 允许 policy 在原始采样层面做预处理
         if self.objective_policy is not None:
             total = self.objective_policy.preprocess_total(total, self)
+        if self.constraint_policy is not None:
+            constraint_total = self.constraint_policy.preprocess_total(constraint_total, self)
 
         # 6) 列聚合
         results = self._reduce_objectives(total)
@@ -742,6 +892,8 @@ class EpicsObjective(ObjectiveBackend):
         # 8) 组合成最终 y
         y = self._combine_objectives(results)
         constraints = self._reduce_constraints(constraint_total)
+        if self.constraint_policy is not None:
+            constraints = self.constraint_policy.post_reduce(constraints, constraint_total, self)
 
         # 9) 允许 policy 在最终 y 层面做修正
         if self.objective_policy is not None:

@@ -101,6 +101,20 @@ def build_optimizer(task_cfg: TaskConfig, objective_callable, bounds: np.ndarray
         from gotacc.algorithms.single_objective.rcds import RCDSOptimizer
         return RCDSOptimizer(func=objective_callable, bounds=bounds, **kwargs)
 
+    if name in {"smggpo", "mggpo_so", "single_objective_mggpo", "single_objective_mg-gpo"}:
+        from gotacc.algorithms.single_objective.mggpo_so import MGGPOSOOptimizer
+        return MGGPOSOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
+
+    if name in {
+        "consmggpo_so",
+        "constrained_mggpo_so",
+        "single_objective_consmggpo",
+        "single_objective_constrained_mggpo",
+        "single_objective_constrained_mg-gpo",
+    }:
+        from gotacc.algorithms.single_objective.consmggpo_so import ConsMGGPOSOOptimizer
+        return ConsMGGPOSOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
+
     if name in {"mobo"}:
         from gotacc.algorithms.multi_objective.mobo import MOBOOptimizer
         return MOBOOptimizer(func=objective_callable, bounds=bounds, **kwargs)
@@ -197,6 +211,11 @@ def validate_optimizer_backend_match(task_cfg: TaskConfig) -> None:
         "consbo", "constrained_bo", "constrained_bayesian_optimization",
         "turbo", "trust_region_bo",
         "rcds",
+        "smggpo", "mggpo_so", "single_objective_mggpo", "single_objective_mg-gpo",
+        "consmggpo_so", "constrained_mggpo_so",
+        "single_objective_consmggpo",
+        "single_objective_constrained_mggpo",
+        "single_objective_constrained_mg-gpo",
     }
 
     multi_objective_optimizers = {
@@ -362,6 +381,11 @@ def run_task(task_cfg: TaskConfig) -> RunArtifacts:
         "consbo",
         "constrained_bo",
         "constrained_bayesian_optimization",
+        "consmggpo_so",
+        "constrained_mggpo_so",
+        "single_objective_consmggpo",
+        "single_objective_constrained_mggpo",
+        "single_objective_constrained_mg-gpo",
         "consmobo",
         "constrained_mobo",
         "constrained_multi_objective_bo",

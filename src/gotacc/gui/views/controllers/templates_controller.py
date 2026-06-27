@@ -66,7 +66,6 @@ class TemplatesController:
         if tree.topLevelItemCount() > 0 and tree.topLevelItem(0).childCount() > 0:
             tree.setCurrentItem(tree.topLevelItem(0).child(0))
             self.update_template_details()
-        self.init_quick_template_picker()
 
     def template_count(self) -> int:
         return len(list_templates())
@@ -89,19 +88,6 @@ class TemplatesController:
             return f"{count} starter templates ready."
         return f"{count} starter templates. Selected: {template.title}"
 
-    def init_quick_template_picker(self) -> None:
-        combo = getattr(self.window.task_ui, "comboBox_templateQuickStart", None)
-        if combo is None:
-            return
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem("Choose a starter template...", None)
-        for template in list_templates():
-            combo.addItem(f"{template.category} / {template.title}", template)
-        combo.setCurrentIndex(0)
-        combo.blockSignals(False)
-        self.update_quick_template_details()
-
     def selected_template_definition(self):
         items = self.window.ui.treeWidget_templates.selectedItems()
         if not items:
@@ -110,12 +96,6 @@ class TemplatesController:
         if isinstance(data, dict) and data.get("kind") == "template":
             return data.get("template")
         return None
-
-    def quick_template_definition(self):
-        combo = getattr(self.window.task_ui, "comboBox_templateQuickStart", None)
-        if combo is None:
-            return None
-        return combo.currentData()
 
     def update_template_details(self) -> None:
         template = self.selected_template_definition()
@@ -129,7 +109,6 @@ class TemplatesController:
             self.window.ui.pushButton_applyTemplate.setEnabled(False)
             self.window.ui.pushButton_cloneTemplate.setEnabled(False)
             self.window.ui.pushButton_exportTemplate.setEnabled(False)
-            self.update_quick_template_details()
             return
         self.window.ui.plainTextEdit_templateDetails.setPlainText(template_detail_text(template))
         self.window.ui.label_selectedTemplateSummary.setText(
@@ -138,45 +117,11 @@ class TemplatesController:
         self.window.ui.pushButton_applyTemplate.setEnabled(True)
         self.window.ui.pushButton_cloneTemplate.setEnabled(True)
         self.window.ui.pushButton_exportTemplate.setEnabled(True)
-        self.sync_quick_template_selection(template)
-        self.update_quick_template_details()
-
-    def update_quick_template_details(self) -> None:
-        label = getattr(self.window.task_ui, "label_templateQuickHint", None)
-        if label is None:
-            return
-        template = self.quick_template_definition()
-        if template is None:
-            label.setText(
-                "Choose a built-in template to preload a practical starting point, or open the full template library for details and cloning."
-            )
-            return
-        label.setText(
-            f"{template.category} / {template.title}: {template.description}"
-        )
-
-    def sync_quick_template_selection(self, template) -> None:
-        combo = getattr(self.window.task_ui, "comboBox_templateQuickStart", None)
-        if combo is None or template is None:
-            return
-        for index in range(combo.count()):
-            if combo.itemData(index) == template:
-                combo.blockSignals(True)
-                combo.setCurrentIndex(index)
-                combo.blockSignals(False)
-                return
 
     def apply_selected_template(self) -> None:
         template = self.selected_template_definition()
         if template is None:
             QMessageBox.information(self.window, "Apply Template", "Please select a template first.")
-            return
-        self.apply_template_definition(template)
-
-    def apply_quick_template(self) -> None:
-        template = self.quick_template_definition()
-        if template is None:
-            QMessageBox.information(self.window, "Apply Template", "Please choose a starter template first.")
             return
         self.apply_template_definition(template)
 

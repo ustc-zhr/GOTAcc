@@ -468,7 +468,7 @@ if __name__ == "__main__":
     t0 = time.time()
 
     # fuction for test
-    from tests.test_function_single import *
+    from GOTAcc.tests.test_function_single import *
     dim = 10
     func_type = "rosenbrock" # "sphere", "rosenbrock", "ackley"
     func, bounds = setup_objective(func_type, dim=dim)
@@ -483,8 +483,8 @@ if __name__ == "__main__":
         acq_para_kwargs={"beta_strategy": "inv_decay", "beta_lam": 0.01}, # "exp_decay" "inv_decay" "stage" "fixed"
         acq_optimizer="optimize_acqf", # ['random', 'sobol', 'optimize_acqf']  optimize_acqf为botorch自带的多起点优化器(默认基于L-BFGS-B)
         acq_opt_kwargs={"num_restarts": 8, "raw_samples": 256, "n_candidates": 8192}, # only for 'random' and 'sobol': 'n_candidates'
-        n_init=2,
-        n_iter=2,
+        n_init=5,
+        n_iter=15,
         random_state=120
         )
 

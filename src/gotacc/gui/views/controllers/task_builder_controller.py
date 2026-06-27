@@ -51,6 +51,8 @@ ALGORITHM_INIT_SOURCES = {
     "BO": (GOTACC_ROOT / "algorithms" / "single_objective" / "bo.py", "BOOptimizer"),
     "ConsBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "consbo.py", "ConsBOOptimizer"),
     "TuRBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "turbo.py", "TuRBOOptimizer"),
+    "MGGPO-SO": (GOTACC_ROOT / "algorithms" / "single_objective" / "mggpo_so.py", "MGGPOSOOptimizer"),
+    "ConsMGGPO-SO": (GOTACC_ROOT / "algorithms" / "single_objective" / "consmggpo_so.py", "ConsMGGPOSOOptimizer"),
     "MOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mobo.py", "MOBOOptimizer"),
     "ConsMOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmobo.py", "ConsMOBOOptimizer"),
     "ConsMGGPO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmggpo.py", "ConsMGGPOOptimizer"),
@@ -63,6 +65,8 @@ EXCLUDED_INIT_PARAMS = {
     "BO": {"self", "func", "bounds", "random_state", "n_iter"},
     "ConsBO": {"self", "func", "bounds", "random_state", "n_iter", "constraint_bounds"},
     "TuRBO": {"self", "func", "bounds", "random_state", "n_iter"},
+    "MGGPO-SO": {"self", "func", "bounds", "random_state", "n_objectives", "n_constraints", "maximize", "ref_point"},
+    "ConsMGGPO-SO": {"self", "func", "bounds", "random_state", "n_objectives", "constraint_bounds", "maximize", "ref_point"},
     "MOBO": {"self", "func", "bounds", "random_state", "n_objectives", "n_iter", "maximize"},
     "ConsMOBO": {"self", "func", "bounds", "random_state", "n_objectives", "n_iter", "maximize", "constraint_bounds"},
     "ConsMGGPO": {"self", "func", "bounds", "random_state", "n_objectives", "maximize", "constraint_bounds"},
@@ -79,6 +83,7 @@ PARAM_NOTES = {
     "acq_para_kwargs": "Additional acquisition parameter kwargs as JSON.",
     "acq_optimizer": "Acquisition optimizer name.",
     "acq_opt_kwargs": "Acquisition optimizer kwargs as JSON.",
+    "q_batch_size": "q-acquisition batch size. Only used by MOBO/ConsMOBO when acquisition starts with q.",
     "acq_mode": "MGGPO acquisition mode: ucb, ehvi or combine.",
     "n_init": "Initial design size. Total evaluations are still capped by Max Evaluations.",
     "device": "Torch device name, for example cpu or cuda.",
@@ -129,6 +134,19 @@ OBJECTIVE_POLICY_DEFAULTS = {
     },
 }
 
+CONSTRAINT_POLICY_DEFAULTS = {
+    "bpm_guard": {
+        "target_col": 0,
+        "kwargs": {
+            "target_col": 0,
+            "zero_atol": 1e-9,
+            "delta_ratio": 0.1,
+            "delta_min": 1e-6,
+            "scale_floor": 1.0,
+        },
+    },
+}
+
 _NO_DEFAULT_OVERRIDE = object()
 
 ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
@@ -144,13 +162,35 @@ ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
     "TuRBO": {
         "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 512, "n_candidates": 8192},
     },
+    "MGGPO-SO": {
+        "pop_size": 50,
+        "evals_per_gen": 50,
+        "n_generations": 2,
+        "acq_mode": "ucb",
+        "ucb_beta_kwargs": {"beta_strategy": "scale_decay", "beta_lam": 0.85},
+        "gp_history_max": 100,
+        "mutation_prob": 0.5,
+        "c1": 2.0,
+        "c2": 2.0,
+    },
+    "ConsMGGPO-SO": {
+        "pop_size": 50,
+        "evals_per_gen": 50,
+        "n_generations": 2,
+        "acq_mode": "ucb",
+        "ucb_beta_kwargs": {"beta_strategy": "scale_decay", "beta_lam": 0.85},
+        "gp_history_max": 100,
+        "mutation_prob": 0.5,
+        "c1": 2.0,
+        "c2": 2.0,
+    },
     "MOBO": {
-        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "qehvi_batch": 1},
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256},
         "ref_point": [0.0, 0.0],
     },
     "ConsMOBO": {
         "acq": "qehvi",
-        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256, "qehvi_batch": 1},
+        "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 256},
         "ref_point": [0.0, 0.0],
     },
     "ConsMGGPO": {
@@ -187,8 +227,10 @@ ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
 
 OBJECTIVE_MATH_OPTIONS = ("mean", "std")
 
-SINGLE_OBJECTIVE_ALGORITHMS = ("BO", "ConsBO", "TuRBO")
+SINGLE_OBJECTIVE_ALGORITHMS = ("BO", "ConsBO", "TuRBO", "MGGPO-SO", "ConsMGGPO-SO")
 MULTI_OBJECTIVE_ALGORITHMS = ("MOBO", "ConsMOBO", "MGGPO", "ConsMGGPO", "MOPSO", "NSGA-II")
+Q_BATCH_PARAM_NAME = "q_batch_size"
+LEGACY_Q_BATCH_PARAM_NAMES = {"qehvi_batch", "q_batch"}
 ALGORITHM_OBJECTIVE_TYPE = {
     **{name: "Single Objective" for name in SINGLE_OBJECTIVE_ALGORITHMS},
     **{name: "Multi Objective" for name in MULTI_OBJECTIVE_ALGORITHMS},
@@ -277,6 +319,29 @@ class TaskBuilderController:
             return "TuRBO"
         if lowered == "consbo":
             return "ConsBO"
+        if lowered in {
+            "mggpo-so",
+            "mggpo_so",
+            "smggpo",
+            "single objective mggpo",
+            "single_objective_mggpo",
+            "single objective mg-gpo",
+            "single_objective_mg-gpo",
+        }:
+            return "MGGPO-SO"
+        if lowered in {
+            "consmggpo-so",
+            "consmggpo_so",
+            "constrained mggpo so",
+            "constrained_mggpo_so",
+            "single objective consmggpo",
+            "single_objective_consmggpo",
+            "single objective constrained mggpo",
+            "single_objective_constrained_mggpo",
+            "single objective constrained mg-gpo",
+            "single_objective_constrained_mg-gpo",
+        }:
+            return "ConsMGGPO-SO"
         if lowered == "mobo":
             return "MOBO"
         if lowered == "consmobo":
@@ -343,11 +408,62 @@ class TaskBuilderController:
 
     @staticmethod
     def _canonical_param_name(name: str) -> str:
-        return str(name or "").strip()
+        normalized = str(name or "").strip()
+        if normalized in LEGACY_Q_BATCH_PARAM_NAMES:
+            return Q_BATCH_PARAM_NAME
+        return normalized
 
-    def _recommended_param_specs(self, algorithm_text: str):
+    def _recommended_param_specs(self, algorithm_text: str, records: list[list[str]] | None = None):
         algorithm_key = self.algorithm_template_key(algorithm_text)
-        return algorithm_key, self._load_algorithm_param_specs(algorithm_key)
+        specs = list(self._load_algorithm_param_specs(algorithm_key))
+        if self._should_show_q_batch_param(algorithm_key, records):
+            specs.append(
+                (
+                    Q_BATCH_PARAM_NAME,
+                    "1",
+                    "int",
+                    PARAM_NOTES[Q_BATCH_PARAM_NAME],
+                )
+            )
+        return algorithm_key, specs
+
+    def _algorithm_param_spec_lookup(self, algorithm_key: str) -> dict[str, tuple[str, str, str]]:
+        return {
+            name: (default, dtype, note)
+            for name, default, dtype, note in self._load_algorithm_param_specs(algorithm_key)
+        }
+
+    def _current_acquisition_name(self, algorithm_key: str, records: list[list[str]] | None = None) -> str:
+        default_acq_by_algorithm = {
+            "BO": "ucb",
+            "ConsBO": "ei",
+            "MOBO": "ehvi",
+            "ConsMOBO": "qehvi",
+        }
+        if records is None:
+            lookup = self._dynamic_param_lookup()
+        else:
+            lookup: dict[str, tuple[str, str, str]] = {}
+            for record in records:
+                key = self._canonical_param_name(record[0] if len(record) > 0 else "")
+                if not key:
+                    continue
+                value = str(record[1] if len(record) > 1 else "").strip()
+                dtype = str(record[2] if len(record) > 2 else "").strip() or "str"
+                note = str(record[3] if len(record) > 3 else "").strip()
+                lookup[key] = (value, dtype, note)
+        if "acq" in lookup:
+            return str(lookup["acq"][0]).strip().lower()
+
+        spec_lookup = self._algorithm_param_spec_lookup(algorithm_key)
+        if "acq" in spec_lookup:
+            default_value = spec_lookup["acq"][0]
+            if str(default_value).strip():
+                return str(default_value).strip().lower()
+        return default_acq_by_algorithm.get(algorithm_key, "")
+
+    def _should_show_q_batch_param(self, algorithm_key: str, records: list[list[str]] | None = None) -> bool:
+        return algorithm_key in {"MOBO", "ConsMOBO"}
 
     def _load_algorithm_param_specs(self, algorithm_key: str) -> list[tuple[str, str, str, str]]:
         if algorithm_key in self._algorithm_param_specs_cache:
@@ -424,6 +540,8 @@ class TaskBuilderController:
 
     @staticmethod
     def _format_param_label(name: str) -> str:
+        if str(name or "").strip() == Q_BATCH_PARAM_NAME:
+            return "q-Batch Size"
         return str(name).replace("_", " ").strip().title()
 
     @staticmethod
@@ -477,6 +595,81 @@ class TaskBuilderController:
             return json.dumps(value, ensure_ascii=False)
         return str(value)
 
+    def _normalize_algorithm_param_records(
+        self,
+        algorithm_text: str,
+        records: list[list[str]],
+        *,
+        legacy_task_batch_size: int | None = None,
+    ) -> list[list[str]]:
+        algorithm_key = self.algorithm_template_key(algorithm_text)
+        spec_lookup = self._algorithm_param_spec_lookup(algorithm_key)
+        normalized_rows: dict[str, list[str]] = {}
+        migrated_q_batch_value: str | None = None
+        had_explicit_q_batch = False
+
+        for record in records:
+            name = self._canonical_param_name(record[0] if len(record) > 0 else "")
+            if not name:
+                continue
+            value = str(record[1] if len(record) > 1 else "").strip()
+            dtype = str(record[2] if len(record) > 2 else "").strip()
+            note = str(record[3] if len(record) > 3 else "").strip()
+
+            if name == "acq_opt_kwargs":
+                parsed_value = TaskService._coerce_scalar(value, dtype or "json")
+                if isinstance(parsed_value, dict) and "qehvi_batch" in parsed_value:
+                    if migrated_q_batch_value is None:
+                        migrated_q_batch_value = self._format_dynamic_param_value(
+                            parsed_value.pop("qehvi_batch"),
+                            "int",
+                            name=Q_BATCH_PARAM_NAME,
+                        )
+                    value = self._format_dynamic_param_value(parsed_value, "json", name=name)
+                dtype = dtype or "json"
+                note = note or PARAM_NOTES.get(name, "")
+            elif name == Q_BATCH_PARAM_NAME:
+                had_explicit_q_batch = True
+                dtype = dtype or "int"
+                note = note or PARAM_NOTES[Q_BATCH_PARAM_NAME]
+            elif name in spec_lookup:
+                _, spec_dtype, spec_note = spec_lookup[name]
+                dtype = dtype or spec_dtype
+                note = note or spec_note
+
+            normalized_rows[name] = [name, value, dtype or "str", note]
+
+        if legacy_task_batch_size is not None and legacy_task_batch_size > 0 and migrated_q_batch_value is None:
+            migrated_q_batch_value = str(int(legacy_task_batch_size))
+
+        if self._should_show_q_batch_param(algorithm_key, list(normalized_rows.values())):
+            row = normalized_rows.get(Q_BATCH_PARAM_NAME)
+            if row is None:
+                normalized_rows[Q_BATCH_PARAM_NAME] = [
+                    Q_BATCH_PARAM_NAME,
+                    migrated_q_batch_value or "1",
+                    "int",
+                    PARAM_NOTES[Q_BATCH_PARAM_NAME],
+                ]
+            elif migrated_q_batch_value is not None and not had_explicit_q_batch:
+                row[1] = migrated_q_batch_value
+                row[2] = "int"
+                row[3] = PARAM_NOTES[Q_BATCH_PARAM_NAME]
+            elif not str(row[1]).strip():
+                row[1] = migrated_q_batch_value or "1"
+                row[2] = "int"
+                row[3] = PARAM_NOTES[Q_BATCH_PARAM_NAME]
+        else:
+            normalized_rows.pop(Q_BATCH_PARAM_NAME, None)
+
+        ordered_specs = self._recommended_param_specs(algorithm_text, list(normalized_rows.values()))[1]
+        ordered_names = [name for name, *_rest in ordered_specs]
+        return [
+            normalized_rows[name]
+            for name in ordered_names
+            if name in normalized_rows
+        ]
+
     @staticmethod
     def _clear_layout(layout) -> None:
         while layout.count():
@@ -491,22 +684,23 @@ class TaskBuilderController:
     def _dynamic_param_lookup(self) -> dict[str, tuple[str, str, str]]:
         lookup: dict[str, tuple[str, str, str]] = {}
         for record in self.dynamic_table_records():
-            key = str(record[0] or "").strip()
+            key = self._canonical_param_name(record[0] if len(record) > 0 else "")
             if not key:
                 continue
-            value = str(record[1] or "").strip()
-            dtype = str(record[2] or "").strip() or "str"
-            note = str(record[3] or "").strip()
+            value = str(record[1] if len(record) > 1 else "").strip()
+            dtype = str(record[2] if len(record) > 2 else "").strip() or "str"
+            note = str(record[3] if len(record) > 3 else "").strip()
             lookup[key] = (value, dtype, note)
         return lookup
 
     def _upsert_dynamic_param_row(self, name: str, value_text: str, dtype: str, note: str) -> None:
         table = self.window.task_ui.tableWidget_dynamicParams
+        canonical_name = self._canonical_param_name(name)
         target_row = None
         for row in range(table.rowCount()):
             item = table.item(row, 0)
-            current_name = item.text().strip() if item is not None else ""
-            if current_name == name:
+            current_name = self._canonical_param_name(item.text() if item is not None else "")
+            if current_name == canonical_name:
                 target_row = row
                 break
         old_state = table.blockSignals(True)
@@ -514,7 +708,7 @@ class TaskBuilderController:
             if target_row is None:
                 target_row = table.rowCount()
                 table.insertRow(target_row)
-            values = [name, value_text, dtype, note]
+            values = [canonical_name, value_text, dtype, note]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 if col != 1:
@@ -522,7 +716,25 @@ class TaskBuilderController:
                 table.setItem(target_row, col, item)
         finally:
             table.blockSignals(old_state)
-        self.refresh_task_preview()
+
+    def _sync_algorithm_param_state(
+        self,
+        algorithm_text: str,
+        *,
+        records: list[list[str]] | None = None,
+        legacy_task_batch_size: int | None = None,
+        refresh_preview: bool = True,
+    ) -> None:
+        normalized_records = self._normalize_algorithm_param_records(
+            algorithm_text,
+            self.dynamic_table_records() if records is None else records,
+            legacy_task_batch_size=legacy_task_batch_size,
+        )
+        self._populate_dynamic_param_table(normalized_records)
+        self.render_algorithm_param_form(algorithm_text)
+        self._update_algorithm_detail_summary(algorithm_text)
+        if refresh_preview:
+            self.refresh_task_preview()
 
     def _populate_parameter_table(self, table, records: list[list[str]]) -> None:
         old_state = table.blockSignals(True)
@@ -561,11 +773,12 @@ class TaskBuilderController:
             return
         widget, dtype, note = widget_meta
         self._upsert_dynamic_param_row(name, self._param_widget_value(widget, dtype), dtype, note)
+        self._sync_algorithm_param_state(self.window.task_ui.comboBox_algorithm.currentText())
 
     def render_algorithm_param_form(self, algorithm_text: str) -> None:
         form_layout = getattr(self.window.task_ui, "formLayout_algorithmParams", None)
         summary_label = getattr(self.window.task_ui, "label_algorithmParamSummary", None)
-        algorithm_key, specs = self._recommended_param_specs(algorithm_text)
+        algorithm_key, specs = self._recommended_param_specs(algorithm_text, self.dynamic_table_records())
         if summary_label is not None:
             summary_label.setText(f"{algorithm_key} Parameters · {len(specs)} field(s)")
         if form_layout is None or summary_label is None:
@@ -627,19 +840,42 @@ class TaskBuilderController:
         *,
         preserve_custom: bool = True,
         log_change: bool = True,
+        legacy_task_batch_size: int | None = None,
     ) -> None:
-        algorithm_key = self.algorithm_template_key(algorithm_text)
-        recommended = self._load_algorithm_param_specs(algorithm_key)
+        algorithm_key, recommended = self._recommended_param_specs(
+            algorithm_text,
+            self.dynamic_table_records() if preserve_custom else [],
+        )
         if not recommended:
             self.refresh_task_preview()
             return
 
         current_lookup = self._dynamic_param_lookup()
+        migrated_q_batch_value: str | None = None
+        acq_opt_entry = current_lookup.get("acq_opt_kwargs")
+        if acq_opt_entry is not None:
+            acq_opt_value, acq_opt_dtype, _acq_opt_note = acq_opt_entry
+            parsed_acq_opt = TaskService._coerce_scalar(acq_opt_value, acq_opt_dtype or "json")
+            if isinstance(parsed_acq_opt, dict) and "qehvi_batch" in parsed_acq_opt:
+                migrated_q_batch_value = self._format_dynamic_param_value(
+                    parsed_acq_opt["qehvi_batch"],
+                    "int",
+                    name=Q_BATCH_PARAM_NAME,
+                )
+        if migrated_q_batch_value is None and legacy_task_batch_size is not None and legacy_task_batch_size > 0:
+            migrated_q_batch_value = str(int(legacy_task_batch_size))
 
         recommended_records = []
         for name, default, dtype, note in recommended:
             if preserve_custom:
-                value_text, stored_dtype, stored_note = current_lookup.get(name, (str(default), dtype, note))
+                if name == Q_BATCH_PARAM_NAME and name not in current_lookup and migrated_q_batch_value is not None:
+                    value_text, stored_dtype, stored_note = (
+                        migrated_q_batch_value,
+                        dtype,
+                        note,
+                    )
+                else:
+                    value_text, stored_dtype, stored_note = current_lookup.get(name, (str(default), dtype, note))
             else:
                 value_text, stored_dtype, stored_note = str(default), dtype, note
             recommended_records.append(
@@ -651,10 +887,12 @@ class TaskBuilderController:
                 ]
             )
 
-        self._populate_dynamic_param_table(recommended_records)
-        self.render_algorithm_param_form(algorithm_text)
-        self._update_algorithm_detail_summary(algorithm_text)
-        self.refresh_task_preview()
+        self._sync_algorithm_param_state(
+            algorithm_text,
+            records=recommended_records,
+            legacy_task_batch_size=legacy_task_batch_size,
+            refresh_preview=True,
+        )
         if log_change:
             self.view.log_console(f"Loaded {algorithm_key} parameters from optimizer __init__.")
 
@@ -702,10 +940,11 @@ class TaskBuilderController:
             return
 
         records = self._parameter_table_records(table)
-        self._populate_dynamic_param_table(records)
-        self.render_algorithm_param_form(self.window.task_ui.comboBox_algorithm.currentText())
-        self._update_algorithm_detail_summary()
-        self.refresh_task_preview()
+        self._sync_algorithm_param_state(
+            self.window.task_ui.comboBox_algorithm.currentText(),
+            records=records,
+            refresh_preview=True,
+        )
         self.view.log_console("Updated algorithm detail parameters.")
         self._algorithm_detail_dialog = None
 
@@ -746,8 +985,7 @@ class TaskBuilderController:
             self.refresh_task_preview()
 
     def on_dynamic_param_table_changed(self) -> None:
-        self.render_algorithm_param_form(self.window.task_ui.comboBox_algorithm.currentText())
-        self.refresh_task_preview()
+        self._sync_algorithm_param_state(self.window.task_ui.comboBox_algorithm.currentText())
 
     def table_headers(self, table) -> list[str]:
         headers = []
@@ -890,7 +1128,7 @@ class TaskBuilderController:
         self._install_write_link_enabled_widgets(table)
 
     @staticmethod
-    def _normalize_objective_policy_enabled_value(value: str) -> str:
+    def _normalize_policy_enabled_value(value: str) -> str:
         text = str(value or "").strip()
         if not text:
             return "True"
@@ -904,17 +1142,33 @@ class TaskBuilderController:
         return "fel_energy_guard"
 
     @staticmethod
+    def _normalize_constraint_policy_name(value: str) -> str:
+        text = str(value or "").strip().lower()
+        if text in {"bpm_guard", "bpm_zero_guard"}:
+            return "bpm_guard"
+        return "bpm_guard"
+
+    @staticmethod
     def objective_policy_default_row(name: str = "fel_energy_guard", enabled: str = "True") -> list[str]:
         normalized_name = TaskBuilderController._normalize_objective_policy_name(name)
         spec = OBJECTIVE_POLICY_DEFAULTS[normalized_name]
         kwargs_text = json.dumps(spec["kwargs"], ensure_ascii=False)
         return [enabled, normalized_name, kwargs_text]
 
-    def _ensure_objective_policy_row_defaults(
+    @staticmethod
+    def constraint_policy_default_row(name: str = "bpm_guard", enabled: str = "True") -> list[str]:
+        normalized_name = TaskBuilderController._normalize_constraint_policy_name(name)
+        spec = CONSTRAINT_POLICY_DEFAULTS[normalized_name]
+        kwargs_text = json.dumps(spec["kwargs"], ensure_ascii=False)
+        return [enabled, normalized_name, kwargs_text]
+
+    def _ensure_policy_row_defaults(
         self,
         table,
         row: int,
         policy_name: str,
+        normalize_name,
+        default_row_factory,
         *,
         force: bool = False,
     ) -> None:
@@ -922,8 +1176,8 @@ class TaskBuilderController:
         if "Kwargs JSON" not in headers:
             return
         kwargs_col = headers.index("Kwargs JSON")
-        normalized_name = self._normalize_objective_policy_name(policy_name)
-        defaults = self.objective_policy_default_row(normalized_name)
+        normalized_name = normalize_name(policy_name)
+        defaults = default_row_factory(normalized_name)
         default_kwargs = defaults[2]
 
         kwargs_item = table.item(row, kwargs_col)
@@ -935,20 +1189,50 @@ class TaskBuilderController:
             else:
                 kwargs_item.setText(default_kwargs)
 
-    def _on_objective_policy_name_changed(self, row: int, value: str) -> None:
-        table = self.window.machine_ui.tableWidget_objectivePolicies
+    def _on_policy_name_changed(self, table, row: int, value: str, normalize_name, default_row_factory) -> None:
         if row < 0 or row >= table.rowCount():
             return
         old_state = table.blockSignals(True)
         try:
-            self._ensure_objective_policy_row_defaults(table, row, value, force=True)
+            self._ensure_policy_row_defaults(
+                table,
+                row,
+                value,
+                normalize_name,
+                default_row_factory,
+                force=True,
+            )
         finally:
             table.blockSignals(old_state)
         self.refresh_task_preview()
 
-    def _install_objective_policy_widgets(self, table) -> None:
-        if table is not self.window.machine_ui.tableWidget_objectivePolicies:
-            return
+    def _on_objective_policy_name_changed(self, row: int, value: str) -> None:
+        self._on_policy_name_changed(
+            self.window.machine_ui.tableWidget_objectivePolicies,
+            row,
+            value,
+            self._normalize_objective_policy_name,
+            self.objective_policy_default_row,
+        )
+
+    def _on_constraint_policy_name_changed(self, row: int, value: str) -> None:
+        self._on_policy_name_changed(
+            self.window.machine_ui.tableWidget_constraintPolicies,
+            row,
+            value,
+            self._normalize_constraint_policy_name,
+            self.constraint_policy_default_row,
+        )
+
+    def _install_policy_widgets(
+        self,
+        table,
+        *,
+        allowed_names: list[str],
+        normalize_name,
+        default_row_factory,
+        name_change_handler,
+    ) -> None:
         headers = self.table_headers(table)
         if "Enabled" not in headers or "Policy Name" not in headers:
             return
@@ -963,7 +1247,7 @@ class TaskBuilderController:
                 else:
                     current_item = table.item(row, enabled_col)
                     enabled_value = current_item.text().strip() if current_item is not None else ""
-                enabled_value = self._normalize_objective_policy_enabled_value(enabled_value)
+                enabled_value = self._normalize_policy_enabled_value(enabled_value)
                 enabled_combo = QComboBox(table)
                 enabled_combo.addItems(["True", "False"])
                 enabled_combo.setCurrentText(enabled_value)
@@ -982,12 +1266,12 @@ class TaskBuilderController:
                 else:
                     current_item = table.item(row, name_col)
                     name_value = current_item.text().strip() if current_item is not None else ""
-                name_value = self._normalize_objective_policy_name(name_value)
+                name_value = normalize_name(name_value)
                 name_combo = QComboBox(table)
-                name_combo.addItems(["fel_energy_guard", "zero_guard"])
+                name_combo.addItems(allowed_names)
                 name_combo.setCurrentText(name_value)
                 name_combo.currentTextChanged.connect(
-                    lambda value, row_idx=row: self._on_objective_policy_name_changed(row_idx, value)
+                    lambda value, row_idx=row: name_change_handler(row_idx, value)
                 )
                 table.setCellWidget(row, name_col, name_combo)
                 item = table.item(row, name_col)
@@ -996,12 +1280,43 @@ class TaskBuilderController:
                     table.setItem(row, name_col, item)
                 else:
                     item.setText(name_combo.currentText())
-                self._ensure_objective_policy_row_defaults(table, row, name_value)
+                self._ensure_policy_row_defaults(
+                    table,
+                    row,
+                    name_value,
+                    normalize_name,
+                    default_row_factory,
+                )
         finally:
             table.blockSignals(old_state)
 
+    def _install_objective_policy_widgets(self, table) -> None:
+        if table is not self.window.machine_ui.tableWidget_objectivePolicies:
+            return
+        self._install_policy_widgets(
+            table,
+            allowed_names=["fel_energy_guard", "zero_guard"],
+            normalize_name=self._normalize_objective_policy_name,
+            default_row_factory=self.objective_policy_default_row,
+            name_change_handler=self._on_objective_policy_name_changed,
+        )
+
     def refresh_objective_policy_editors(self) -> None:
         self._install_objective_policy_widgets(self.window.machine_ui.tableWidget_objectivePolicies)
+
+    def _install_constraint_policy_widgets(self, table) -> None:
+        if table is not self.window.machine_ui.tableWidget_constraintPolicies:
+            return
+        self._install_policy_widgets(
+            table,
+            allowed_names=["bpm_guard"],
+            normalize_name=self._normalize_constraint_policy_name,
+            default_row_factory=self.constraint_policy_default_row,
+            name_change_handler=self._on_constraint_policy_name_changed,
+        )
+
+    def refresh_constraint_policy_editors(self) -> None:
+        self._install_constraint_policy_widgets(self.window.machine_ui.tableWidget_constraintPolicies)
 
     def init_bounds_tool(self) -> None:
         return
@@ -1324,6 +1639,7 @@ class TaskBuilderController:
         self._install_objective_math_widgets(table)
         self.refresh_write_link_editors()
         self.refresh_objective_policy_editors()
+        self.refresh_constraint_policy_editors()
 
     def apply_task_payload(
         self,
@@ -1353,7 +1669,6 @@ class TaskBuilderController:
                 self.window.task_ui.comboBox_testFunction.setCurrentIndex(test_function_index)
             self.window.task_ui.spinBox_seed.setValue(int(task.get("seed", 0)))
             self.window.task_ui.spinBox_maxEval.setValue(int(task.get("max_evaluations", 20)))
-            self.window.task_ui.spinBox_batch.setValue(int(task.get("batch_size", 1)))
             self.window.task_ui.lineEdit_workdir.setText(str(task.get("workdir", Path.cwd())))
 
             self.fill_table_from_records(self.window.task_ui.tableWidget_variables, task.get("variables", []))
@@ -1367,6 +1682,7 @@ class TaskBuilderController:
                 self.window.task_ui.comboBox_algorithm.currentText(),
                 preserve_custom=True,
                 log_change=False,
+                legacy_task_batch_size=int(task.get("batch_size", 1) or 1),
             )
 
             machine = task.get("machine", {}) or {}
@@ -1391,6 +1707,10 @@ class TaskBuilderController:
             self.fill_table_from_records(
                 self.window.machine_ui.tableWidget_objectivePolicies,
                 machine.get("objective_policies", []),
+            )
+            self.fill_table_from_records(
+                self.window.machine_ui.tableWidget_constraintPolicies,
+                machine.get("constraint_policies", []),
             )
         finally:
             self.window._suppress_autofill = False
@@ -1440,6 +1760,7 @@ class TaskBuilderController:
         task = self.view.current_task()
         self.refresh_write_link_editors()
         self.refresh_objective_policy_editors()
+        self.refresh_constraint_policy_editors()
         self._update_test_function_control(task)
         self.update_bounds_tool_controls()
         self.update_algorithm_guidance(task)
@@ -1506,7 +1827,6 @@ class TaskBuilderController:
             "Select the optimizer family. Different algorithms consume evaluation budget differently; "
             "see the budget summary below."
         )
-        self.window.task_ui.spinBox_batch.setToolTip(self._batch_size_tooltip(algorithm))
         self.window.task_ui.tableWidget_dynamicParams.setToolTip(
             self._dynamic_params_tooltip(algorithm)
         )
@@ -1552,7 +1872,7 @@ class TaskBuilderController:
         pop_size = int(kwargs.get("pop_size", 0))
         evals_per_gen = int(kwargs.get("evals_per_gen", pop_size))
         n_generations = int(kwargs.get("n_generations", 0))
-        if algorithm in {"mggpo", "consmggpo"}:
+        if algorithm in {"mggpo", "consmggpo", "mggpo_so", "consmggpo_so"}:
             planned = pop_size + n_generations * evals_per_gen
             slack = max(0, max_evals - planned)
             slack_text = (
@@ -1560,7 +1880,13 @@ class TaskBuilderController:
                 if slack
                 else ""
             )
-            label = "ConsMGGPO" if algorithm == "consmggpo" else "MGGPO"
+            label_map = {
+                "mggpo": "MGGPO",
+                "consmggpo": "ConsMGGPO",
+                "mggpo_so": "MGGPO-SO",
+                "consmggpo_so": "ConsMGGPO-SO",
+            }
+            label = label_map.get(algorithm, normalized_name)
             return (
                 f"{label} spends one population to initialize and evals_per_gen per generation.\n"
                 f"Total planned evaluations = pop_size ({pop_size}) + n_generations ({n_generations}) x evals_per_gen ({evals_per_gen}) = {planned} / {max_evals}.{slack_text}"
@@ -1606,7 +1932,7 @@ class TaskBuilderController:
             trust_regions = int(dyn.get("n_trust_regions", 1))
             return (
                 f"Current TuRBO step cost follows n_trust_regions={trust_regions}. "
-                "The top-level Batch Size field is not used by the current TuRBO runner."
+                "Configure per-step cost through Algorithm Detail."
             )
         if algorithm in {"mobo", "consmobo"}:
             acq = str(dyn.get("acq", "ehvi")).strip().lower()
@@ -1614,47 +1940,16 @@ class TaskBuilderController:
                 label = "ConsMOBO" if algorithm == "consmobo" else "MOBO"
                 return (
                     f"Current {label} step cost follows acquisition={acq} with q-batch={iter_cost}. "
-                    "The GUI uses Batch Size as the fallback q-batch value."
+                    "Configure q-batch through Algorithm Detail -> q-Batch Size."
                 )
             label = "ConsMOBO" if algorithm == "consmobo" else "MOBO"
             return (
                 f"Current {label} acquisition={acq} evaluates one new point per iteration. "
-                "Batch Size only matters for q-acquisition variants."
+                "q-Batch Size stays available in Algorithm Detail, but it is ignored unless acquisition starts with q."
             )
         if algorithm == "consbo":
             return "Current ConsBO wiring evaluates one constrained point per iteration after the initial design."
         return "Current BO wiring evaluates one new point per iteration after the initial design."
-
-    def _batch_size_tooltip(self, algorithm: str) -> str:
-        if algorithm in {"mobo", "consmobo"}:
-            label = "ConsMOBO" if algorithm == "consmobo" else "MOBO"
-            suffix = (
-                "ConsMOBO currently supports constrained qEHVI/qNEHVI."
-                if algorithm == "consmobo"
-                else "With EHVI, each iteration still adds one point."
-            )
-            return (
-                f"For {label}, this acts as the fallback q-batch size when acquisition is qEHVI/qNEHVI. "
-                f"{suffix}"
-            )
-        if algorithm == "turbo":
-            return (
-                "The current TuRBO runner does not use this field directly. "
-                "Per-iteration cost comes from the dynamic parameter n_trust_regions."
-            )
-        if algorithm in {"consmggpo", "mopso", "nsga2"}:
-            if algorithm == "consmggpo":
-                return (
-                    "ConsMGGPO does not use this field to define budget. "
-                    "Use pop_size, evals_per_gen and n_generations instead."
-                )
-            return (
-                "Population algorithms do not use this field to define budget. "
-                "Use pop_size and n_generations instead."
-            )
-        if algorithm == "consbo":
-            return "Current ConsBO wiring uses single-point constrained iterations; this field is reserved."
-        return "Current BO wiring uses single-point iterations; this field is reserved for future batch BO support."
 
     def _dynamic_params_tooltip(self, algorithm: str) -> str:
         common = (
@@ -1664,11 +1959,15 @@ class TaskBuilderController:
         if algorithm == "turbo":
             return common + " For TuRBO, n_trust_regions determines the per-iteration evaluation cost."
         if algorithm == "mobo":
-            return common + " For MOBO, qEHVI/qNEHVI batch behavior is configured through acq_opt_kwargs or the top-level Batch Size fallback."
+            return common + " For MOBO, q-Batch Size stays visible for convenience and only affects qEHVI/qNEHVI."
         if algorithm == "consmobo":
-            return common + " For ConsMOBO, constraints come from Task Builder constraints and Machine PV Mapping; qEHVI/qNEHVI batch behavior is configured through acq_opt_kwargs or Batch Size."
+            return common + " For ConsMOBO, constraints come from Task Builder constraints and Machine PV Mapping; q-Batch Size is used by qEHVI/qNEHVI."
         if algorithm == "consmggpo":
             return common + " For ConsMGGPO, constraints come from Task Builder constraints and Machine PV Mapping; total evaluations scale with pop_size and evals_per_gen per generation."
+        if algorithm == "consmggpo_so":
+            return common + " For ConsMGGPO-SO, constraints come from Task Builder constraints and Machine PV Mapping; total evaluations scale with pop_size and evals_per_gen per generation."
+        if algorithm == "mggpo_so":
+            return common + " For MGGPO-SO, total evaluations scale with pop_size and evals_per_gen per generation."
         if algorithm == "consbo":
             return common + " For ConsBO, constraints come from Task Builder constraints and Machine PV Mapping."
         if algorithm in {"mopso", "nsga2"}:

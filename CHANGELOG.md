@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 - 2026-06-27
+
+- Added single-objective MG-GPO optimizers through `MGGPO-SO` and
+  `ConsMGGPO-SO`, including runner wiring, GUI selection, validation aliases,
+  and package exports
+- Added EPICS output-constraint policy support with BPM zero-value guard
+  handling and constraint bounds propagation through task configs
+- Expanded the GUI task builder with dynamic MGGPO-SO parameters, constraint
+  policy rows, online/offline setup separation, and template-library access
+- Normalized q-acquisition batch handling for MOBO-style optimizers through
+  `q_batch_size`
+- Added repository-level agent and pre-push release-file sync instructions
+
 ## 1.1.0 - 2026-04-17
 
 - Added online-ready constrained MG-GPO support through `ConsMGGPO`, using

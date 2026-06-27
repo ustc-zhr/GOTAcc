@@ -36,36 +36,6 @@
    </widget>
   </item>
    <item>
-    <widget class="QGroupBox" name="groupBox_templateQuickStart">
-     <property name="title">
-      <string>Starter Template</string>
-     </property>
-     <layout class="QVBoxLayout" name="verticalLayout_templateQuickStart">
-      <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_templateQuickStart">
-        <item>
-         <widget class="QComboBox" name="comboBox_templateQuickStart"/>
-        </item>
-        <item>
-         <widget class="QPushButton" name="pushButton_applyQuickTemplate">
-          <property name="text">
-           <string>Apply Template</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="pushButton_openTemplateLibrary">
-          <property name="text">
-           <string>Open Library</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
     <layout class="QHBoxLayout" name="horizontalLayout_topForms">
      <item>
      <widget class="QGroupBox" name="groupBox_meta">
@@ -104,12 +74,10 @@
         <item row="1" column="1"><widget class="QSpinBox" name="spinBox_seed"><property name="maximum"><number>999999999</number></property></widget></item>
         <item row="2" column="0"><widget class="QLabel" name="label_maxEval"><property name="text"><string>Max Evaluations</string></property></widget></item>
         <item row="2" column="1"><widget class="QSpinBox" name="spinBox_maxEval"><property name="toolTip"><string>Target cap for total objective evaluations. The exact mapping to iterations or generations depends on the selected algorithm.</string></property><property name="maximum"><number>1000000</number></property><property name="value"><number>100</number></property></widget></item>
-        <item row="3" column="0"><widget class="QLabel" name="label_batch"><property name="text"><string>Batch Size</string></property></widget></item>
-        <item row="3" column="1"><widget class="QSpinBox" name="spinBox_batch"><property name="toolTip"><string>Primarily used by MOBO q-acquisition workflows. For population algorithms this field does not define the full per-generation cost.</string></property><property name="maximum"><number>1000</number></property><property name="value"><number>1</number></property></widget></item>
-        <item row="4" column="0"><widget class="QLabel" name="label_testFunction"><property name="text"><string>Offline Test Function</string></property></widget></item>
-        <item row="4" column="1"><widget class="QComboBox" name="comboBox_testFunction"><property name="toolTip"><string>Offline benchmark function. Only used for offline tasks; online EPICS tasks ignore this setting.</string></property><item><property name="text"><string>rosenbrock</string></property></item><item><property name="text"><string>ackley</string></property></item><item><property name="text"><string>sphere</string></property></item><item><property name="text"><string>tradeoff</string></property></item></widget></item>
-        <item row="5" column="0"><widget class="QLabel" name="label_algorithmDetail"><property name="text"><string>Algorithm Detail</string></property></widget></item>
-        <item row="5" column="1">
+        <item row="3" column="0"><widget class="QLabel" name="label_testFunction"><property name="text"><string>Offline Test Function</string></property></widget></item>
+        <item row="3" column="1"><widget class="QComboBox" name="comboBox_testFunction"><property name="toolTip"><string>Offline benchmark function. Only used for offline tasks; online EPICS tasks ignore this setting.</string></property><item><property name="text"><string>rosenbrock</string></property></item><item><property name="text"><string>ackley</string></property></item><item><property name="text"><string>sphere</string></property></item><item><property name="text"><string>tradeoff</string></property></item></widget></item>
+        <item row="4" column="0"><widget class="QLabel" name="label_algorithmDetail"><property name="text"><string>Algorithm Detail</string></property></widget></item>
+        <item row="4" column="1">
          <layout class="QHBoxLayout" name="horizontalLayout_algorithmDetail">
           <item>
            <widget class="QLabel" name="label_algorithmDetailSummary">
@@ -202,7 +170,7 @@
          <bool>false</bool>
         </property>
         <property name="toolTip">
-         <string>Algorithm-specific overrides. Important budget-related keys include n_init, n_trust_regions, pop_size, n_generations, acq and qehvi_batch.</string>
+         <string>Algorithm-specific overrides. Important budget-related keys include n_init, n_trust_regions, pop_size, n_generations, acq and q-Batch Size for q-acquisition MOBO.</string>
         </property>
         <column><property name="text"><string>Key</string></property></column>
         <column><property name="text"><string>Value</string></property></column>
@@ -299,16 +267,9 @@
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton_validate">
+     <widget class="QPushButton" name="pushButton_validate">
        <property name="text">
         <string>Validate</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_export">
-       <property name="text">
-        <string>Export TaskConfig</string>
        </property>
       </widget>
      </item>
@@ -324,6 +285,13 @@
         </size>
        </property>
       </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_export">
+       <property name="text">
+        <string>Export TaskConfig</string>
+       </property>
+      </widget>
      </item>
     </layout>
    </item>

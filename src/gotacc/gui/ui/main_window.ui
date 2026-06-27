@@ -1181,7 +1181,7 @@
    <property name="text"><string>Ocean Blueprint</string></property>
   </action>
   <action name="actionResetLayout"><property name="text"><string>Reset Layout</string></property></action>
-  <action name="actionToggleRuntimeDock"><property name="text"><string>Toggle Runtime Status Dock</string></property></action>
+  <action name="actionToggleRuntimeDock"><property name="text"><string>Runtime Status</string></property></action>
   <action name="actionAboutGOTAcc"><property name="text"><string>About GOTAcc Studio</string></property></action>
  </widget>
  <resources/>

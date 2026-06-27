@@ -9,12 +9,14 @@ PyQt5 desktop GUI.
 
 ## Current Capabilities
 
-- Single-objective optimizers: BO, ConsBO, TuRBO, RCDS
+- Single-objective optimizers: BO, ConsBO, TuRBO, RCDS, MGGPO-SO, ConsMGGPO-SO
 - Multi-objective optimizers: MOBO, ConsMOBO, MGGPO, ConsMGGPO, MOPSO, NSGA-II
-- Output-space constrained optimization through ConsBO, ConsMOBO, and ConsMGGPO
+- Output-space constrained optimization through ConsBO, ConsMGGPO-SO, ConsMOBO,
+  and ConsMGGPO
 - Backend abstraction for offline callables and online EPICS evaluation
 - Config loading from Python module paths, Python files, and YAML files
-- PyQt5 GUI shell for task building, machine mapping, run monitoring, and result inspection
+- PyQt5 GUI shell for task building, offline setup, machine mapping, run
+  monitoring, and result inspection
 
 ## Installation
 
@@ -78,6 +80,8 @@ bo
 consbo
 turbo
 rcds
+mggpo_so
+consmggpo_so
 mobo
 consmobo
 mggpo
@@ -87,7 +91,9 @@ nsga2
 ```
 
 Aliases such as `constrained_bo`, `constrained_mobo`, and
-`constrained_mggpo` are also accepted by the runner.
+`constrained_mggpo` are also accepted by the runner. Single-objective MG-GPO
+aliases include `smggpo`, `single_objective_mggpo`, and
+`single_objective_consmggpo`.
 
 ## Output Constraints
 
@@ -111,16 +117,18 @@ constraint_bounds = [
 ]
 ```
 
-This convention is shared by `ConsBO`, `ConsMOBO`, and `ConsMGGPO`.
-`ConsMGGPO` uses the same constrained objective interface while retaining the
-population-based MG-GPO search controls such as `pop_size`, `evals_per_gen`,
-`n_generations`, and `acq_mode`.
+This convention is shared by `ConsBO`, `ConsMGGPO-SO`, `ConsMOBO`, and
+`ConsMGGPO`. `ConsMGGPO-SO` and `ConsMGGPO` use the same constrained objective
+interface while retaining the population-based MG-GPO search controls such as
+`pop_size`, `evals_per_gen`, `n_generations`, and `acq_mode`.
 
 For online EPICS tasks, constrained optimizers call
 `backend.evaluate_with_constraints()`. In the GUI, add constraint rows in Task
 Builder and add matching `constraint` rows in Machine Setup -> PV Mapping. The
 GUI will pass constraint PVs and `constraint_bounds` into the backend and
-optimizer automatically.
+optimizer automatically. EPICS tasks can also define constraint policies such as
+`bpm_guard` / `bpm_zero_guard` to replace all-zero BPM constraint samples with a
+sentinel value derived from the configured constraint bounds.
 
 ## Repository Layout
 
@@ -154,6 +162,7 @@ GOTAcc/
 - `examples/demo_multi_mobo_zdt1.py`
 - `examples/demo_epics_mock_single.py`
 - GUI template: `EPICS / ConsMGGPO` for constrained multi-objective online setup
+- GUI task builder support for `MGGPO-SO` and `ConsMGGPO-SO`
 
 ## Notes
 

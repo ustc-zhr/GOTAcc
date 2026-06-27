@@ -225,7 +225,6 @@ def _task(
         "test_function": test_function,
         "seed": 0,
         "max_evaluations": 24,
-        "batch_size": 1,
         "workdir": ".",
         "description": description,
         "variables": variables,

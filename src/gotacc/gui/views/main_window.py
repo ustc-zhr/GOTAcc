@@ -34,6 +34,7 @@ try:
     from .ui_main_window import Ui_MainWindow
     from .ui_task_builder import Ui_TaskBuilderPage
     from .ui_machine import Ui_MachinePage
+    from .ui_offline_setup import Ui_OfflineSetupPage
     from .ui_run_monitor import Ui_RunMonitorPage
     from .run_session import RunSession
     from .view_adapter import GuiViewAdapter
@@ -44,6 +45,7 @@ except ImportError:  # pragma: no cover - local script fallback
     from ui_main_window import Ui_MainWindow
     from ui_task_builder import Ui_TaskBuilderPage
     from ui_machine import Ui_MachinePage
+    from ui_offline_setup import Ui_OfflineSetupPage
     from ui_run_monitor import Ui_RunMonitorPage
     from run_session import RunSession
     from view_adapter import GuiViewAdapter
@@ -136,6 +138,13 @@ class MachinePageWidget(QWidget):
         self.ui.setupUi(self)
 
 
+class OfflineSetupPageWidget(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.ui = Ui_OfflineSetupPage()
+        self.ui.setupUi(self)
+
+
 class RunMonitorPageWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -152,11 +161,13 @@ class MainWindow(QMainWindow):
     PAGE_TASK_BUILDER = 101
     PAGE_MACHINE = 102
     PAGE_TEMPLATES = 103
+    PAGE_OFFLINE = 104
     PAGE_RUN_MONITOR = 201
     PAGE_RESULTS = 202
 
     CONFIGURE_TAB_TASK_BUILDER = 0
     CONFIGURE_TAB_MACHINE = 1
+    CONFIGURE_TAB_OFFLINE = 2
     RUN_TAB_LIVE = 0
     RUN_TAB_RESULTS = 1
 
@@ -191,6 +202,7 @@ class MainWindow(QMainWindow):
         self.machine_controller.init_machine_page()
         self._init_dashboard()
         self._init_theme_menu()
+        self._init_template_library_menu_action()
         self._init_templates_page()
         self._init_results_page()
         self._connect_signals()
@@ -213,10 +225,12 @@ class MainWindow(QMainWindow):
     def _compose_pages_from_generated_ui(self) -> None:
         self.task_builder_page = TaskBuilderPageWidget(self)
         self.machine_page = MachinePageWidget(self)
+        self.offline_setup_page = OfflineSetupPageWidget(self)
         self.run_monitor_page = RunMonitorPageWidget(self)
 
         self.task_ui = self.task_builder_page.ui
         self.machine_ui = self.machine_page.ui
+        self.offline_ui = self.offline_setup_page.ui
         self.run_ui = self.run_monitor_page.ui
 
         self._remove_stacked_page(self.ui.page_taskBuilder)
@@ -239,6 +253,8 @@ class MainWindow(QMainWindow):
             self.ui.page_configureMachine,
             self.machine_page,
         )
+        self.ui.tabWidget_configure.addTab(self.offline_setup_page, "Offline Setup")
+        self._mount_offline_setup_controls()
         self._replace_tab_page(
             self.ui.tabWidget_runWorkspace,
             self.ui.page_runLive,
@@ -290,6 +306,24 @@ class MainWindow(QMainWindow):
         layout.addWidget(page)
         page.show()
 
+    def _mount_offline_setup_controls(self) -> None:
+        form_layout = getattr(self.task_ui, "formLayout_algorithm", None)
+        offline_form = getattr(self.offline_ui, "formLayout_offlineConfig", None)
+        label = getattr(self.task_ui, "label_testFunction", None)
+        combo = getattr(self.task_ui, "comboBox_testFunction", None)
+        if form_layout is None or offline_form is None or label is None or combo is None:
+            return
+        if (
+            label.parent() is self.offline_ui.groupBox_benchmark
+            and combo.parent() is self.offline_ui.groupBox_benchmark
+        ):
+            return
+        form_layout.removeWidget(label)
+        form_layout.removeWidget(combo)
+        label.setParent(self.offline_ui.groupBox_benchmark)
+        combo.setParent(self.offline_ui.groupBox_benchmark)
+        offline_form.addRow(label, combo)
+
     # ------------------------------------------------------------------
     # Initialization
     # ------------------------------------------------------------------
@@ -301,6 +335,8 @@ class MainWindow(QMainWindow):
         self.ui.label_appSubtitle.setVisible(False)
         self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
         self.ui.tabWidget_runWorkspace.setCurrentIndex(self.RUN_TAB_LIVE)
+        self.ui.actionToggleRuntimeDock.setCheckable(True)
+        self.ui.actionToggleRuntimeDock.setChecked(False)
 
         self.ui.progressBar_run.setRange(0, 100)
         self.ui.progressBar_run.setValue(0)
@@ -318,6 +354,7 @@ class MainWindow(QMainWindow):
 
         self.task_ui.lineEdit_taskName.setText("demo_task")
         self.task_ui.lineEdit_workdir.setText(str(Path.cwd()))
+        self.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
 
         self.machine_ui.lineEdit_caAddress.setText("")
         self.machine_ui.label_statusValue.setText("Disconnected")
@@ -428,12 +465,15 @@ class MainWindow(QMainWindow):
         mapping_headers = ["Role", "Name", "PV Name", "Readback", "Group", "Note"]
         write_headers = ["Source Index", "Target PV", "Enabled"]
         objective_policy_headers = ["Enabled", "Policy Name", "Kwargs JSON"]
+        constraint_policy_headers = ["Enabled", "Policy Name", "Kwargs JSON"]
 
         self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 3)
         self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
         self._setup_table(self.machine_ui.tableWidget_objectivePolicies, objective_policy_headers, 1)
+        self._setup_table(self.machine_ui.tableWidget_constraintPolicies, constraint_policy_headers, 1)
         self.machine_ui.tableWidget_writeLinks.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.machine_ui.tableWidget_objectivePolicies.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.machine_ui.tableWidget_constraintPolicies.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         self._set_table_row(self.machine_ui.tableWidget_mapping, 0, ["knob", "x0", "", "", "main", ""])
         self._set_table_row(self.machine_ui.tableWidget_mapping, 1, ["objective", "obj0", "", "", "metric", ""])
@@ -444,8 +484,14 @@ class MainWindow(QMainWindow):
             0,
             self.task_builder_controller.objective_policy_default_row("fel_energy_guard", enabled="False"),
         )
+        self._set_table_row(
+            self.machine_ui.tableWidget_constraintPolicies,
+            0,
+            self.task_builder_controller.constraint_policy_default_row("bpm_guard", enabled="False"),
+        )
         self.task_builder_controller.refresh_write_link_editors()
         self.task_builder_controller.refresh_objective_policy_editors()
+        self.task_builder_controller.refresh_constraint_policy_editors()
 
     def _init_run_tables(self) -> None:
         recent_headers = ["Eval ID", "Timestamp", "Status", "X Summary", "Y Summary", "Constraint Summary"]
@@ -530,6 +576,19 @@ class MainWindow(QMainWindow):
     def _init_templates_page(self) -> None:
         self.templates_controller.init_templates_page()
 
+    def _init_template_library_menu_action(self) -> None:
+        action = self.ui.menuFile.addAction("Open Template Library...")
+        self.ui.menuFile.removeAction(action)
+        self.ui.menuFile.insertAction(self.ui.actionOpenConfig, action)
+        self.actionOpenTemplateLibraryMenu = action
+        self.actionOpenTemplateLibraryMenu.setToolTip(
+            "Browse and apply built-in task templates."
+        )
+        self.actionOpenTemplateLibraryMenu.setStatusTip(
+            "Open the built-in template library."
+        )
+        self.actionOpenTemplateLibraryMenu.triggered.connect(self._open_template_library)
+
     def _init_results_page(self) -> None:
         self.results_controller.init_results_page()
 
@@ -563,7 +622,8 @@ class MainWindow(QMainWindow):
         self.ui.actionPVMonitor.triggered.connect(self._show_pv_monitor_stub)
         self.ui.actionPolicyEditor.triggered.connect(self._show_policy_editor_stub)
         self.ui.actionResetLayout.triggered.connect(self._reset_layout)
-        self.ui.actionToggleRuntimeDock.triggered.connect(self.ui.dockWidget_runtimeStatus.setVisible)
+        self.ui.actionToggleRuntimeDock.toggled.connect(self._set_runtime_dock_visible)
+        self.ui.dockWidget_runtimeStatus.visibilityChanged.connect(self._sync_runtime_dock_action)
         self.ui.actionAboutGOTAcc.triggered.connect(self._show_about)
 
         self.task_ui.lineEdit_taskName.textChanged.connect(self._refresh_task_preview)
@@ -573,15 +633,11 @@ class MainWindow(QMainWindow):
         self.task_ui.comboBox_testFunction.currentTextChanged.connect(self._refresh_task_preview)
         self.task_ui.spinBox_seed.valueChanged.connect(self._refresh_task_preview)
         self.task_ui.spinBox_maxEval.valueChanged.connect(self._refresh_task_preview)
-        self.task_ui.spinBox_batch.valueChanged.connect(self._refresh_task_preview)
         self.task_ui.lineEdit_workdir.textChanged.connect(self._refresh_task_preview)
         self.task_ui.pushButton_browseWorkdir.clicked.connect(self._browse_workdir)
         self.task_ui.pushButton_preview.clicked.connect(self._show_task_preview)
         self.task_ui.pushButton_validate.clicked.connect(self.validate_task)
         self.task_ui.pushButton_export.clicked.connect(self.export_config)
-        self.task_ui.comboBox_templateQuickStart.currentIndexChanged.connect(self._update_quick_template_details)
-        self.task_ui.pushButton_applyQuickTemplate.clicked.connect(self._apply_quick_template)
-        self.task_ui.pushButton_openTemplateLibrary.clicked.connect(self._open_template_library)
         self.task_ui.pushButton_openBoundsTools.clicked.connect(self._open_bounds_tools)
         self.task_ui.pushButton_openAlgorithmDetail.clicked.connect(self._open_algorithm_detail)
         self.task_ui.toolButton_toggleAlgorithmOverrides.toggled.connect(self._toggle_algorithm_overrides)
@@ -610,6 +666,8 @@ class MainWindow(QMainWindow):
         self.machine_ui.pushButton_removeWriteLink.clicked.connect(self._remove_write_link_rows)
         self.machine_ui.pushButton_addObjectivePolicy.clicked.connect(self._add_objective_policy_row)
         self.machine_ui.pushButton_removeObjectivePolicy.clicked.connect(self._remove_objective_policy_rows)
+        self.machine_ui.pushButton_addConstraintPolicy.clicked.connect(self._add_constraint_policy_row)
+        self.machine_ui.pushButton_removeConstraintPolicy.clicked.connect(self._remove_constraint_policy_rows)
         self.machine_ui.comboBox_policy.currentTextChanged.connect(self._log_machine_policy_change)
         self.machine_ui.checkBox_autoConnect.toggled.connect(self._refresh_task_preview)
         self.machine_ui.checkBox_confirm.toggled.connect(self._refresh_task_preview)
@@ -621,6 +679,7 @@ class MainWindow(QMainWindow):
         self.machine_ui.doubleSpinBox_timeout.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.lineEdit_caAddress.textChanged.connect(self._refresh_task_preview)
         self.machine_ui.tableWidget_objectivePolicies.itemChanged.connect(lambda *_: self._refresh_task_preview())
+        self.machine_ui.tableWidget_constraintPolicies.itemChanged.connect(lambda *_: self._refresh_task_preview())
 
         self.run_ui.pushButton_start.clicked.connect(self.start_run)
         self.run_ui.pushButton_pause.clicked.connect(self.pause_run)
@@ -724,6 +783,34 @@ class MainWindow(QMainWindow):
                 ),
             )
         self.task_builder_controller.refresh_objective_policy_editors()
+        self._refresh_task_preview()
+
+    def _add_constraint_policy_row(self) -> None:
+        row = self._add_table_row(
+            self.machine_ui.tableWidget_constraintPolicies,
+            self.task_builder_controller.constraint_policy_default_row("bpm_guard", enabled="True"),
+        )
+        self.task_builder_controller.refresh_constraint_policy_editors()
+        self.machine_ui.tableWidget_constraintPolicies.selectRow(row)
+        self._refresh_task_preview()
+
+    def _remove_constraint_policy_rows(self) -> None:
+        table = self.machine_ui.tableWidget_constraintPolicies
+        rows = sorted({index.row() for index in table.selectionModel().selectedRows()}, reverse=True)
+        if not rows:
+            QMessageBox.information(self, "Remove Policy", "Please select one or more rows first.")
+            return
+        for row in rows:
+            table.removeRow(row)
+        if table.rowCount() == 0:
+            self._add_table_row(
+                table,
+                self.task_builder_controller.constraint_policy_default_row(
+                    "bpm_guard",
+                    enabled="False",
+                ),
+            )
+        self.task_builder_controller.refresh_constraint_policy_editors()
         self._refresh_task_preview()
 
     def _qobj_alive(self, obj) -> bool:
@@ -918,10 +1005,20 @@ class MainWindow(QMainWindow):
             self.ui.listWidget_navPages.setCurrentRow(self.PAGE_OVERVIEW)
             return
 
-        if page_index in {self.PAGE_CONFIGURE, self.PAGE_TASK_BUILDER, self.PAGE_MACHINE, self.PAGE_TEMPLATES}:
+        if page_index in {self.PAGE_CONFIGURE, self.PAGE_TASK_BUILDER, self.PAGE_MACHINE, self.PAGE_TEMPLATES, self.PAGE_OFFLINE}:
+            task = self._current_task()
+            online_task = self._is_online_task(task)
             self.ui.listWidget_navPages.setCurrentRow(self.PAGE_CONFIGURE)
             if page_index == self.PAGE_MACHINE:
+                if not online_task:
+                    self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
+                    return
                 self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_MACHINE)
+            elif page_index == self.PAGE_OFFLINE:
+                if online_task:
+                    self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
+                    return
+                self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_OFFLINE)
             elif page_index in {self.PAGE_CONFIGURE, self.PAGE_TASK_BUILDER}:
                 self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
             elif page_index == self.PAGE_TEMPLATES:
@@ -952,7 +1049,33 @@ class MainWindow(QMainWindow):
 
     def _refresh_task_preview(self) -> None:
         self.task_builder_controller.refresh_task_preview()
+        self._sync_mode_specific_setup_tabs()
         self.runtime_status_controller.sync_run_workspace()
+
+    def _sync_mode_specific_setup_tabs(self, task: dict | None = None) -> None:
+        if task is None:
+            task = self._current_task()
+        online_task = self._is_online_task(task)
+        machine_enabled = online_task
+        offline_enabled = not online_task
+        self.ui.tabWidget_configure.setTabEnabled(self.CONFIGURE_TAB_MACHINE, machine_enabled)
+        self.ui.tabWidget_configure.setTabEnabled(self.CONFIGURE_TAB_OFFLINE, offline_enabled)
+        self.offline_ui.groupBox_benchmark.setEnabled(offline_enabled)
+        self.offline_ui.frame_offlinePlaceholder.setEnabled(offline_enabled)
+        if offline_enabled:
+            self.offline_ui.label_offlineSummary.setText(
+                "Configure benchmark-function inputs for offline validation and local smoke tests."
+            )
+        else:
+            self.offline_ui.label_offlineSummary.setText(
+                "Offline Setup is only available when Mode is set to Offline."
+            )
+
+        current_index = self.ui.tabWidget_configure.currentIndex()
+        if online_task and current_index == self.CONFIGURE_TAB_OFFLINE:
+            self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_MACHINE)
+        elif not online_task and current_index == self.CONFIGURE_TAB_MACHINE:
+            self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_OFFLINE)
 
     def _show_task_preview(self) -> None:
         self.task_builder_controller.show_task_preview()
@@ -1118,14 +1241,8 @@ class MainWindow(QMainWindow):
     def _update_template_details(self) -> None:
         self.templates_controller.update_template_details()
 
-    def _update_quick_template_details(self) -> None:
-        self.templates_controller.update_quick_template_details()
-
     def _apply_selected_template(self) -> None:
         self.templates_controller.apply_selected_template()
-
-    def _apply_quick_template(self) -> None:
-        self.templates_controller.apply_quick_template()
 
     def _open_template_library(self) -> None:
         self.templates_controller.open_template_library()
@@ -1161,8 +1278,19 @@ class MainWindow(QMainWindow):
     def _show_policy_editor_stub(self) -> None:
         self.templates_controller.show_policy_editor()
 
+    def _set_runtime_dock_visible(self, visible: bool) -> None:
+        self.ui.dockWidget_runtimeStatus.setVisible(bool(visible))
+
+    def _sync_runtime_dock_action(self, visible: bool) -> None:
+        action = self.ui.actionToggleRuntimeDock
+        old_state = action.blockSignals(True)
+        try:
+            action.setChecked(bool(visible))
+        finally:
+            action.blockSignals(old_state)
+
     def _reset_layout(self) -> None:
-        self.ui.dockWidget_runtimeStatus.show()
+        self.ui.dockWidget_runtimeStatus.hide()
         self.ui.splitter_main.setSizes([260, 1340])
         self.ui.splitter_centerVertical.setSizes([760, 220])
         if hasattr(self.ui, "splitter_dashboardLower"):

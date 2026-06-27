@@ -73,6 +73,11 @@ class BackendConfig:
             combine_mode
             objective_policy
             objective_policy_kwargs
+            objective_policies
+            constraint_policy
+            constraint_policy_kwargs
+            constraint_policies
+            constraint_bounds
             write_policy
             write_policy_kwargs
             best_selector_mode

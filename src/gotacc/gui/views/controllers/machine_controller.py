@@ -77,7 +77,7 @@ class MachineController:
         ui = self.window.machine_ui
         main_tabs = ui.tabWidget_machine
 
-        for page in (ui.tab_writePolicy, ui.tab_objectivePolicy):
+        for page in (ui.tab_writePolicy, ui.tab_objectivePolicy, ui.tab_constraintPolicy):
             index = main_tabs.indexOf(page)
             if index >= 0:
                 main_tabs.removeTab(index)
@@ -100,6 +100,7 @@ class MachineController:
         advanced_tabs.addTab(safeguards_page, "Safeguards")
         advanced_tabs.addTab(ui.tab_writePolicy, "Write Links")
         advanced_tabs.addTab(ui.tab_objectivePolicy, "Objective Policy")
+        advanced_tabs.addTab(ui.tab_constraintPolicy, "Constraint Policy")
         main_tabs.addTab(advanced_page, "Advanced")
         main_tabs.setCurrentWidget(ui.tab_mapping)
 
@@ -643,15 +644,27 @@ class MachineController:
             return
         write_policy = self.window.machine_ui.comboBox_policy.currentText().strip()
         objective_policy_rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_objectivePolicies)
+        constraint_policy_rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_constraintPolicies)
         enabled_objective_policies = [
             row
             for row in objective_policy_rows
             if TaskService._is_enabled(row.get("Enabled", ""))
             and str(row.get("Policy Name", "")).strip()
         ]
+        enabled_constraint_policies = [
+            row
+            for row in constraint_policy_rows
+            if TaskService._is_enabled(row.get("Enabled", ""))
+            and str(row.get("Policy Name", "")).strip()
+        ]
         objective_policy_summary = (
             f"{len(enabled_objective_policies)} enabled"
             if enabled_objective_policies
+            else "none"
+        )
+        constraint_policy_summary = (
+            f"{len(enabled_constraint_policies)} enabled"
+            if enabled_constraint_policies
             else "none"
         )
         restore = "restore-on-abort on" if self.window.machine_ui.checkBox_restore.isChecked() else "restore-on-abort off"
@@ -666,6 +679,7 @@ class MachineController:
         status = self.window.machine_ui.label_statusValue.text().strip() or "Disconnected"
         self.window.machine_ui.label_machineSummary.setText(
             f"Status {status} · write policy {write_policy} · objective policies {objective_policy_summary} · "
+            f"constraint policies {constraint_policy_summary} · "
             f"{restore} · {readback} · {set_interval} · {sample_interval} · {auto_connect}"
         )
 

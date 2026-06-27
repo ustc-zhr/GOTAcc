@@ -23,8 +23,11 @@ import numpy as np
 from gotacc.configs.schema import TaskConfig
 from gotacc.interfaces.base import ObjectiveBackend
 from gotacc.interfaces.epics import (
+    BPMGuardConstraintPolicy,
+    BaseConstraintPolicy,
     BaseObjectivePolicy,
     BaseWritePolicy,
+    CompositeConstraintPolicy,
     CompositeObjectivePolicy,
     EpicsObjective,
     FelEnergyGuardPolicy,
@@ -128,7 +131,7 @@ def build_write_policy(
     if name in {"none"}:
         return None
 
-    if name == "equal":
+    if name in {"equal", "xiaosesan_symmetry"}:
         return EqualWritePolicy(
             extra_links=kwargs.get("pvlinks", None),
         )
@@ -166,7 +169,7 @@ def _build_one_objective_policy(name: str, kwargs: dict[str, Any]) -> BaseObject
             change_threshold=kwargs.get("change_threshold", 1e-6),
         )
 
-    if lname in "zero_guard":
+    if lname in {"zero_guard", "xiaosesan_zero_guard"}:
         return ZeroGuardPolicy(
             target_col=kwargs.get("target_col", 1),
             zero_atol=kwargs.get("zero_atol", 1e-12),
@@ -200,6 +203,101 @@ def build_objective_policies(policy_specs):
     if len(built) == 1:
         return built[0]
     return CompositeObjectivePolicy(built)
+
+
+# =============================================================================
+# constraint policy builder
+# =============================================================================
+def _build_one_constraint_policy(name: str, kwargs: dict[str, Any]) -> BaseConstraintPolicy:
+    lname = str(name).lower()
+
+    if lname in {"bpm_guard", "bpm_zero_guard"}:
+        return BPMGuardConstraintPolicy(
+            target_col=kwargs.get("target_col", 0),
+            zero_atol=kwargs.get("zero_atol", 1e-9),
+            delta_ratio=kwargs.get("delta_ratio", 0.1),
+            delta_min=kwargs.get("delta_min", 1e-6),
+            scale_floor=kwargs.get("scale_floor", 1.0),
+        )
+
+    raise ValueError(f"Unknown constraint policy: {name!r}")
+
+
+def build_constraint_policies(policy_specs):
+    if policy_specs is None:
+        return None
+
+    if not isinstance(policy_specs, list):
+        raise TypeError("constraint_policies must be a list")
+
+    built = []
+    for i, spec in enumerate(policy_specs):
+        if not isinstance(spec, dict):
+            raise TypeError(f"constraint_policies[{i}] must be a dict")
+
+        name = spec.get("name")
+        kwargs = spec.get("kwargs", {})
+
+        if not isinstance(kwargs, dict):
+            raise TypeError(f"constraint_policies[{i}]['kwargs'] must be a dict")
+
+        built.append(_build_one_constraint_policy(name, kwargs))
+
+    if len(built) == 0:
+        return None
+    if len(built) == 1:
+        return built[0]
+    return CompositeConstraintPolicy(built)
+
+
+def build_constraint_policy(
+    names: str | Sequence[str] | None,
+    kwargs: dict[str, Any] | None = None,
+) -> BaseConstraintPolicy | None:
+    """
+    根据字符串名字构造约束策略。
+
+    当前内置支持：
+        None / "none"
+        "bpm_guard"
+        "bpm_zero_guard"
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    name_list = _normalize_policy_names(names)
+    if len(name_list) == 0:
+        return None
+
+    built: list[BaseConstraintPolicy] = []
+
+    for name in name_list:
+        lname = str(name).lower()
+
+        if lname in {"none"}:
+            continue
+
+        if lname in {"bpm_guard", "bpm_zero_guard"}:
+            built.append(
+                BPMGuardConstraintPolicy(
+                    target_col=kwargs.get("target_col", 0),
+                    zero_atol=kwargs.get("zero_atol", 1e-9),
+                    delta_ratio=kwargs.get("delta_ratio", 0.1),
+                    delta_min=kwargs.get("delta_min", 1e-6),
+                    scale_floor=kwargs.get("scale_floor", 1.0),
+                )
+            )
+            continue
+
+        raise ValueError(f"Unknown constraint policy: {name!r}")
+
+    if len(built) == 0:
+        return None
+
+    if len(built) == 1:
+        return built[0]
+
+    return CompositeConstraintPolicy(built)
 
 def build_objective_policy(
     names: str | Sequence[str] | None,
@@ -240,7 +338,7 @@ def build_objective_policy(
             )
             continue
 
-        if lname == "zero_guard":
+        if lname in {"zero_guard", "xiaosesan_zero_guard"}:
             built.append(
                 ZeroGuardPolicy(
                     target_col=kwargs.get("target_col", 1),
@@ -335,6 +433,15 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         objective_policy_kwargs = kwargs.pop("objective_policy_kwargs", {})
         objective_policy = build_objective_policy(objective_policy_names, objective_policy_kwargs)
 
+    constraint_policy_specs = kwargs.pop("constraint_policies", None)
+
+    if constraint_policy_specs is not None:
+        constraint_policy = build_constraint_policies(constraint_policy_specs)
+    else:
+        constraint_policy_names = kwargs.pop("constraint_policy", None)
+        constraint_policy_kwargs = kwargs.pop("constraint_policy_kwargs", {})
+        constraint_policy = build_constraint_policy(constraint_policy_names, constraint_policy_kwargs)
+
     # -------------------------------------------------------------------------
     # backend core config
     # -------------------------------------------------------------------------
@@ -347,6 +454,7 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         obj_math = kwargs.pop("obj_math")
         constraint_pvnames = kwargs.pop("constraint_pvnames", [])
         constraint_math = kwargs.pop("constraint_math", [])
+        constraint_bounds = kwargs.pop("constraint_bounds", [])
         set_interval = kwargs.pop("set_interval")
         sample_interval = kwargs.pop("sample_interval")
     except KeyError as exc:
@@ -369,6 +477,7 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         obj_math=obj_math,
         constraint_pvnames=constraint_pvnames,
         constraint_math=constraint_math,
+        constraint_bounds=constraint_bounds,
         set_interval=set_interval,
         sample_interval=sample_interval,
         log_path=log_path,
@@ -377,6 +486,7 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         combine_mode=combine_mode,
         write_policy=write_policy,
         objective_policy=objective_policy,
+        constraint_policy=constraint_policy,
         best_selector_mode=best_selector_mode,
     )
 

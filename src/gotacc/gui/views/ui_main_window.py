@@ -907,5 +907,5 @@ class Ui_MainWindow(object):
         self.actionThemeCrispLab.setText(_translate("MainWindow", "Crisp Lab"))
         self.actionThemeOceanBlueprint.setText(_translate("MainWindow", "Ocean Blueprint"))
         self.actionResetLayout.setText(_translate("MainWindow", "Reset Layout"))
-        self.actionToggleRuntimeDock.setText(_translate("MainWindow", "Toggle Runtime Status Dock"))
+        self.actionToggleRuntimeDock.setText(_translate("MainWindow", "Runtime Status"))
         self.actionAboutGOTAcc.setText(_translate("MainWindow", "About GOTAcc Studio"))

@@ -71,6 +71,8 @@ SUPPORTED_GUI_OPTIMIZERS = {
     "bo",
     "consbo",
     "turbo",
+    "mggpo_so",
+    "consmggpo_so",
     "mobo",
     "consmobo",
     "consmggpo",
@@ -184,11 +186,19 @@ class TaskService:
         result: Dict[str, Any] = {}
         for row in rows:
             key = str(row.get("Parameter", "")).strip()
+            if key in {"qehvi_batch", "q_batch"}:
+                key = "q_batch_size"
             if not key:
                 continue
             val = row.get("Value", "")
             dtype = row.get("Type", "")
-            result[key] = TaskService._coerce_scalar(val, dtype)
+            coerced = TaskService._coerce_scalar(val, dtype)
+            if key == "acq_opt_kwargs" and isinstance(coerced, Mapping) and "qehvi_batch" in coerced:
+                migrated = dict(coerced)
+                q_batch_value = migrated.pop("qehvi_batch")
+                result.setdefault("q_batch_size", max(1, int(q_batch_value)))
+                coerced = migrated
+            result[key] = coerced
         return result
 
     @staticmethod
@@ -336,6 +346,23 @@ class TaskService:
             "constrained bo": "consbo",
             "turbo": "turbo",
             "rcds": "rcds",
+            "mggpo-so": "mggpo_so",
+            "mggpo_so": "mggpo_so",
+            "smggpo": "mggpo_so",
+            "single objective mggpo": "mggpo_so",
+            "single_objective_mggpo": "mggpo_so",
+            "single objective mg-gpo": "mggpo_so",
+            "single_objective_mg-gpo": "mggpo_so",
+            "consmggpo-so": "consmggpo_so",
+            "consmggpo_so": "consmggpo_so",
+            "constrained mggpo so": "consmggpo_so",
+            "constrained_mggpo_so": "consmggpo_so",
+            "single objective consmggpo": "consmggpo_so",
+            "single_objective_consmggpo": "consmggpo_so",
+            "single objective constrained mggpo": "consmggpo_so",
+            "single_objective_constrained_mggpo": "consmggpo_so",
+            "single objective constrained mg-gpo": "consmggpo_so",
+            "single_objective_constrained_mg-gpo": "consmggpo_so",
             "mobo": "mobo",
             "consmobo": "consmobo",
             "constrained mobo": "consmobo",
@@ -359,6 +386,8 @@ class TaskService:
         objective_type = str(task.get("objective_type", "Single Objective")).strip().lower()
         if algorithm in {"mobo", "consmobo", "consmggpo", "mggpo", "mopso", "nsga2"}:
             return "vector"
+        if algorithm in {"bo", "consbo", "turbo", "rcds", "mggpo_so", "consmggpo_so"}:
+            return "weighted_sum"
         if objective_type == "multi objective":
             return "vector"
         if n_objectives > 1:
@@ -388,7 +417,7 @@ class TaskService:
                 "verbose": verbose,
                 "device": device,
             }
-        elif algorithm in {"mggpo", "consmggpo"}:
+        elif algorithm in {"mggpo", "consmggpo", "mggpo_so", "consmggpo_so"}:
             pop_size, evals_per_gen, n_generations = TaskService._mggpo_budget_params(task, dyn)
             kwargs = {
                 "pop_size": pop_size,
@@ -433,13 +462,14 @@ class TaskService:
             kwargs["acq_para"] = float(dyn["acq_para"])
         if "acq_opt_kwargs" in dyn and isinstance(dyn["acq_opt_kwargs"], Mapping):
             kwargs["acq_opt_kwargs"] = dict(dyn["acq_opt_kwargs"])
+            kwargs["acq_opt_kwargs"].pop("qehvi_batch", None)
         if "acq_para_kwargs" in dyn and isinstance(dyn["acq_para_kwargs"], Mapping):
             kwargs["acq_para_kwargs"] = dict(dyn["acq_para_kwargs"])
         if algorithm in {"mobo", "consmobo"}:
             kwargs.setdefault("acq_opt_kwargs", {})
             batch_size = TaskService._mobo_batch_eval_cost(task, dyn)
-            if batch_size > 1:
-                kwargs["acq_opt_kwargs"].setdefault("qehvi_batch", batch_size)
+            if str(kwargs.get("acq", "ehvi")).strip().lower().startswith("q"):
+                kwargs["acq_opt_kwargs"]["qehvi_batch"] = batch_size
 
         for key in [
             "n_trust_regions",
@@ -486,6 +516,29 @@ class TaskService:
                         if key in dyn:
                             kwargs[key] = dyn[key]
 
+        if algorithm in {"mggpo_so", "consmggpo_so"}:
+            kwargs["maximize"] = True
+            for key in ["mutation_eta", "crossover_eta"]:
+                if key in dyn:
+                    kwargs[key] = dyn[key]
+            for key in [
+                "m1",
+                "m2",
+                "m3",
+                "ucb_beta",
+                "ucb_beta_kwargs",
+                "use_all_history_for_gp",
+                "gp_history_max",
+                "w",
+                "c1",
+                "c2",
+                "mutation_prob",
+                "crossover_prob",
+                "archive_size",
+            ]:
+                if key in dyn and dyn[key] != "":
+                    kwargs[key] = dyn[key]
+
         return kwargs
 
     @staticmethod
@@ -516,17 +569,9 @@ class TaskService:
     @staticmethod
     def _mobo_batch_eval_cost(task: Dict[str, Any], dyn: Dict[str, Any]) -> int:
         acq = str(dyn.get("acq", "ehvi")).strip().lower()
-        if "q" not in acq:
+        if not acq.startswith("q"):
             return 1
-
-        acq_opt_kwargs = dyn.get("acq_opt_kwargs")
-        if isinstance(acq_opt_kwargs, Mapping) and "qehvi_batch" in acq_opt_kwargs:
-            return max(1, int(acq_opt_kwargs["qehvi_batch"]))
-        if "qehvi_batch" in dyn:
-            return max(1, int(dyn["qehvi_batch"]))
-        if "batch_size" in dyn:
-            return max(1, int(dyn["batch_size"]))
-        return max(1, int(task.get("batch_size", 1)))
+        return max(1, int(dyn.get("q_batch_size", 1)))
 
     @staticmethod
     def _population_budget_params(task: Dict[str, Any], dyn: Dict[str, Any]) -> Tuple[int, int]:
@@ -594,7 +639,6 @@ class TaskService:
             "test_function": test_function,
             "seed": task_ui.spinBox_seed.value(),
             "max_evaluations": task_ui.spinBox_maxEval.value(),
-            "batch_size": task_ui.spinBox_batch.value(),
             "workdir": workdir,
             "description": "",
             "variables": TaskService.table_to_records(task_ui.tableWidget_variables),
@@ -612,6 +656,7 @@ class TaskService:
                 "write_timeout": machine_ui.doubleSpinBox_timeout.value(),
                 "write_policy": machine_ui.comboBox_policy.currentText(),
                 "objective_policies": TaskService.table_to_records(machine_ui.tableWidget_objectivePolicies),
+                "constraint_policies": TaskService.table_to_records(machine_ui.tableWidget_constraintPolicies),
                 "mapping": TaskService.table_to_records(machine_ui.tableWidget_mapping),
                 "write_links": TaskService.table_to_records(machine_ui.tableWidget_writeLinks),
             },
@@ -775,6 +820,57 @@ class TaskService:
         return specs
 
     @staticmethod
+    def _build_constraint_policy_specs(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+        machine = task.get("machine", {}) or {}
+        rows = machine.get("constraint_policies", []) or []
+        specs: List[Dict[str, Any]] = []
+        supported = {"bpm_guard", "bpm_zero_guard"}
+        for idx, row in enumerate(rows, start=1):
+            enabled_text = row.get("Enabled", "")
+            if enabled_text and not TaskService._is_enabled(enabled_text):
+                continue
+            name = str(row.get("Policy Name", "")).strip().lower()
+            if not name:
+                continue
+            if name not in supported:
+                raise ValueError(
+                    f"Unsupported constraint policy in row {idx}: {name!r}. "
+                    f"Use one of: {', '.join(sorted(supported))}."
+                )
+
+            kwargs = TaskService._parse_json_text(row.get("Kwargs JSON", ""))
+            target_text = kwargs.get("target_col", 0)
+            try:
+                target_col = int(float(target_text or 0))
+            except Exception as exc:
+                raise ValueError(
+                    f"Constraint policy row {idx} has invalid target_col in Kwargs JSON."
+                ) from exc
+            if target_col < 0:
+                raise ValueError(
+                    f"Constraint policy row {idx} must have target_col >= 0 in Kwargs JSON."
+                )
+            kwargs["target_col"] = target_col
+
+            for key in ("zero_atol", "delta_ratio", "delta_min", "scale_floor"):
+                if key not in kwargs:
+                    continue
+                try:
+                    kwargs[key] = float(kwargs[key])
+                except Exception as exc:
+                    raise ValueError(
+                        f"Constraint policy row {idx} has invalid {key!r} in Kwargs JSON."
+                    ) from exc
+                if kwargs[key] < 0:
+                    raise ValueError(
+                        f"Constraint policy row {idx} must have {key} >= 0 in Kwargs JSON."
+                    )
+
+            normalized_name = "bpm_guard" if name == "bpm_zero_guard" else name
+            specs.append({"name": normalized_name, "kwargs": kwargs})
+        return specs
+
+    @staticmethod
     def validate_task_data(task: Dict[str, Any]) -> Tuple[bool, List[str]]:
         errors: List[str] = []
 
@@ -814,12 +910,14 @@ class TaskService:
             errors.append(
                 f"Algorithm {task.get('algorithm', 'BO')!r} is not wired into the current GUI runner."
             )
-        if algorithm in {"mopso", "nsga2"} and int(task.get("max_evaluations", 0) or 0) < 2:
+        if algorithm == "mggpo_so" and objective_type != "Single Objective":
+            errors.append("MGGPO-SO requires Objective Type = Single Objective.")
+        if algorithm in {"mggpo", "consmggpo", "mggpo_so", "consmggpo_so", "mopso", "nsga2"} and int(task.get("max_evaluations", 0) or 0) < 2:
             errors.append(
                 f"Algorithm {task.get('algorithm', 'BO')!r} requires max_evaluations >= 2 for population initialization."
             )
         enabled_constraints = TaskService._enabled_rows(task.get("constraints", []))
-        constrained_algorithms = {"consbo", "consmobo", "consmggpo"}
+        constrained_algorithms = {"consbo", "consmobo", "consmggpo", "consmggpo_so"}
         if algorithm in constrained_algorithms:
             if mode != "Online EPICS":
                 errors.append(f"{task.get('algorithm', 'Constrained BO')} is currently wired for Online EPICS tasks in the GUI.")
@@ -829,6 +927,8 @@ class TaskService:
                 errors.append(f"{task.get('algorithm', 'Constrained MO optimizer')} requires Objective Type = Multi Objective.")
             if algorithm in {"consmobo", "consmggpo"} and len(enabled_objectives) < 2:
                 errors.append(f"{task.get('algorithm', 'Constrained MO optimizer')} requires at least two enabled objectives.")
+            if algorithm == "consmggpo_so" and objective_type != "Single Objective":
+                errors.append("ConsMGGPO-SO requires Objective Type = Single Objective.")
             if not enabled_constraints:
                 errors.append(f"{task.get('algorithm', 'Constrained BO')} requires at least one enabled output constraint.")
             dyn = TaskService._dynamic_params_to_dict(task.get("algorithm_params", []))
@@ -899,6 +999,11 @@ class TaskService:
                 TaskService._build_objective_policy_specs(task)
             except Exception as exc:
                 errors.append(str(exc))
+            if algorithm in constrained_algorithms:
+                try:
+                    TaskService._build_constraint_policy_specs(task)
+                except Exception as exc:
+                    errors.append(str(exc))
             for idx, row in enumerate(enabled_objectives, start=1):
                 math_op = str(row.get("Math", "mean")).strip().lower() or "mean"
                 if math_op not in {"mean", "std"}:
@@ -1056,7 +1161,7 @@ class TaskService:
             (str(row.get("Name", "")).strip() or f"obj{i}") for i, row in enumerate(objectives)
         ]
         constraints = TaskService._enabled_rows(task.get("constraints", []))
-        use_output_constraints = algorithm in {"consbo", "consmobo", "consmggpo"}
+        use_output_constraints = algorithm in {"consbo", "consmobo", "consmggpo", "consmggpo_so"}
         constraint_names = [
             (str(row.get("Name", "")).strip() or f"cons{i}") for i, row in enumerate(constraints)
         ] if use_output_constraints else []
@@ -1065,6 +1170,11 @@ class TaskService:
         obj_pvnames = TaskService._resolve_online_objective_pvs(task, objectives)
         constraint_pvnames = (
             TaskService._resolve_online_constraint_pvs(task, constraints)
+            if use_output_constraints
+            else []
+        )
+        constraint_bounds = (
+            TaskService._constraint_bounds_from_rows(constraints)
             if use_output_constraints
             else []
         )
@@ -1099,6 +1209,11 @@ class TaskService:
 
         write_policy_name = str(machine.get("write_policy", "none")).strip().lower()
         objective_policy_specs = TaskService._build_objective_policy_specs(task)
+        constraint_policy_specs = (
+            TaskService._build_constraint_policy_specs(task)
+            if use_output_constraints
+            else []
+        )
         readback_check = bool(machine.get("readback_check", False))
         readback_tol = machine.get("readback_tol", None)
 
@@ -1111,6 +1226,7 @@ class TaskService:
             "obj_math": obj_math,
             "constraint_pvnames": constraint_pvnames,
             "constraint_math": constraint_math,
+            "constraint_bounds": constraint_bounds,
             "set_interval": float(machine.get("set_interval", 1.0)),
             "sample_interval": float(machine.get("sample_interval", 0.2)),
             "log_path": str(Path(task.get("workdir", Path.cwd())) / "save" / f"{task.get('task_name', 'task')}.opt"),
@@ -1121,6 +1237,7 @@ class TaskService:
             "write_policy": write_policy_name,
             "write_policy_kwargs": TaskService._build_write_policy_kwargs(task, variable_names),
             "objective_policies": objective_policy_specs,
+            "constraint_policies": constraint_policy_specs,
             # GUI-side helper metadata; harmless for preview/use outside builder,
             # but must be removed before build_backend() if strict factory is used.
             "variable_names": variable_names,
@@ -1181,15 +1298,21 @@ class TaskService:
 
         dyn = TaskService._dynamic_params_to_dict(task.get("algorithm_params", []))
         algorithm = TaskService._optimizer_name_from_gui(task.get("algorithm", "BO"))
-        constrained_algorithms = {"consbo", "consmobo", "consmggpo"}
+        if algorithm in {"mggpo", "consmggpo", "mggpo_so", "consmggpo_so", "mopso", "nsga2"} and int(task.get("max_evaluations", 0) or 0) < 2:
+            raise ValueError(f"Algorithm {task.get('algorithm', 'BO')!r} requires max_evaluations >= 2 for population initialization.")
+        constrained_algorithms = {"consbo", "consmobo", "consmggpo", "consmggpo_so"}
         if algorithm in constrained_algorithms and mode != "online epics":
             raise ValueError(f"{task.get('algorithm', 'Constrained BO')} is currently wired for Online EPICS tasks in the GUI.")
+        if algorithm == "mggpo_so" and objective_type_text != "Single Objective":
+            raise ValueError("MGGPO-SO requires Objective Type = Single Objective.")
         if algorithm == "consbo" and objective_type_text != "Single Objective":
             raise ValueError("ConsBO requires Objective Type = Single Objective.")
         if algorithm in {"consmobo", "consmggpo"} and objective_type_text != "Multi Objective":
             raise ValueError(f"{task.get('algorithm', 'Constrained MO optimizer')} requires Objective Type = Multi Objective.")
         if algorithm in {"consmobo", "consmggpo"} and len(objectives) < 2:
             raise ValueError(f"{task.get('algorithm', 'Constrained MO optimizer')} requires at least two enabled objectives.")
+        if algorithm == "consmggpo_so" and objective_type_text != "Single Objective":
+            raise ValueError("ConsMGGPO-SO requires Objective Type = Single Objective.")
         if algorithm in constrained_algorithms and not TaskService._enabled_rows(task.get("constraints", [])):
             raise ValueError(f"{task.get('algorithm', 'Constrained BO')} requires at least one enabled output constraint.")
 
