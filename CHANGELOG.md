@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.0 - 2026-06-29
+
+- Redesigned GOTAcc Studio around a compact half_linac-style control-room
+  shell, including dark/light theme switching, a horizontal workspace status
+  strip, simplified log panel, and tighter Run-page monitoring
+- Simplified GUI task entry points around `New Task`, `Open Project`,
+  `Save Project`, and `Export Task`, with new tasks defaulting to Online EPICS
+  while preserving Offline mode switching in Task Builder
+- Simplified Machine Setup for online tasks with a read-only EPICS PV check
+  flow, compact PV mapping actions, and clearer selected-row table styling
+- Made GUI task preview and validation side-effect free by deferring runtime
+  directory creation until run or explicit export
+- Aligned GUI worker error handling with runner restore behavior by attempting
+  initial-state restore after unexpected run errors when configured
+- Removed tracked GUI runtime cache state and expanded GUI/offscreen tests for
+  task config preview, worker restore behavior, and the redesigned shell
+
 ## 1.2.0 - 2026-06-27
 
 - Added single-objective MG-GPO optimizers through `MGGPO-SO` and

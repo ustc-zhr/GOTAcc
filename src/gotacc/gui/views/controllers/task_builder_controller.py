@@ -1732,8 +1732,8 @@ class TaskBuilderController:
         self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
         self.refresh_task_preview()
         self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
-        self.view.log_console("Created a new offline task draft.")
-        self.view.append_overview_activity("Draft", status="Created offline task draft.")
+        self.view.log_console("Created a new offline task.")
+        self.view.append_overview_activity("Task", status="Created offline task.")
 
     def create_new_online_task(self) -> None:
         self.window.task_ui.lineEdit_taskName.setText("online_task")
@@ -1744,8 +1744,8 @@ class TaskBuilderController:
         self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
         self.refresh_task_preview()
         self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
-        self.view.log_console("Created a new online task draft.")
-        self.view.append_overview_activity("Draft", status="Created online task draft.")
+        self.view.log_console("Created a new online task.")
+        self.view.append_overview_activity("Task", status="Created online task.")
 
     def browse_workdir(self) -> None:
         directory = QFileDialog.getExistingDirectory(
@@ -2021,7 +2021,7 @@ class TaskBuilderController:
         task = self.view.current_task()
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "Export TaskConfig",
+            "Export Task",
             str(Path(task["workdir"]) / "task_config.yaml"),
             "YAML Files (*.yaml *.yml);;All Files (*)",
         )
@@ -2030,40 +2030,40 @@ class TaskBuilderController:
         if not path.lower().endswith((".yaml", ".yml")):
             path = f"{path}.yaml"
         TaskService.export_task_config(task, path)
-        self.view.log_console(f"TaskConfig exported to: {path}")
+        self.view.log_console(f"Task exported to: {path}")
 
     def open_config(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self.window,
-            "Load Draft",
+            "Open Project",
             str(Path.cwd()),
-            "JSON Draft Files (*.json);;All Files (*)",
+            "GOTAcc Project Files (*.json);;All Files (*)",
         )
         if not path:
             return
         try:
             self.load_task_draft(path)
         except Exception as exc:
-            self.view.log_warning(f"Load draft failed: {exc}")
-            QMessageBox.critical(self.window, "Load Draft Failed", str(exc))
+            self.view.log_warning(f"Open project failed: {exc}")
+            QMessageBox.critical(self.window, "Open Project Failed", str(exc))
 
     def save_project(self) -> None:
         task = self.view.current_task()
-        default_path = Path(task["workdir"]) / f"{task['task_name']}_draft.json"
+        default_path = Path(task["workdir"]) / f"{task['task_name']}_project.json"
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "Save Draft",
+            "Save Project",
             str(default_path),
-            "JSON Draft Files (*.json);;All Files (*)",
+            "GOTAcc Project Files (*.json);;All Files (*)",
         )
         if not path:
             return
         if not path.lower().endswith(".json"):
             path = f"{path}.json"
         TaskService.export_task_json(task, path)
-        self.view.log_console(f"Draft saved to: {path}")
-        self.view.status_message(f"Draft saved: {path}", 5000)
-        self.view.append_overview_activity("Draft", status=f"Saved draft to {Path(path).name}.")
+        self.view.log_console(f"Project saved to: {path}")
+        self.view.status_message(f"Project saved: {path}", 5000)
+        self.view.append_overview_activity("Project", status=f"Saved project to {Path(path).name}.")
 
     def load_task_draft(self, path: str | Path) -> None:
         draft_path = Path(path)

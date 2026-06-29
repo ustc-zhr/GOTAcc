@@ -71,6 +71,35 @@ conda activate gotacc_env
 python -m gotacc.gui.main
 ```
 
+## GOTAcc Studio GUI
+
+GOTAcc Studio is the PyQt5 GUI entry point for building tasks, checking online
+machine mappings, running optimizers, and inspecting results:
+
+```bash
+gotacc-gui
+```
+
+The current GUI opens in a compact control-room style with dark mode enabled by
+default. Use the top-right theme button to switch between dark and light modes,
+and use the adjacent `Log` button to show or hide the bottom log panel.
+
+The left-side quick actions are project-oriented:
+
+- `New Task`: create a new Online EPICS task by default; switch `Mode` in Task
+  Builder when an Offline benchmark task is needed
+- `Open Project` / `Save Project`: load or save the editable GUI project state
+- `Export Task`: write a runnable `TaskConfig` YAML for the runner
+
+Configure pages are mode-specific: `Machine Setup` is shown for Online EPICS
+tasks, while `Offline Setup` is shown for Offline tasks. Machine Setup uses a
+read-only EPICS PV check flow for connectivity verification; real online runs
+still require a reachable EPICS environment and the `epics` extra.
+
+Preview and validation in the GUI do not create runtime output directories.
+Runtime directories under `save/` are created only when starting a run or when
+explicitly exporting a runnable task config.
+
 ## Optimizer Names
 
 Supported task config optimizer names include:
@@ -167,7 +196,8 @@ GOTAcc/
 ## Notes
 
 - The package version is sourced from `gotacc.version.__version__`.
-- GUI runtime writes theme and matplotlib cache files under `.cache/`.
+- GUI runtime may write local theme and matplotlib cache files under `.cache/`;
+  this directory is ignored and should not be committed.
 - Online workflows require a reachable EPICS environment and `pyepics`.
 - Constrained online workflows require objective PV mappings plus matching
   constraint PV mappings.
