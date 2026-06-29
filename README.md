@@ -46,22 +46,28 @@ pip install -e ".[full,dev]"
 Installed entry points:
 
 ```bash
-gotacc-run --config gotacc.configs.py_cfg.para_half
+gotacc-run --config config/task_configs/python/para_half.py
 gotacc-gui
 ```
 
 The `--config` argument accepts:
 
-- Python module paths, for example `gotacc.configs.py_cfg.para_irfel`
-- Python files, for example `src/gotacc/configs/py_cfg/para_irfel.py`
-- YAML files, for example `src/gotacc/configs/yaml_cfg/irfel_bo.yaml`
+- Python module paths, for example `my_package.tasks.para_irfel`
+- Python files, for example `config/task_configs/python/para_irfel.py`
+- YAML files, for example `config/task_configs/yaml/irfel_bo.yaml`
+
+`src/gotacc/configs` is the configuration API package for loading, defining,
+and validating `TaskConfig` objects. It is not a repository location for machine
+task files; example task files live under `config/task_configs/`, and reusable
+machine PV lists live under `config/pv_libraries/`.
+GUI project drafts saved by `Save Project` live under `config/gui_projects/`.
 
 Module execution is also supported:
 
 ```bash
-python -m gotacc.runners.run_cli --config gotacc.configs.py_cfg.para_half
+python -m gotacc.runners.run_cli --config config/task_configs/python/para_half.py
 python -m gotacc.gui.main
-python -m gotacc.runners.run_debug
+python examples/debug_irfel_runner.py
 ```
 
 If you use the local Conda environment used during development, activate it first:
@@ -171,26 +177,43 @@ GOTAcc/
 │     ├─ algorithms/
 │     │  ├─ single_objective/
 │     │  └─ multi_objective/
-│     ├─ configs/
-│     │  ├─ py_cfg/
-│     │  ├─ yaml_cfg/
-│     │  └─ pv_lists/
+│     ├─ configs/        # Config API: loader, schema, validators
+│     │  ├─ loader.py
+│     │  ├─ schema.py
+│     │  └─ validators.py
 │     ├─ gui/
 │     ├─ interfaces/
 │     ├─ runners/
+│     │  ├─ task_runner.py
+│     │  └─ run_cli.py
 │     ├─ utils/
 │     └─ version.py
 ├─ examples/
-├─ tests/
-└─ docs/
+│  ├─ demo_single_bo_ackley.py
+│  ├─ demo_single_bo_sphere.py
+│  ├─ demo_epics_mock_single.py
+│  ├─ debug_irfel_runner.py
+│  └─ demo_multi_mobo_zdt1.py
+├─ config/
+│  ├─ task_configs/
+│  │  ├─ python/
+│  │  └─ yaml/
+│  ├─ gui_projects/
+│  └─ pv_libraries/
+├─ runs/
+└─ tests/
 ```
 
-## Included Examples
+## Included Examples And Configs
 
 - `examples/demo_single_bo_sphere.py`
 - `examples/demo_multi_mobo_zdt1.py`
 - `examples/demo_epics_mock_single.py`
-- GUI template: `EPICS / ConsMGGPO` for constrained multi-objective online setup
+- `examples/debug_irfel_runner.py`
+- `config/task_configs/python/para_half.py`
+- `config/task_configs/python/para_irfel.py`
+- `config/task_configs/yaml/irfel_bo.yaml`
+- `config/pv_libraries/irfel.json`
 - GUI task builder support for `MGGPO-SO` and `ConsMGGPO-SO`
 
 ## Notes
@@ -198,6 +221,8 @@ GOTAcc/
 - The package version is sourced from `gotacc.version.__version__`.
 - GUI runtime may write local theme and matplotlib cache files under `.cache/`;
   this directory is ignored and should not be committed.
+- GUI and CLI run outputs should go under `runs/`; this directory is ignored
+  and should not be committed.
 - Online workflows require a reachable EPICS environment and `pyepics`.
 - Constrained online workflows require objective PV mappings plus matching
   constraint PV mappings.

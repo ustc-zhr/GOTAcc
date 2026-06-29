@@ -43,8 +43,8 @@ class MachineController:
 
     @staticmethod
     def _default_config_directory() -> Path:
-        configs_dir = Path(__file__).resolve().parents[3] / "configs"
-        return configs_dir if configs_dir.exists() else Path.cwd()
+        pv_library_dir = Path(__file__).resolve().parents[5] / "config" / "pv_libraries"
+        return pv_library_dir if pv_library_dir.exists() else Path.cwd()
 
     def init_machine_page(self) -> None:
         self._configure_simplified_machine_page()

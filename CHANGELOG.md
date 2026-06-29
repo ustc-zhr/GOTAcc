@@ -16,6 +16,16 @@
   initial-state restore after unexpected run errors when configured
 - Removed tracked GUI runtime cache state and expanded GUI/offscreen tests for
   task config preview, worker restore behavior, and the redesigned shell
+- Moved machine task configs, GUI project drafts, and PV libraries under the
+  top-level `config/` directory, keeping `gotacc.configs` focused on the config
+  loading and validation API
+- Set the GUI default work directory to `runs/` and ignored that directory as
+  local runtime output
+- Removed the GUI Template Library workflow and its external demo template to
+  keep project save/export semantics focused on project JSON and TaskConfig YAML
+- Renamed the canonical runner implementation to
+  `gotacc.runners.task_runner` while keeping `gotacc.runners.optimize` as a
+  compatibility import path
 
 ## 1.2.0 - 2026-06-27
 

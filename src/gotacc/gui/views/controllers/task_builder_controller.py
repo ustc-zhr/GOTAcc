@@ -46,6 +46,10 @@ except ImportError:  # pragma: no cover - local script fallback
 
 CURRENT_DIR = Path(__file__).resolve().parent
 GOTACC_ROOT = CURRENT_DIR.parents[2]
+REPO_ROOT = CURRENT_DIR.parents[4]
+CONFIG_ROOT = REPO_ROOT / "config"
+GUI_PROJECT_DIR = CONFIG_ROOT / "gui_projects"
+TASK_CONFIG_YAML_DIR = CONFIG_ROOT / "task_configs" / "yaml"
 
 ALGORITHM_INIT_SOURCES = {
     "BO": (GOTACC_ROOT / "algorithms" / "single_objective" / "bo.py", "BOOptimizer"),
@@ -2019,10 +2023,12 @@ class TaskBuilderController:
 
     def export_config(self) -> None:
         task = self.view.current_task()
+        TASK_CONFIG_YAML_DIR.mkdir(parents=True, exist_ok=True)
+        default_name = f"{task.get('task_name', 'task')}_task_config.yaml"
         path, _ = QFileDialog.getSaveFileName(
             self.window,
             "Export Task",
-            str(Path(task["workdir"]) / "task_config.yaml"),
+            str(TASK_CONFIG_YAML_DIR / default_name),
             "YAML Files (*.yaml *.yml);;All Files (*)",
         )
         if not path:
@@ -2033,10 +2039,11 @@ class TaskBuilderController:
         self.view.log_console(f"Task exported to: {path}")
 
     def open_config(self) -> None:
+        GUI_PROJECT_DIR.mkdir(parents=True, exist_ok=True)
         path, _ = QFileDialog.getOpenFileName(
             self.window,
             "Open Project",
-            str(Path.cwd()),
+            str(GUI_PROJECT_DIR),
             "GOTAcc Project Files (*.json);;All Files (*)",
         )
         if not path:
@@ -2049,7 +2056,8 @@ class TaskBuilderController:
 
     def save_project(self) -> None:
         task = self.view.current_task()
-        default_path = Path(task["workdir"]) / f"{task['task_name']}_project.json"
+        GUI_PROJECT_DIR.mkdir(parents=True, exist_ok=True)
+        default_path = GUI_PROJECT_DIR / f"{task['task_name']}_project.json"
         path, _ = QFileDialog.getSaveFileName(
             self.window,
             "Save Project",

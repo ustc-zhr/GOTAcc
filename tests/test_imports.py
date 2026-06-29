@@ -11,6 +11,7 @@ CORE_MODULES = [
     "gotacc.interfaces.base",
     "gotacc.interfaces.factory",
     "gotacc.interfaces.epics",
+    "gotacc.runners.task_runner",
     "gotacc.runners.optimize",
     "gotacc.runners.run_cli",
     "gotacc.gui.services.task_service",

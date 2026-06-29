@@ -77,7 +77,7 @@ def worker_patches(monkeypatch):
         monkeypatch.setattr("gotacc.interfaces.factory.build_backend", fake_build_backend)
 
     monkeypatch.setattr(
-        "gotacc.runners.optimize.build_optimizer",
+        "gotacc.runners.task_runner.build_optimizer",
         lambda **_kwargs: _FailingOptimizer(),
     )
     return patch_backend, created_backends

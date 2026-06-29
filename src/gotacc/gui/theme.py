@@ -412,27 +412,12 @@ QLabel#label_machineWorkflowHint,
 QLabel#label_mappingHint,
 QLabel#label_writePolicyHint,
 QLabel#label_objectivePolicyHint,
-QLabel#label_templateHint,
-QLabel#label_templateSubHint,
-QLabel#label_templateLibraryHint,
-QLabel#label_templateDetailsHint,
-QLabel#label_templateActionsHint,
 QLabel#label_actionsHint {
     background: $hint_bg;
     border: 1px solid $hint_border;
     border-radius: 12px;
     color: $hint_text;
     padding: 10px;
-}
-
-QLabel#label_selectedTemplateSummary {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 $summary_start, stop:1 $summary_end);
-    border: 1px solid $summary_border;
-    border-radius: 12px;
-    color: $summary_text;
-    font-weight: 700;
-    padding: 10px 12px;
 }
 
 QPushButton {
@@ -486,24 +471,16 @@ QPushButton[danger="true"] {
 }
 
 QPushButton#pushButton_startRun,
-QPushButton#pushButton_start,
-QPushButton#pushButton_applyTemplate {
+QPushButton#pushButton_start {
     background: $accent;
     border-color: $accent;
     color: $window_bg;
 }
 
 QPushButton#pushButton_startRun:hover,
-QPushButton#pushButton_start:hover,
-QPushButton#pushButton_applyTemplate:hover {
+QPushButton#pushButton_start:hover {
     background: $primary_button_hover;
     border-color: $primary_button_hover;
-}
-
-QPushButton#pushButton_applyTemplate {
-    font-size: 14px;
-    font-weight: 700;
-    padding: 10px 16px;
 }
 
 QPushButton#pushButton_stopRun,

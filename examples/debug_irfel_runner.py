@@ -29,7 +29,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from gotacc.runners.optimize import run_task
+from gotacc.runners.task_runner import run_task
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def dump_config_to_stdout(cfg) -> None:
     """
@@ -90,21 +93,13 @@ def main() -> None:
     # ==================================================================
     # 1) 读取配置
     # ==================================================================
-    # a. from py
-    # without validate
-    # from gotacc.configs.py_cfg.para_irfel import task_config
-    # cfg = task_config()
-    
-    # with validate
+    # a. from Python task config
     from gotacc.configs.loader import load_task_config
-    from pathlib import Path
-    # cfg_path = Path(__file__).resolve().parent.parent / "configs" / "py_cfg" / "para_irfel.py"
-    # cfg = load_task_config(cfg_path)
-    cfg = load_task_config("gotacc.configs.py_cfg.para_irfel")
+    cfg_path = REPO_ROOT / "config" / "task_configs" / "python" / "para_irfel.py"
+    cfg = load_task_config(cfg_path)
 
-    # b from YAML 
-    # from gotacc.configs.loader import load_task_config
-    # cfg = load_task_config("configs/irfel_bo.yaml")
+    # b. from YAML task config
+    # cfg = load_task_config("config/task_configs/yaml/irfel_bo.yaml")
 
     # ==================================================================
     # 2) 调试期常用运行开关

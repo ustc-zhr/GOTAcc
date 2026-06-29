@@ -14,7 +14,6 @@ except ImportError:  # pragma: no cover
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -43,6 +42,7 @@ try:
     from .ui_run_monitor import Ui_RunMonitorPage
     from .run_session import RunSession
     from .view_adapter import GuiViewAdapter
+    from .tool_dialogs import PVMonitorDialog
 except ImportError:  # pragma: no cover - local script fallback
     CURRENT_DIR = Path(__file__).resolve().parent
     if str(CURRENT_DIR) not in sys.path:
@@ -54,6 +54,7 @@ except ImportError:  # pragma: no cover - local script fallback
     from ui_run_monitor import Ui_RunMonitorPage
     from run_session import RunSession
     from view_adapter import GuiViewAdapter
+    from tool_dialogs import PVMonitorDialog
 
 # -----------------------------------------------------------------------------
 # Service/worker imports
@@ -80,7 +81,6 @@ try:
         RunSessionPresenter,
         RuntimeStatusController,
         TaskBuilderController,
-        TemplatesController,
     )
 except ImportError:  # pragma: no cover - local script fallback
     CURRENT_DIR = Path(__file__).resolve().parent
@@ -109,7 +109,6 @@ except ImportError:  # pragma: no cover - local script fallback
         RunSessionPresenter,
         RuntimeStatusController,
         TaskBuilderController,
-        TemplatesController,
     )
 
 
@@ -217,7 +216,6 @@ class MainWindow(QMainWindow):
 
     PAGE_TASK_BUILDER = 101
     PAGE_MACHINE = 102
-    PAGE_TEMPLATES = 103
     PAGE_OFFLINE = 104
     PAGE_RUN_MONITOR = 201
     PAGE_RESULTS = 202
@@ -246,7 +244,6 @@ class MainWindow(QMainWindow):
         self.run_session_presenter = RunSessionPresenter(self)
         self.run_controller = RunController(self)
         self.runtime_status_controller = RuntimeStatusController(self)
-        self.templates_controller = TemplatesController(self)
         self.workspace_shell_layout: QVBoxLayout | None = None
         self.log_toggle_button: QToolButton | None = None
         self.theme_toggle_button: QToolButton | None = None
@@ -264,8 +261,6 @@ class MainWindow(QMainWindow):
         self._init_dashboard()
         self._init_theme_toggle()
         self._simplify_menu_bar()
-        self._init_template_library_menu_action()
-        self._init_templates_page()
         self._init_results_page()
         self._connect_signals()
         self.set_embedded_mode(os.environ.get("GOTACC_EMBEDDED", "").strip() in {"1", "true", "yes", "on"})
@@ -299,8 +294,6 @@ class MainWindow(QMainWindow):
         self._remove_stacked_page(self.ui.page_taskBuilder)
         self._remove_stacked_page(self.ui.page_machineInterface)
         self._remove_stacked_page(self.ui.page_runMonitor)
-        self._remove_stacked_page(self.ui.page_templates)
-        self._init_template_library_dialog()
         self._move_stacked_page_to_tab(
             self.ui.page_results,
             self.ui.tabWidget_runWorkspace,
@@ -428,15 +421,6 @@ class MainWindow(QMainWindow):
             self._workspace_status_layout.addWidget(item)
         self._workspace_status_layout.addStretch(1)
 
-    def _init_template_library_dialog(self) -> None:
-        self.template_library_dialog = QDialog(self)
-        self.template_library_dialog.setWindowTitle("Template Library")
-        self.template_library_dialog.resize(1120, 760)
-        layout = QVBoxLayout(self.template_library_dialog)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.addWidget(self.ui.page_templates)
-        self.ui.page_templates.show()
-
     def _remove_stacked_page(self, page: QWidget) -> None:
         stacked = self.ui.stackedWidget_pages
         index = stacked.indexOf(page)
@@ -530,7 +514,9 @@ class MainWindow(QMainWindow):
         self.ui.label_statusBestValue.setText("--")
 
         self.task_ui.lineEdit_taskName.setText("demo_task")
-        self.task_ui.lineEdit_workdir.setText(str(Path.cwd()))
+        runs_dir = Path(__file__).resolve().parents[4] / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        self.task_ui.lineEdit_workdir.setText(str(runs_dir))
         self.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
 
         self.machine_ui.lineEdit_caAddress.setText("")
@@ -588,12 +574,10 @@ class MainWindow(QMainWindow):
             self.ui.pushButton_pauseRun,
             self.ui.pushButton_stopRun,
             self.ui.pushButton_checkEnvironment,
-            self.ui.pushButton_cloneTemplate,
-            self.ui.pushButton_exportTemplate,
         ):
             button.setProperty("compact", True)
 
-        for button in (self.ui.pushButton_startRun, self.ui.pushButton_applyTemplate):
+        for button in (self.ui.pushButton_startRun,):
             button.setProperty("primary", True)
         self.ui.pushButton_stopRun.setProperty("danger", True)
 
@@ -607,9 +591,6 @@ class MainWindow(QMainWindow):
             self.ui.pushButton_pauseRun,
             self.ui.pushButton_stopRun,
             self.ui.pushButton_checkEnvironment,
-            self.ui.pushButton_applyTemplate,
-            self.ui.pushButton_cloneTemplate,
-            self.ui.pushButton_exportTemplate,
             self.task_ui.pushButton_browseWorkdir,
             self.task_ui.pushButton_openAlgorithmDetail,
             self.task_ui.pushButton_openBoundsTools,
@@ -1084,22 +1065,6 @@ class MainWindow(QMainWindow):
         self.ui.menubar.setVisible(not enabled)
         self.statusBar().setVisible(not enabled)
 
-    def _init_templates_page(self) -> None:
-        self.templates_controller.init_templates_page()
-
-    def _init_template_library_menu_action(self) -> None:
-        action = self.ui.menuFile.addAction("Open Template Library...")
-        self.ui.menuFile.removeAction(action)
-        self.ui.menuFile.insertAction(self.ui.actionOpenConfig, action)
-        self.actionOpenTemplateLibraryMenu = action
-        self.actionOpenTemplateLibraryMenu.setToolTip(
-            "Browse and apply built-in task templates."
-        )
-        self.actionOpenTemplateLibraryMenu.setStatusTip(
-            "Open the built-in template library."
-        )
-        self.actionOpenTemplateLibraryMenu.triggered.connect(self._open_template_library)
-
     def _init_results_page(self) -> None:
         self.results_controller.init_results_page()
 
@@ -1197,12 +1162,8 @@ class MainWindow(QMainWindow):
         self.run_ui.pushButton_restoreInitial.clicked.connect(self.restore_initial_to_machine)
         self.run_ui.pushButton_setBest.clicked.connect(self.set_best_to_machine)
 
-        self.ui.treeWidget_templates.itemSelectionChanged.connect(self._update_template_details)
         self.ui.treeWidget_runList.itemDoubleClicked.connect(self._open_selected_result_item)
         self.ui.treeWidget_runList.itemSelectionChanged.connect(self._on_results_tree_selection_changed)
-        self.ui.pushButton_applyTemplate.clicked.connect(self._apply_selected_template)
-        self.ui.pushButton_cloneTemplate.clicked.connect(self._clone_template_stub)
-        self.ui.pushButton_exportTemplate.clicked.connect(self._export_template_stub)
 
         if hasattr(self.ui, "tableWidget_history"):
             self.ui.tableWidget_history.cellClicked.connect(
@@ -1337,9 +1298,6 @@ class MainWindow(QMainWindow):
 
     def _living_tables(self, *tables):
         return [table for table in tables if self._qobj_alive(table)]
-
-    def _algorithm_template_key(self, algorithm_text: str) -> str:
-        return self.task_builder_controller.algorithm_template_key(algorithm_text)
 
     def _dynamic_table_records(self):
         return self.task_builder_controller.dynamic_table_records()
@@ -1487,9 +1445,6 @@ class MainWindow(QMainWindow):
     def _current_task(self) -> dict:
         return TaskService.collect_task_data(self.task_ui, self.machine_ui)
 
-    def _selected_template_definition(self):
-        return self.templates_controller.selected_template_definition()
-
     def _apply_task_payload(self, task: dict, *, source_label: str | None = None, goto_builder: bool = True) -> None:
         self.task_builder_controller.apply_task_payload(
             task,
@@ -1525,7 +1480,7 @@ class MainWindow(QMainWindow):
             self.ui.listWidget_navPages.setCurrentRow(self.PAGE_OVERVIEW)
             return
 
-        if page_index in {self.PAGE_CONFIGURE, self.PAGE_TASK_BUILDER, self.PAGE_MACHINE, self.PAGE_TEMPLATES, self.PAGE_OFFLINE}:
+        if page_index in {self.PAGE_CONFIGURE, self.PAGE_TASK_BUILDER, self.PAGE_MACHINE, self.PAGE_OFFLINE}:
             task = self._current_task()
             online_task = self._is_online_task(task)
             self.ui.listWidget_navPages.setCurrentRow(self.PAGE_CONFIGURE)
@@ -1540,8 +1495,6 @@ class MainWindow(QMainWindow):
                     return
                 self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_OFFLINE)
             elif page_index in {self.PAGE_CONFIGURE, self.PAGE_TASK_BUILDER}:
-                self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
-            elif page_index == self.PAGE_TEMPLATES:
                 self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_TASK_BUILDER)
             return
 
@@ -1761,16 +1714,8 @@ class MainWindow(QMainWindow):
         self.runtime_status_controller.sync_run_workspace()
 
     # ------------------------------------------------------------------
-    # Templates / tools / dialogs
+    # Tools / dialogs
     # ------------------------------------------------------------------
-    def _update_template_details(self) -> None:
-        self.templates_controller.update_template_details()
-
-    def _apply_selected_template(self) -> None:
-        self.templates_controller.apply_selected_template()
-
-    def _open_template_library(self) -> None:
-        self.templates_controller.open_template_library()
 
     def _sync_theme_toggle(self, theme_key: str) -> None:
         if self.theme_toggle_button is None:
@@ -1802,20 +1747,43 @@ class MainWindow(QMainWindow):
         next_theme = LIGHT_THEME_KEY if active_theme == DARK_THEME_KEY else DARK_THEME_KEY
         self._set_gui_theme(next_theme)
 
-    def _clone_template_stub(self) -> None:
-        self.templates_controller.clone_template()
-
-    def _export_template_stub(self) -> None:
-        self.templates_controller.export_template()
-
     def _check_environment(self) -> None:
-        self.templates_controller.check_environment()
+        self._refresh_overview_readiness()
+        summary = (
+            f"Python: {self.ui.label_readinessPythonValue.text()}\n"
+            f"GUI: {self.ui.label_readinessGuiValue.text()}\n"
+            f"pyepics: {self.ui.label_readinessEpicsValue.text()}\n"
+            f"Machine: {self.ui.label_readinessMachineValue.text()}\n"
+            f"Last Test Read: {self.ui.label_readinessTestReadValue.text()}"
+        )
+        self._append_overview_activity("Check", status="Refreshed run readiness.")
+        self._log_console("Run readiness refreshed.")
+        QMessageBox.information(self, "Run Readiness", summary)
 
     def _show_pv_monitor_stub(self) -> None:
-        self.templates_controller.show_pv_monitor()
+        dialog = PVMonitorDialog(
+            self._current_task,
+            timeout_provider=lambda: float(self.machine_ui.doubleSpinBox_timeout.value()),
+            parent=self,
+        )
+        dialog.exec_()
 
     def _show_policy_editor_stub(self) -> None:
-        self.templates_controller.show_policy_editor()
+        self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_MACHINE)
+        if hasattr(self.machine_ui, "tab_advancedMachine"):
+            self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_advancedMachine)
+            self.machine_ui.tabWidget_machineAdvanced.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
+            location = "Machine Setup -> Advanced -> Objective Policy"
+        else:
+            self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
+            location = "Machine Setup -> Objective Policy"
+        QMessageBox.information(
+            self,
+            "Policy Editor",
+            f"Objective policies are now edited directly in {location}.",
+        )
+        self.go_to_page(self.PAGE_MACHINE)
+        self._log_console(f"Opened {location}.")
 
     def _reset_layout(self) -> None:
         self.ui.splitter_main.setSizes([230, 1370])
@@ -1833,8 +1801,6 @@ class MainWindow(QMainWindow):
             self.ui.splitter_resultsRight.setSizes([480, 280])
         if hasattr(self.ui, "splitter_convergencePlots"):
             self.ui.splitter_convergencePlots.setSizes([320, 240])
-        if hasattr(self.ui, "splitter_templatesMain"):
-            self.ui.splitter_templatesMain.setSizes([280, 620])
         if hasattr(self.run_ui, "splitter_main"):
             self.run_ui.splitter_main.setSizes([790, 540])
         if hasattr(self.run_ui, "splitter_runRight"):

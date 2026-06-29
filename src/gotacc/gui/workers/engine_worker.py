@@ -87,7 +87,7 @@ class EngineWorker(QObject):
         backend = None
         task_cfg = None
         try:
-            from gotacc.runners.optimize import (
+            from gotacc.runners.task_runner import (
                 build_optimizer,
                 close_backend_if_possible,
                 plot_convergence_if_possible,
@@ -266,7 +266,7 @@ class EngineWorker(QObject):
         finally:
             try:
                 if backend is not None:
-                    from gotacc.runners.optimize import close_backend_if_possible
+                    from gotacc.runners.task_runner import close_backend_if_possible
                     close_backend_if_possible(backend)
             except Exception:
                 pass
