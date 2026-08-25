@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -9,6 +10,7 @@ from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -22,6 +24,18 @@ from PyQt5.QtWidgets import (
 if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
 
+try:
+    from ...services.task_service import TaskService
+except ImportError:  # pragma: no cover - local script fallback
+    import sys
+
+    CURRENT_DIR = Path(__file__).resolve().parent
+    GUI_ROOT = CURRENT_DIR.parents[1]
+    for path in (GUI_ROOT, GUI_ROOT / "services"):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    from task_service import TaskService
+
 
 class ResultsController:
     def __init__(self, window: "MainWindow", canvas_class) -> None:
@@ -33,7 +47,9 @@ class ResultsController:
         tree = self.window.ui.treeWidget_runList
         tree.setColumnCount(2)
         tree.setHeaderLabels(["Artifact", "Value"])
-        tree.setColumnWidth(0, 190)
+        tree.setColumnWidth(0, 180)
+        tree.header().setSectionResizeMode(0, QHeaderView.Interactive)
+        tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
         tree.header().setStretchLastSection(True)
         self._ensure_pareto_solution_controls()
         self.populate_results_tree()
@@ -53,12 +69,13 @@ class ResultsController:
 
     def attach_plot_canvas(self, frame):
         frame.setMinimumSize(180, 140)
+        margin = 0 if frame.property("plotHost") else 4
         layout = frame.layout()
         if layout is None:
             layout = QVBoxLayout(frame)
-            layout.setContentsMargins(4, 4, 4, 4)
+            layout.setContentsMargins(margin, margin, margin, margin)
         else:
-            layout.setContentsMargins(4, 4, 4, 4)
+            layout.setContentsMargins(margin, margin, margin, margin)
             while layout.count():
                 item = layout.takeAt(0)
                 child = item.widget()
@@ -76,12 +93,11 @@ class ResultsController:
             return
 
         group = QGroupBox("Pareto Solutions", self.window.ui.tab_pareto)
+        group.setObjectName("groupBox_paretoSolutions")
         group_layout = QVBoxLayout(group)
-        hint = QLabel(
-            "Select one Pareto solution to inspect its objectives, constraints and machine setpoints.",
-            group,
-        )
+        hint = QLabel("", group)
         hint.setWordWrap(True)
+        hint.setVisible(False)
         group_layout.addWidget(hint)
 
         table = QTableWidget(group)
@@ -92,12 +108,21 @@ class ResultsController:
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.itemSelectionChanged.connect(self.on_pareto_solution_selection_changed)
-        table.horizontalHeader().setStretchLastSection(True)
+        table.setMinimumHeight(180)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        table.setColumnWidth(0, 64)
+        table.setColumnWidth(1, 78)
+        for column in range(2, 5):
+            header.setSectionResizeMode(column, QHeaderView.Stretch)
         group_layout.addWidget(table)
 
         actions = QHBoxLayout()
-        button = QPushButton("Write Selected Pareto Point to Machine", group)
+        button = QPushButton("Write Selected to Machine", group)
         button.setObjectName("pushButton_writeSelectedPareto")
+        button.setProperty("machineWrite", True)
+        button.setFixedHeight(28)
         button.setEnabled(False)
         button.clicked.connect(self.window.set_selected_pareto_to_machine)
         actions.addStretch(1)
@@ -275,7 +300,12 @@ class ResultsController:
         if not self.view.qobj_alive(inspector):
             return
 
-        self.view.set_table_row(inspector, 0, ["Run", self.window.task_ui.lineEdit_taskName.text()])
+        task_name = (self.window.state.latest_task_snapshot or {}).get(
+            "task_name",
+            self.window.task_ui.lineEdit_taskName.text().strip() or "untitled_task",
+        )
+        inspector.setRowCount(4)
+        self.view.set_table_row(inspector, 0, ["Run", task_name])
         self.view.set_table_row(inspector, 1, ["Point", str(x)])
         self.view.set_table_row(inspector, 2, ["Objective", str(y)])
         self.view.set_table_row(inspector, 3, ["Constraints", str(c)])
@@ -420,7 +450,7 @@ class ResultsController:
                     table.setItem(row, col, item)
         finally:
             table.blockSignals(was_blocked)
-        table.resizeColumnsToContents()
+        table.resizeRowsToContents()
         self._sync_pareto_write_button()
 
     def selected_pareto_solution(self) -> dict[str, Any] | None:
@@ -474,6 +504,7 @@ class ResultsController:
         task = self.window.state.latest_task_snapshot or self.view.current_task()
         is_online = self.view.is_online_task(task)
         feasible = bool(solution and solution.get("feasible", True))
+        button.setVisible(is_online)
         button.setEnabled(bool(solution and feasible and is_online))
         if not solution:
             button.setToolTip("Select a Pareto solution first.")
@@ -628,7 +659,8 @@ class ResultsController:
 
     def update_results_after_start(self, task: dict) -> None:
         state = self.window.state
-        state.latest_task_snapshot = dict(task)
+        state.latest_task_snapshot = copy.deepcopy(task)
+        state.latest_task_identity = TaskService.normalized_task_identity(task)
         state.latest_eval_payload.clear()
         state.latest_finish_payload.clear()
         state.latest_initial_x.clear()

@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -748,6 +749,7 @@ class TaskBuilderController:
                 table.insertRow(row_index)
                 for col, value in enumerate(record):
                     item = QTableWidgetItem(str(value))
+                    item.setToolTip(str(value))
                     if col != 1:
                         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     table.setItem(row_index, col, item)
@@ -938,6 +940,12 @@ class TaskBuilderController:
         table.setAlternatingRowColors(True)
         table.verticalHeader().setVisible(False)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        header = table.horizontalHeader()
+        for column, width in ((0, 190), (1, 150), (2, 90)):
+            header.setSectionResizeMode(column, QHeaderView.Fixed)
+            table.setColumnWidth(column, width)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
         self._populate_parameter_table(table, self.dynamic_table_records())
         if dialog.exec_() != QDialog.Accepted:
             self._algorithm_detail_dialog = None
@@ -1691,7 +1699,6 @@ class TaskBuilderController:
 
             machine = task.get("machine", {}) or {}
             self.window.machine_ui.lineEdit_caAddress.setText(str(machine.get("ca_address", "")))
-            self.window.machine_ui.checkBox_confirm.setChecked(bool(machine.get("confirm_before_write", True)))
             self.window.machine_ui.checkBox_restore.setChecked(bool(machine.get("restore_on_abort", True)))
             self.window.machine_ui.checkBox_readbackCheck.setChecked(bool(machine.get("readback_check", False)))
             self.window.machine_ui.doubleSpinBox_readbackTol.setValue(
@@ -1762,6 +1769,11 @@ class TaskBuilderController:
 
     def refresh_task_preview(self) -> None:
         task = self.view.current_task()
+        self._set_validation_status(
+            "Not validated",
+            "subtle",
+            "The task changed after its most recent validation.",
+        )
         self.refresh_write_link_editors()
         self.refresh_objective_policy_editors()
         self.refresh_constraint_policy_editors()
@@ -1784,6 +1796,11 @@ class TaskBuilderController:
         self.window.ui.label_statusTaskValue.setText(task["task_name"])
         self.window.ui.label_statusModeValue.setText(task["mode"])
         self.window.ui.label_statusAlgorithmValue.setText(task["algorithm"])
+        if hasattr(self.window, "label_workspace_mode"):
+            self.window.label_workspace_task.setText(task["task_name"])
+            self.window.label_workspace_mode.setText(task["mode"])
+            self.window.label_workspace_algorithm.setText(task["algorithm"])
+            self.window._resize_workspace_status_items()
         self.window.machine_controller.update_pv_library_summary()
         self.window.machine_controller.refresh_machine_summary()
         self.view.refresh_overview_readiness()
@@ -1999,27 +2016,42 @@ class TaskBuilderController:
             ok = False
             errors.extend(build_errors)
         if not ok:
+            self._set_validation_status("Validation failed", "danger", "\n".join(errors))
             self.view.log_warning("Validation failed.")
             for err in errors:
                 self.view.log_warning(f" - {err}")
             QMessageBox.warning(self.window, "Validation Failed", "\n".join(errors))
             return False
+        self._set_validation_status("Validated", "success", "Task validation passed.")
         self.view.log_console("Task validation passed.")
         QMessageBox.information(self.window, "Validation", "Task validation passed.")
         return True
 
-    def validate_task_silent(self) -> bool:
-        task = self.view.current_task()
+    def validate_task_silent(self, task: dict | None = None) -> bool:
+        task = task if task is not None else self.view.current_task()
         ok, errors = TaskService.validate_task_data(task)
         build_ok, build_errors = self.validate_task_build(task)
         if not build_ok:
             ok = False
             errors.extend(build_errors)
         if not ok:
+            self._set_validation_status("Validation failed", "danger", "\n".join(errors))
             self.view.log_warning("Silent validation failed.")
             for err in errors:
                 self.view.log_warning(f" - {err}")
+        else:
+            self._set_validation_status("Validated", "success", "Task validation passed.")
         return ok
+
+    def _set_validation_status(self, text: str, tone: str, tooltip: str) -> None:
+        label = getattr(self.window.task_ui, "label_validationStatus", None)
+        if label is None:
+            return
+        label.setText(text)
+        label.setToolTip(tooltip)
+        label.setProperty("tone", tone)
+        label.style().unpolish(label)
+        label.style().polish(label)
 
     def export_config(self) -> None:
         task = self.view.current_task()

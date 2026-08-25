@@ -74,7 +74,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
     import sys
 
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtWidgets import QApplication, QSizePolicy
 
     import gotacc.gui.main  # noqa: F401 - configures Qt runtime paths
     import gotacc.gui.views.main_window as main_window_module
@@ -121,16 +121,47 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert len({button.width() for button in footer_buttons}) == 1
         assert [
             window.task_ui.horizontalLayout_actionBar.itemAt(index).widget()
-            for index in range(3)
+            for index in range(2, 5)
         ] == footer_buttons
+        assert window.task_ui.horizontalLayout_actionBar.itemAt(0).widget() is window.task_ui.label_validationStatus
+        assert window.task_ui.label_validationStatus.text() == "Not validated"
+        assert window.task_ui.spinBox_seed.maximumWidth() == 160
+        assert window.task_ui.spinBox_maxEval.maximumWidth() == 160
+        assert window.task_ui.comboBox_mode.minimumWidth() == 180
+        assert window.task_ui.comboBox_algorithm.minimumWidth() == 180
+        assert window.task_ui.tabWidget_tables.documentMode()
+        variables_header = window.task_ui.tableWidget_variables.horizontalHeader()
+        assert variables_header.sectionResizeMode(0) == variables_header.Fixed
+        assert variables_header.sectionSize(0) == 70
+        assert variables_header.sectionResizeMode(1) == variables_header.Stretch
+        assert variables_header.sectionResizeMode(5) == variables_header.Stretch
+        window.task_builder_controller._set_validation_status(
+            "Validated", "success", "Task validation passed."
+        )
+        assert window.task_ui.label_validationStatus.text() == "Validated"
+        assert window.task_ui.label_validationStatus.property("tone") == "success"
+        window.task_builder_controller.refresh_task_preview()
+        assert window.task_ui.label_validationStatus.text() == "Not validated"
+        window.task_ui.comboBox_mode.setCurrentText("Offline")
+        window.task_ui.comboBox_algorithm.setCurrentText("BO")
+        app.processEvents()
+        assert window.label_workspace_mode.text() == "Offline"
+        assert window.label_workspace_algorithm.text() == "BO"
         run_action_buttons = [
             window.ui.pushButton_validateTask,
             window.ui.pushButton_startRun,
-            window.ui.pushButton_pauseRun,
             window.ui.pushButton_stopRun,
         ]
         assert len({button.height() for button in run_action_buttons}) == 1
         assert all(button.property("compact") is True for button in run_action_buttons)
+        assert not hasattr(window.ui, "pushButton_pauseRun")
+        assert not hasattr(window.ui, "actionPause")
+        assert not hasattr(window.run_ui, "pushButton_pause")
+        assert not hasattr(window.run_ui, "pushButton_resume")
+        validate_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_validateTask)
+        assert window.ui.gridLayout_runActions.getItemPosition(validate_index) == (0, 0, 1, 2)
+        stop_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_stopRun)
+        assert window.ui.gridLayout_runActions.getItemPosition(stop_index) == (1, 1, 1, 1)
         assert window.machine_ui.groupBox_connection.title() == "EPICS"
         assert not window.machine_ui.label_caAddress.isVisible()
         assert not window.machine_ui.lineEdit_caAddress.isVisible()
@@ -138,6 +169,19 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert not window.machine_ui.pushButton_connect.isVisible()
         assert not window.machine_ui.pushButton_disconnect.isVisible()
         assert window.machine_ui.pushButton_test.text() == "Check"
+        assert window.machine_ui.label_timeout.text() == "PV Read Timeout [s]"
+        assert window.machine_ui.label_timeout.parent() is window.machine_ui.groupBox_connection
+        assert window.machine_ui.doubleSpinBox_timeout.parent() is window.machine_ui.groupBox_connection
+        assert (
+            window.machine_ui.horizontalLayout_connectionSummary.itemAt(3).widget()
+            is window.machine_ui.label_timeout
+        )
+        assert (
+            window.machine_ui.horizontalLayout_connectionSummary.itemAt(4).widget()
+            is window.machine_ui.doubleSpinBox_timeout
+        )
+        assert not hasattr(window.machine_ui, "checkBox_confirm")
+        assert "confirm_before_write" not in window._current_task()["machine"]
         assert window.machine_ui.groupBox_connection.maximumHeight() == 82
         assert window.machine_ui.pushButton_test.property("inlineAction") is True
         assert window.machine_ui.label_statusValue.property("role") == "statusPill"
@@ -146,6 +190,47 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.pushButton_applySelectedPvLibrary.text() == "Sync To Task"
         assert window.machine_ui.pushButton_selectPvs.property("inlineAction") is True
         assert window.machine_ui.pushButton_applySelectedPvLibrary.property("inlineAction") is True
+        assert (
+            window.machine_ui.horizontalLayout_readbackCheck.itemAt(0).widget()
+            is window.machine_ui.checkBox_readbackCheck
+        )
+        assert (
+            window.machine_ui.horizontalLayout_readbackCheck.itemAt(2).widget()
+            is window.machine_ui.label_readbackTol
+        )
+        assert not window.machine_ui.label_readbackTol.isEnabled()
+        assert not window.machine_ui.doubleSpinBox_readbackTol.isEnabled()
+        window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
+        window.machine_ui.checkBox_readbackCheck.setChecked(True)
+        assert window.machine_ui.label_readbackTol.isEnabled()
+        assert window.machine_ui.doubleSpinBox_readbackTol.isEnabled()
+        assert window.machine_ui.tabWidget_machineAdvanced.documentMode()
+        assert window.machine_ui.groupBox_guard.title() == ""
+        assert (
+            window.machine_ui.groupBox_guard.sizePolicy().verticalPolicy()
+            == QSizePolicy.Fixed
+        )
+        assert window.machine_ui.doubleSpinBox_readbackTol.maximumWidth() == 160
+        assert window.machine_ui.doubleSpinBox_setInterval.maximumWidth() == 160
+        assert window.machine_ui.doubleSpinBox_sampleInterval.maximumWidth() == 160
+        assert (
+            window.machine_ui.horizontalLayout_readbackCheck.itemAt(1)
+            .spacerItem()
+            .sizePolicy()
+            .horizontalPolicy()
+            == QSizePolicy.Fixed
+        )
+        assert (
+            window.machine_ui.checkBox_readbackCheck.sizePolicy().horizontalPolicy()
+            == QSizePolicy.Maximum
+        )
+        assert (
+            window.machine_ui.horizontalLayout_readbackCheck.itemAt(4)
+            .spacerItem()
+            .sizePolicy()
+            .horizontalPolicy()
+            == QSizePolicy.Expanding
+        )
         assert (
             window.machine_ui.horizontalLayout_pvLibraryControls.itemAt(0).widget()
             is window.machine_ui.pushButton_selectPvs
@@ -158,13 +243,67 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert not window.offline_ui.frame_offlinePlaceholder.isVisible()
         assert window.offline_ui.groupBox_benchmark.title() == "Benchmark"
         assert window.run_ui.groupBox_runtime.maximumHeight() == 94
+        assert window.run_ui.groupBox_actions.height() == 72
         assert window.run_ui.frame_eval.objectName() == "statusItem"
         assert window.run_ui.label_evalTitle.property("role") == "title"
         assert window.run_ui.label_evalValue.property("role") == "value"
-        window.ui.pushButton_newOfflineTask.click()
+        assert window.run_ui.splitter_main.orientation() == Qt.Vertical
+        assert window.run_ui.splitter_runRight.orientation() == Qt.Horizontal
+        assert not window.run_ui.splitter_main.childrenCollapsible()
+        assert not window.run_ui.splitter_runRight.childrenCollapsible()
+        assert window.run_ui.tabWidget_plots.documentMode()
+        assert window.run_ui.frame_obj.property("plotHost") is True
+        assert window.run_ui.frame_obj.frameShape() == window.run_ui.frame_obj.NoFrame
+        assert window.run_ui.verticalLayout_main.indexOf(window.run_ui.groupBox_runtime) == 1
+        assert window.run_ui.verticalLayout_main.indexOf(window.run_ui.groupBox_actions) == 2
+        assert not window.ui.splitter_resultsMain.childrenCollapsible()
+        assert not window.ui.splitter_resultsRight.childrenCollapsible()
+        assert window.ui.splitter_convergencePlots.orientation() == Qt.Horizontal
+        assert window.ui.tabWidget_resultsViews.documentMode()
+        assert window.ui.groupBox_runList.maximumWidth() == 300
+        assert window.ui.groupBox_convergencePlot.title() == ""
+        assert window.ui.groupBox_convergencePlot.property("plotPanel") is True
+        assert window.ui.frame_plotConvergence.property("plotHost") is True
+        assert window.ui.groupBox_recentEvaluations.title() == "Evaluation History"
+        assert window.ui.groupBox_evalHistory.isHidden()
+        assert window.ui.pushButton_writeSelectedPareto.text() == "Write Selected to Machine"
+        assert window.ui.pushButton_writeSelectedPareto.property("machineWrite") is True
+        assert window.ui.label_paretoSolutionsHint.isHidden()
+        window.state.eval_history = [({"x0": 0.25}, 1.5, {"c0": 0.0})]
+        window.results_controller.on_history_row_clicked(0)
+        assert window.ui.tableWidget_solutionInspector.rowCount() == 4
+        assert window.ui.tableWidget_solutionInspector.item(3, 0).text() == "Constraints"
+        window.state.eval_history.clear()
+        window.results_controller.update_results_summary_table()
+        window.runtime_status_controller.set_run_phase("Running")
+        assert window.run_ui.frame_phase.property("tone") == "success"
+        window.runtime_status_controller.set_run_phase("Abort Requested")
+        assert window.run_ui.frame_phase.property("tone") == "danger"
+        window.runtime_status_controller.set_run_phase("Idle")
+        assert window.run_ui.frame_phase.property("tone") == "subtle"
+        window.state.run.phase = "Running"
+        window.runtime_status_controller.sync_run_workspace()
+        assert not window.run_ui.pushButton_abortRestore.isHidden()
+        assert not window.run_ui.groupBox_actions.isHidden()
+        window.state.run.phase = "Idle"
+        window.runtime_status_controller.sync_run_workspace()
+        assert window.run_ui.groupBox_actions.isHidden()
+        assert [action.text() for action in window.new_task_menu.actions()] == [
+            "Offline Task",
+            "Online EPICS Task",
+        ]
+        window.new_online_task_action.trigger()
         app.processEvents()
         assert window.task_ui.comboBox_mode.currentText() == "Online EPICS"
         assert window.task_ui.lineEdit_taskName.text() == "online_task"
+        legacy_task = window._current_task()
+        legacy_task["machine"]["confirm_before_write"] = False
+        window._apply_task_payload(legacy_task, goto_builder=False)
+        app.processEvents()
+        assert "confirm_before_write" not in window._current_task()["machine"]
+        window.new_offline_task_action.trigger()
+        app.processEvents()
+        assert window.task_ui.comboBox_mode.currentText() == "Offline"
         window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
         app.processEvents()
         assert window.ui.tabWidget_configure.isTabVisible(window.CONFIGURE_TAB_MACHINE)

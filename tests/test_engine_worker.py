@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 pytest.importorskip("PyQt5")
 
@@ -41,6 +42,14 @@ def _offline_task(tmp_path):
 class _FailingOptimizer:
     def optimize(self):
         raise RuntimeError("optimizer failed")
+
+
+class _EvaluatingOptimizer:
+    def __init__(self, objective_callable):
+        self.objective_callable = objective_callable
+
+    def optimize(self):
+        return self.objective_callable(np.asarray([0.0]))
 
 
 class _FakeBackend:
@@ -119,3 +128,49 @@ def test_engine_worker_reports_restore_failure_after_run_error(tmp_path, worker_
     assert warnings == ["Restore initial failed after run error: restore failed"]
     assert created_backends[0].restore_called
     assert created_backends[0].close_called
+
+
+@pytest.mark.parametrize(
+    ("restore_enabled", "fail_restore", "expected_state", "expected_restore_state"),
+    [
+        (True, False, "Aborted", "restored"),
+        (True, True, "Restore Failed", "failed"),
+        (False, False, "Aborted", "disabled"),
+    ],
+)
+def test_engine_worker_reports_abort_restore_outcome(
+    tmp_path,
+    worker_patches,
+    monkeypatch,
+    restore_enabled,
+    fail_restore,
+    expected_state,
+    expected_restore_state,
+):
+    patch_backend, created_backends = worker_patches
+    patch_backend(fail_restore=fail_restore)
+    monkeypatch.setattr(
+        "gotacc.runners.task_runner.build_optimizer",
+        lambda **kwargs: _EvaluatingOptimizer(kwargs["objective_callable"]),
+    )
+    task = _offline_task(tmp_path)
+    task["machine"] = {"restore_on_abort": restore_enabled}
+    worker = EngineWorker(task)
+    statuses = []
+    finished = []
+    warnings = []
+    worker.sig_status.connect(statuses.append)
+    worker.sig_finished.connect(finished.append)
+    worker.sig_warning.connect(warnings.append)
+    worker.request_stop()
+
+    worker.run()
+
+    assert finished[0]["state"] == expected_state
+    assert finished[0]["restore_state"] == expected_restore_state
+    assert created_backends[0].restore_called is restore_enabled
+    assert created_backends[0].close_called
+    if restore_enabled:
+        assert any(payload.get("state") == "Restoring" for payload in statuses)
+    if fail_restore:
+        assert warnings == ["Restore initial failed after abort: restore failed"]

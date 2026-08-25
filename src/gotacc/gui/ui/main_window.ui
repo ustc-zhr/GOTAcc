@@ -191,24 +191,17 @@
                <string>Run Controls</string>
               </property>
               <layout class="QGridLayout" name="gridLayout_runActions">
-               <item row="0" column="0">
+               <item row="0" column="0" colspan="2">
                 <widget class="QPushButton" name="pushButton_validateTask">
                  <property name="text">
                   <string>Validate</string>
                  </property>
                 </widget>
                </item>
-               <item row="0" column="1">
+               <item row="1" column="0">
                 <widget class="QPushButton" name="pushButton_startRun">
                  <property name="text">
                   <string>Start</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="1" column="0">
-                <widget class="QPushButton" name="pushButton_pauseRun">
-                 <property name="text">
-                  <string>Pause</string>
                  </property>
                 </widget>
                </item>
@@ -898,6 +891,7 @@
        </widget>
       </widget>
      </widget>
+    </widget>
     </item>
    </layout>
   </widget>
@@ -955,7 +949,6 @@
     <property name="title"><string>Run</string></property>
     <addaction name="actionValidate"/>
     <addaction name="actionStart"/>
-    <addaction name="actionPause"/>
     <addaction name="actionStop"/>
     <addaction name="actionRestoreMachine"/>
    </widget>
@@ -996,7 +989,6 @@
   <action name="actionExit"><property name="text"><string>Exit</string></property></action>
   <action name="actionValidate"><property name="text"><string>Validate Task</string></property></action>
   <action name="actionStart"><property name="text"><string>Start Run</string></property></action>
-  <action name="actionPause"><property name="text"><string>Pause Run</string></property></action>
   <action name="actionStop"><property name="text"><string>Stop Run</string></property></action>
   <action name="actionRestoreMachine"><property name="text"><string>Restore Machine</string></property></action>
   <action name="actionEnvironmentCheck"><property name="text"><string>Environment Check</string></property></action>

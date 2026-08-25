@@ -55,6 +55,8 @@
            <item><widget class="QPushButton" name="pushButton_test"><property name="text"><string>Test Read</string></property></widget></item>
           </layout>
          </item>
+         <item row="4" column="0"><widget class="QLabel" name="label_timeout"><property name="text"><string>PV Read Timeout [s]</string></property></widget></item>
+         <item row="4" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_timeout"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
         </layout>
        </item>
       </layout>
@@ -64,20 +66,22 @@
       <layout class="QVBoxLayout" name="verticalLayout_guardBox">
        <item>
         <layout class="QFormLayout" name="formLayout_guard">
-         <item row="0" column="0"><widget class="QLabel" name="label_confirm"><property name="text"><string>Confirmation</string></property></widget></item>
-         <item row="0" column="1"><widget class="QCheckBox" name="checkBox_confirm"><property name="text"><string>Ask before write</string></property></widget></item>
-         <item row="1" column="0"><widget class="QLabel" name="label_restore"><property name="text"><string>Restore</string></property></widget></item>
-         <item row="1" column="1"><widget class="QCheckBox" name="checkBox_restore"><property name="text"><string>Restore initial knob values</string></property></widget></item>
-         <item row="2" column="0"><widget class="QLabel" name="label_readbackCheck"><property name="text"><string>Readback Check</string></property></widget></item>
-         <item row="2" column="1"><widget class="QCheckBox" name="checkBox_readbackCheck"><property name="text"><string>Verify knob readback after write</string></property></widget></item>
-         <item row="3" column="0"><widget class="QLabel" name="label_readbackTol"><property name="text"><string>Readback Tol</string></property></widget></item>
-         <item row="3" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_readbackTol"><property name="decimals"><number>8</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.000001000000000</double></property><property name="value"><double>0.000001000000000</double></property></widget></item>
-         <item row="4" column="0"><widget class="QLabel" name="label_setInterval"><property name="text"><string>Set Interval [s]</string></property></widget></item>
-         <item row="4" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_setInterval"><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
-         <item row="5" column="0"><widget class="QLabel" name="label_sampleInterval"><property name="text"><string>Sample Interval [s]</string></property></widget></item>
-         <item row="5" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_sampleInterval"><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>0.200000000000000</double></property></widget></item>
-         <item row="7" column="0"><widget class="QLabel" name="label_timeout"><property name="text"><string>Timeout [s]</string></property></widget></item>
-         <item row="7" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_timeout"><property name="maximum"><double>999999999.000000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
+         <item row="0" column="0"><widget class="QLabel" name="label_restore"><property name="text"><string>Restore</string></property></widget></item>
+         <item row="0" column="1"><widget class="QCheckBox" name="checkBox_restore"><property name="text"><string>Restore initial knob values</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="label_readbackCheck"><property name="text"><string>Readback Check</string></property></widget></item>
+         <item row="1" column="1">
+          <layout class="QHBoxLayout" name="horizontalLayout_readbackCheck">
+           <item><widget class="QCheckBox" name="checkBox_readbackCheck"><property name="text"><string>Verify knob readback after write</string></property></widget></item>
+           <item><spacer name="horizontalSpacer_readbackCheck"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint" stdset="0"><size><width>12</width><height>20</height></size></property></spacer></item>
+           <item><widget class="QLabel" name="label_readbackTol"><property name="text"><string>Tolerance</string></property></widget></item>
+           <item><widget class="QDoubleSpinBox" name="doubleSpinBox_readbackTol"><property name="minimumSize"><size><width>130</width><height>0</height></size></property><property name="maximumSize"><size><width>160</width><height>16777215</height></size></property><property name="decimals"><number>8</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.000001000000000</double></property><property name="value"><double>0.000001000000000</double></property></widget></item>
+           <item><spacer name="horizontalSpacer_readbackTrailing"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+          </layout>
+         </item>
+         <item row="2" column="0"><widget class="QLabel" name="label_setInterval"><property name="text"><string>Set Interval [s]</string></property></widget></item>
+         <item row="2" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_setInterval"><property name="maximumSize"><size><width>160</width><height>16777215</height></size></property><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
+         <item row="3" column="0"><widget class="QLabel" name="label_sampleInterval"><property name="text"><string>Sample Interval [s]</string></property></widget></item>
+         <item row="3" column="1"><widget class="QDoubleSpinBox" name="doubleSpinBox_sampleInterval"><property name="maximumSize"><size><width>160</width><height>16777215</height></size></property><property name="decimals"><number>4</number></property><property name="minimum"><double>0.000000000000000</double></property><property name="maximum"><double>999999999.000000000000000</double></property><property name="singleStep"><double>0.100000000000000</double></property><property name="value"><double>0.200000000000000</double></property></widget></item>
         </layout>
        </item>
       </layout>

@@ -14,6 +14,14 @@ class RunCompletionPresenter:
     def apply_finished_payload(self, payload: dict[str, Any]) -> None:
         run_phase = self.window.run_session_presenter.apply_finished_payload(payload)
         self.view.log_event(f"Run finished with state={run_phase}.")
+        restore_state = str(payload.get("restore_state") or "")
+        if restore_state == "restored":
+            self.view.log_pv("Abort completed after restoring the initial machine state.")
+        elif restore_state == "disabled":
+            self.view.log_warning("Abort completed without restoration because restore-on-abort was disabled.")
+        elif restore_state == "failed":
+            detail = str(payload.get("restore_error") or "unknown restore error")
+            self.view.log_warning(f"Abort completed but restoration failed: {detail}")
         if payload.get("history_path"):
             self.view.log_event(f"History saved to: {payload['history_path']}")
         if payload.get("plot_path"):

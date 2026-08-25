@@ -647,7 +647,6 @@ class TaskService:
             "algorithm_params": TaskService.table_to_records(task_ui.tableWidget_dynamicParams),
             "machine": {
                 "ca_address": machine_ui.lineEdit_caAddress.text().strip(),
-                "confirm_before_write": machine_ui.checkBox_confirm.isChecked(),
                 "restore_on_abort": machine_ui.checkBox_restore.isChecked(),
                 "readback_check": machine_ui.checkBox_readbackCheck.isChecked(),
                 "readback_tol": machine_ui.doubleSpinBox_readbackTol.value(),
@@ -1355,7 +1354,9 @@ class TaskService:
             plot_path=str(save_dir / f"{task.get('task_name', 'task')}_plot.png"),
             set_best=False,
             restore_initial_on_error=True,
-            restore_initial_on_keyboard_interrupt=True,
+            restore_initial_on_keyboard_interrupt=bool(
+                task.get("machine", {}).get("restore_on_abort", True)
+            ),
             verbose=True,
         )
 
@@ -1379,6 +1380,23 @@ class TaskService:
             runtime=runtime,
         )
         return cfg
+
+    @staticmethod
+    def normalized_task_identity(task: Mapping[str, Any]) -> Dict[str, Any]:
+        """Return stable, comparable data for a GUI run task."""
+        task_copy = copy.deepcopy(dict(task))
+        task_cfg = TaskService.build_task_config(task_copy)
+        plain = TaskService._plain_data(task_cfg.to_dict())
+        if not isinstance(plain, dict):  # pragma: no cover - TaskConfig always serializes to dict
+            raise TypeError("Normalized task identity must be a dictionary.")
+        variables = TaskService._enabled_rows(task_copy.get("variables", []))
+        machine = task_copy.get("machine", {}) or {}
+        plain["gui_run_contract"] = {
+            "initial_values": [float(row.get("Initial", 0.0)) for row in variables],
+            "restore_on_abort": bool(machine.get("restore_on_abort", True)),
+            "write_timeout": float(machine.get("write_timeout", 2.0)),
+        }
+        return plain
 
     @staticmethod
     def ensure_runtime_directories(task_cfg) -> None:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -77,17 +78,28 @@ class MachineController:
         ui.label_statusValue.setProperty("role", "statusPill")
         ui.label_statusValue.setMinimumWidth(104)
         ui.label_statusValue.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        ui.label_timeout.setToolTip("Maximum wait time for GUI EPICS PV reads.")
+        ui.doubleSpinBox_timeout.setToolTip(
+            "Used by Check, current-knob reads and PV Monitor; it does not control PV writes."
+        )
+        ui.doubleSpinBox_timeout.setMaximumWidth(110)
 
         ui.verticalLayout_connectionBox.removeItem(ui.formLayout_connection)
         connection_row = QHBoxLayout()
+        connection_row.setObjectName("horizontalLayout_connectionSummary")
+        ui.horizontalLayout_connectionSummary = connection_row
         connection_row.setContentsMargins(0, 0, 0, 0)
         connection_row.setSpacing(8)
         ui.label_status.setParent(ui.groupBox_connection)
         ui.label_statusValue.setParent(ui.groupBox_connection)
+        ui.label_timeout.setParent(ui.groupBox_connection)
+        ui.doubleSpinBox_timeout.setParent(ui.groupBox_connection)
         ui.pushButton_test.setParent(ui.groupBox_connection)
         connection_row.addWidget(ui.label_status)
         connection_row.addWidget(ui.label_statusValue)
         connection_row.addStretch(1)
+        connection_row.addWidget(ui.label_timeout)
+        connection_row.addWidget(ui.doubleSpinBox_timeout)
         connection_row.addWidget(ui.pushButton_test)
         ui.verticalLayout_connectionBox.addLayout(connection_row)
         ui.horizontalLayout_buttons.setContentsMargins(0, 0, 0, 0)
@@ -151,14 +163,25 @@ class MachineController:
         advanced_page = QWidget(main_tabs)
         advanced_page.setObjectName("tab_advancedMachine")
         advanced_layout = QVBoxLayout(advanced_page)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(0)
         advanced_tabs = QTabWidget(advanced_page)
         advanced_tabs.setObjectName("tabWidget_machineAdvanced")
+        advanced_tabs.setDocumentMode(True)
         advanced_layout.addWidget(advanced_tabs)
 
         safeguards_page = QWidget(advanced_tabs)
         safeguards_page.setObjectName("tab_safeguardsAdvanced")
         safeguards_layout = QVBoxLayout(safeguards_page)
-        safeguards_layout.addWidget(ui.groupBox_guard)
+        safeguards_layout.setContentsMargins(10, 12, 10, 10)
+        safeguards_layout.setSpacing(0)
+        ui.groupBox_guard.setTitle("")
+        ui.groupBox_guard.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        ui.checkBox_readbackCheck.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        ui.formLayout_guard.setHorizontalSpacing(10)
+        ui.formLayout_guard.setVerticalSpacing(8)
+        safeguards_layout.addWidget(ui.groupBox_guard, 0, Qt.AlignTop)
+        safeguards_layout.addStretch(1)
         ui.groupBox_guard.show()
 
         advanced_tabs.addTab(safeguards_page, "Safeguards")

@@ -185,15 +185,36 @@ class EngineWorker(QObject):
                 with redirect_stdout(out_stream), redirect_stderr(out_stream):
                     optimize_result = optimizer.optimize()
             except WorkerStopRequested:
+                restore_state = "disabled"
+                restore_error = None
                 if task_cfg.runtime.restore_initial_on_keyboard_interrupt:
-                    restore_initial_if_possible(backend, verbose=False)
+                    self.sig_status.emit(
+                        {
+                            "state": "Restoring",
+                            "elapsed_seconds": int(time.time() - self._start_ts),
+                            "eval_count": self._eval_count,
+                            "best_value": self._best_value,
+                        }
+                    )
+                    try:
+                        restore_initial_if_possible(backend, verbose=False)
+                    except Exception as exc:
+                        restore_state = "failed"
+                        restore_error = str(exc)
+                        self.sig_warning.emit(f"Restore initial failed after abort: {exc}")
+                    else:
+                        restore_state = "restored"
+                        self.sig_log.emit("Initial machine state restored after abort.")
+                final_state = "Restore Failed" if restore_state == "failed" else "Aborted"
                 self.sig_finished.emit(
                     {
-                        "state": "Aborted",
+                        "state": final_state,
                         "elapsed_seconds": int(time.time() - self._start_ts),
                         "eval_count": self._eval_count,
                         "best_value": self._best_value,
                         "best_x": self._best_x_dict(),
+                        "restore_state": restore_state,
+                        "restore_error": restore_error,
                     }
                 )
                 return

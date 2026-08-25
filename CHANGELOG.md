@@ -10,6 +10,14 @@
   while preserving Offline mode switching in Task Builder
 - Simplified Machine Setup for online tasks with a read-only EPICS PV check
   flow, compact PV mapping actions, and clearer selected-row table styling
+- Required explicit operator authorization for every Online Start and every
+  post-run machine write, removing the optional write-confirmation setting
+- Bound initial, best, and Pareto writeback values to a frozen run-task identity
+  so changed PV mappings or task settings block stale-result writes
+- Simplified run controls to Start and Stop, removing the incomplete GUI
+  Pause/Resume workflow while preserving abort-and-restore handling
+- Refined Task Builder, Run, Results, and Machine Setup layouts for clearer
+  status hierarchy, aligned controls, and denser control-room use
 - Made GUI task preview and validation side-effect free by deferring runtime
   directory creation until run or explicit export
 - Aligned GUI worker error handling with runner restore behavior by attempting

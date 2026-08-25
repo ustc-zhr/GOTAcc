@@ -35,6 +35,7 @@ class GuiSessionState:
     objective_dim: int = 1
 
     latest_task_snapshot: dict[str, Any] = field(default_factory=dict)
+    latest_task_identity: dict[str, Any] = field(default_factory=dict)
     latest_eval_payload: dict[str, Any] = field(default_factory=dict)
     latest_finish_payload: dict[str, Any] = field(default_factory=dict)
     latest_initial_x: dict[str, Any] = field(default_factory=dict)
@@ -81,6 +82,7 @@ class GuiSessionState:
 
     def reset_results_snapshot(self) -> None:
         self.latest_task_snapshot.clear()
+        self.latest_task_identity.clear()
         self.latest_eval_payload.clear()
         self.latest_finish_payload.clear()
         self.latest_initial_x.clear()

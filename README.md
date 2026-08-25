@@ -92,8 +92,7 @@ and use the adjacent `Log` button to show or hide the bottom log panel.
 
 The left-side quick actions are project-oriented:
 
-- `New Task`: create a new Online EPICS task by default; switch `Mode` in Task
-  Builder when an Offline benchmark task is needed
+- `New Task`: explicitly choose an Offline benchmark or Online EPICS task
 - `Open Project` / `Save Project`: load or save the editable GUI project state
 - `Export Task`: write a runnable `TaskConfig` YAML for the runner
 
@@ -101,6 +100,13 @@ Configure pages are mode-specific: `Machine Setup` is shown for Online EPICS
 tasks, while `Offline Setup` is shown for Offline tasks. Machine Setup uses a
 read-only EPICS PV check flow for connectivity verification; real online runs
 still require a reachable EPICS environment and the `epics` extra.
+
+Every Online Start requires explicit operator authorization. Post-run machine
+writes (`Restore Initial`, `Set Best`, and selected Pareto points) use the frozen
+run-task snapshot, require confirmation, and are blocked when the current task
+no longer matches that snapshot. Run controls intentionally provide `Start` and
+`Stop` without Pause/Resume; Online abort handling follows the task's configured
+restore-on-abort policy.
 
 Preview and validation in the GUI do not create runtime output directories.
 Runtime directories under `save/` are created only when starting a run or when

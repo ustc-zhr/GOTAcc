@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import QSize, Qt, QTimer
 try:
     import sip
 except ImportError:  # pragma: no cover
@@ -16,9 +16,11 @@ from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
     QFrame,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QSizePolicy,
     QTableWidgetItem,
@@ -233,7 +235,8 @@ class MainWindow(QMainWindow):
         self.ui.setupUi(self)
 
         self.session_state = GuiSessionState()
-        self.run_session = RunSession(self)
+        self._close_when_run_finishes = False
+        self.run_session = RunSession(self, on_idle=self._on_run_session_idle)
         self.view_adapter = GuiViewAdapter(self)
         self.task_builder_controller = TaskBuilderController(self)
         self.machine_controller = MachineController(self)
@@ -276,6 +279,69 @@ class MainWindow(QMainWindow):
     @property
     def state(self) -> GuiSessionState:
         return self.session_state
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        if not self.run_session.is_running():
+            event.accept()
+            return
+        if self._close_when_run_finishes:
+            event.ignore()
+            return
+        if not self._confirm_close_active_run():
+            event.ignore()
+            return
+
+        self._close_when_run_finishes = True
+        if self.state.run.phase in {"Running", "Stopping"}:
+            self.run_controller.abort_and_restore()
+        self.statusBar().showMessage("Waiting for the run to stop safely before closing.")
+        event.ignore()
+
+    def _confirm_close_active_run(self) -> bool:
+        task = self.state.latest_task_snapshot or self._current_task()
+        restore_enabled = bool((task.get("machine", {}) or {}).get("restore_on_abort", True))
+        already_stopping = self.state.run.phase in {"Abort Requested", "Restoring"}
+
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle("Run Active")
+        dialog.setText("An optimization run is still active.")
+        if already_stopping:
+            detail = "The run is already stopping. Keep the window open until shutdown completes?"
+            action_text = "Exit When Safe"
+        elif restore_enabled:
+            detail = "Abort the run, restore the initial machine state, and exit after restoration completes?"
+            action_text = "Abort, Restore and Exit"
+        else:
+            detail = "Abort the run without restoration and exit after the worker stops?"
+            action_text = "Abort and Exit"
+        dialog.setInformativeText(detail)
+        action_button = dialog.addButton(action_text, QMessageBox.AcceptRole)
+        cancel_button = dialog.addButton(QMessageBox.Cancel)
+        dialog.setDefaultButton(cancel_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec_()
+        return dialog.clickedButton() is action_button
+
+    def _on_run_session_idle(self) -> None:
+        if self.state.run.phase not in self.runtime_status_controller.ACTIVE_PHASES:
+            self._set_run_buttons_enabled(start=True, stop=False)
+        if self._close_when_run_finishes:
+            QTimer.singleShot(0, self._complete_deferred_close)
+
+    def _complete_deferred_close(self) -> None:
+        if self.run_session.is_running():
+            return
+        if self.state.run.phase in {"Error", "Restore Failed"}:
+            self._close_when_run_finishes = False
+            self.statusBar().showMessage("Automatic exit cancelled because the run did not stop safely.")
+            QMessageBox.critical(
+                self,
+                "Exit Cancelled",
+                "The run ended with an error or restoration failure. Review the machine state before closing.",
+            )
+            return
+        self.close()
 
     # ------------------------------------------------------------------
     # Page composition
@@ -527,7 +593,9 @@ class MainWindow(QMainWindow):
         self.machine_ui.lineEdit_caAddress.setText("")
         self.machine_ui.label_statusValue.setText("Disconnected")
         self.machine_ui.checkBox_restore.setChecked(True)
-        self.machine_ui.checkBox_confirm.setChecked(True)
+        self._set_readback_tolerance_enabled(
+            self.machine_ui.checkBox_readbackCheck.isChecked()
+        )
         self.machine_ui.doubleSpinBox_setInterval.setValue(1.0)
         self.machine_ui.doubleSpinBox_sampleInterval.setValue(0.2)
         self.machine_ui.doubleSpinBox_timeout.setValue(2.0)
@@ -543,7 +611,7 @@ class MainWindow(QMainWindow):
         self.ui.plainTextEdit_pvLog.setReadOnly(True)
         self.run_ui.plainTextEdit_events.setReadOnly(True)
 
-        self._set_run_buttons_enabled(start=True, pause=False, resume=False, stop=False)
+        self._set_run_buttons_enabled(start=True, stop=False)
         self.state.last_test_read_status = "Not checked"
         self.state.last_test_read_detail = ""
 
@@ -568,6 +636,7 @@ class MainWindow(QMainWindow):
         self._compact_task_builder_inline_actions()
         self._compact_task_builder_footer_actions()
         self._compact_run_monitor_actions()
+        self._configure_results_workspace_layout()
         self._configure_tab_text_sizing()
         self._compact_overview_panels()
 
@@ -578,7 +647,6 @@ class MainWindow(QMainWindow):
             self.ui.pushButton_saveProject,
             self.ui.pushButton_validateTask,
             self.ui.pushButton_startRun,
-            self.ui.pushButton_pauseRun,
             self.ui.pushButton_stopRun,
             self.ui.pushButton_checkEnvironment,
         ):
@@ -595,7 +663,6 @@ class MainWindow(QMainWindow):
             self.ui.pushButton_saveProject,
             self.ui.pushButton_validateTask,
             self.ui.pushButton_startRun,
-            self.ui.pushButton_pauseRun,
             self.ui.pushButton_stopRun,
             self.ui.pushButton_checkEnvironment,
             self.task_ui.pushButton_browseWorkdir,
@@ -651,14 +718,20 @@ class MainWindow(QMainWindow):
 
     def _clarify_project_task_actions(self) -> None:
         self.ui.pushButton_newOfflineTask.setText("New Task")
-        self.ui.pushButton_newOfflineTask.setToolTip("Create a new Online task. Change Mode in Task Builder if Offline is needed.")
+        self.ui.pushButton_newOfflineTask.setToolTip("Choose an Offline or Online EPICS task.")
+        self.new_task_menu = QMenu(self.ui.pushButton_newOfflineTask)
+        self.new_offline_task_action = self.new_task_menu.addAction("Offline Task")
+        self.new_online_task_action = self.new_task_menu.addAction("Online EPICS Task")
+        self.new_offline_task_action.triggered.connect(self._create_new_offline_task)
+        self.new_online_task_action.triggered.connect(self._create_new_online_task)
+        self.ui.pushButton_newOfflineTask.setMenu(self.new_task_menu)
         self.ui.pushButton_newOnlineTask.setVisible(False)
         self.ui.pushButton_newOnlineTask.setEnabled(False)
         self.ui.pushButton_openConfig.setText("Open Project")
         self.ui.pushButton_openConfig.setToolTip("Load a saved GOTAcc Studio project.")
         self.ui.pushButton_saveProject.setText("Save Project")
         self.ui.pushButton_saveProject.setToolTip("Save the current GUI project for later editing.")
-        self.ui.actionNewTask.setText("New Task")
+        self.ui.actionNewTask.setText("New Offline Task")
         self.ui.actionOpenConfig.setText("Open Project")
         self.ui.actionSaveProject.setText("Save Project")
 
@@ -723,14 +796,24 @@ class MainWindow(QMainWindow):
         self.task_ui.pushButton_export.setToolTip("Export a runnable TaskConfig.")
 
         layout = self.task_ui.horizontalLayout_actionBar
-        layout.setContentsMargins(0, 3, 0, 0)
+        while layout.count():
+            layout.takeAt(0)
+        layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
-        layout.removeWidget(self.task_ui.pushButton_export)
-        layout.insertWidget(2, self.task_ui.pushButton_export)
+        status = QLabel("Not validated", self.task_builder_page)
+        status.setObjectName("label_validationStatus")
+        status.setProperty("tone", "subtle")
+        status.setToolTip("The current task has not been validated.")
+        layout.addWidget(status)
+        layout.addStretch(1)
+        for button in actions:
+            layout.addWidget(button)
+        self.task_ui.label_validationStatus = status
 
     def _compact_run_monitor_actions(self) -> None:
         self._run_primary_actions_in_sidebar = True
         self.run_ui.frame_runHero.setVisible(False)
+        self._configure_run_workspace_layout()
         self._compact_run_snapshot()
         self.run_ui.groupBox_actions.setTitle("Machine Actions")
         self.run_ui.verticalLayout_actionsBox.setContentsMargins(8, 10, 8, 8)
@@ -739,8 +822,6 @@ class MainWindow(QMainWindow):
 
         for button in (
             self.run_ui.pushButton_start,
-            self.run_ui.pushButton_pause,
-            self.run_ui.pushButton_resume,
             self.run_ui.pushButton_stop,
         ):
             button.setVisible(False)
@@ -755,7 +836,51 @@ class MainWindow(QMainWindow):
             button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
         self.run_ui.pushButton_abortRestore.setProperty("danger", True)
-        self.run_ui.groupBox_actions.setMaximumHeight(54)
+        self.run_ui.groupBox_actions.setFixedHeight(72)
+
+        layout = self.run_ui.verticalLayout_main
+        layout.removeWidget(self.run_ui.groupBox_runtime)
+        layout.removeWidget(self.run_ui.groupBox_actions)
+        layout.insertWidget(1, self.run_ui.groupBox_runtime)
+        layout.insertWidget(2, self.run_ui.groupBox_actions)
+
+    def _configure_run_workspace_layout(self) -> None:
+        self.run_ui.splitter_main.setOrientation(Qt.Vertical)
+        self.run_ui.splitter_main.setChildrenCollapsible(False)
+        self.run_ui.splitter_main.setStretchFactor(0, 3)
+        self.run_ui.splitter_main.setStretchFactor(1, 2)
+
+        self.run_ui.splitter_runRight.setOrientation(Qt.Horizontal)
+        self.run_ui.splitter_runRight.setChildrenCollapsible(False)
+        self.run_ui.splitter_runRight.setStretchFactor(0, 2)
+        self.run_ui.splitter_runRight.setStretchFactor(1, 5)
+
+        self.run_ui.groupBox_livePlots.setMinimumHeight(260)
+        self.run_ui.groupBox_events.setMinimumWidth(220)
+        self.run_ui.groupBox_table.setMinimumWidth(360)
+        self.run_ui.tabWidget_plots.setDocumentMode(True)
+        self.run_ui.verticalLayout_livePlots.setContentsMargins(10, 22, 10, 10)
+        self.run_ui.verticalLayout_livePlots.setSpacing(0)
+        self.run_ui.verticalLayout_events.setContentsMargins(10, 22, 10, 10)
+        self.run_ui.verticalLayout_table.setContentsMargins(10, 22, 10, 10)
+
+        for layout in (
+            self.run_ui.verticalLayout_obj,
+            self.run_ui.verticalLayout_constraints,
+            self.run_ui.verticalLayout_pareto,
+            self.run_ui.verticalLayout_variables,
+        ):
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+
+        for frame in (
+            self.run_ui.frame_obj,
+            self.run_ui.frame_constraints,
+            self.run_ui.frame_pareto,
+            self.run_ui.frame_variables,
+        ):
+            frame.setProperty("plotHost", True)
+            frame.setFrameShape(QFrame.NoFrame)
 
     def _compact_run_snapshot(self) -> None:
         self.run_ui.groupBox_runtime.setMaximumHeight(94)
@@ -827,6 +952,57 @@ class MainWindow(QMainWindow):
         for widget in (*frames, *separators, *title_labels, *value_labels):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
+
+    def _configure_results_workspace_layout(self) -> None:
+        self.ui.verticalLayout_resultsPage.setContentsMargins(0, 0, 0, 0)
+        self.ui.verticalLayout_resultsPage.setSpacing(0)
+
+        self.ui.splitter_resultsMain.setChildrenCollapsible(False)
+        self.ui.splitter_resultsMain.setStretchFactor(0, 0)
+        self.ui.splitter_resultsMain.setStretchFactor(1, 1)
+        self.ui.groupBox_runList.setMinimumWidth(250)
+        self.ui.groupBox_runList.setMaximumWidth(300)
+        self.ui.treeWidget_runList.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.ui.treeWidget_runList.setTextElideMode(Qt.ElideMiddle)
+
+        self.ui.splitter_resultsRight.setChildrenCollapsible(False)
+        self.ui.splitter_resultsRight.setStretchFactor(0, 3)
+        self.ui.splitter_resultsRight.setStretchFactor(1, 2)
+        self.ui.splitter_convergencePlots.setOrientation(Qt.Horizontal)
+        self.ui.splitter_convergencePlots.setChildrenCollapsible(False)
+        self.ui.splitter_convergencePlots.setStretchFactor(0, 1)
+        self.ui.splitter_convergencePlots.setStretchFactor(1, 1)
+
+        self.ui.tabWidget_resultsViews.setDocumentMode(True)
+        for layout in (
+            self.ui.verticalLayout_convergence,
+            self.ui.verticalLayout_convergencePlot,
+            self.ui.verticalLayout_variablePlot,
+            self.ui.verticalLayout_pareto,
+        ):
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+
+        for group in (
+            self.ui.groupBox_convergencePlot,
+            self.ui.groupBox_variablePlot,
+        ):
+            group.setTitle("")
+            group.setProperty("plotPanel", True)
+
+        for frame in (
+            self.ui.frame_plotConvergence,
+            self.ui.frame_plotVariables,
+            self.ui.frame_plotParetoFinal,
+        ):
+            frame.setProperty("plotHost", True)
+            frame.setFrameShape(QFrame.NoFrame)
+
+        self.ui.groupBox_recentEvaluations.setTitle("Evaluation History")
+        self.ui.groupBox_evalHistory.setVisible(False)
+        self.ui.horizontalLayout_resultsTables.setContentsMargins(0, 0, 0, 0)
+        self.ui.horizontalLayout_resultsTables.setSpacing(0)
+        self.ui.tableWidget_recentEvaluations.setMinimumHeight(180)
 
     def _promote_bottom_log_panel(self) -> None:
         if self.workspace_shell_layout is None:
@@ -933,6 +1109,37 @@ class MainWindow(QMainWindow):
         if hasattr(self.task_ui, "horizontalLayout_topForms"):
             self.task_ui.horizontalLayout_topForms.setStretch(0, 1)
             self.task_ui.horizontalLayout_topForms.setStretch(1, 1)
+            self.task_ui.horizontalLayout_topForms.setSpacing(8)
+
+        for spinbox in (self.task_ui.spinBox_seed, self.task_ui.spinBox_maxEval):
+            spinbox.setMaximumWidth(160)
+            spinbox.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        for combo in (
+            self.task_ui.comboBox_mode,
+            self.task_ui.comboBox_objectiveType,
+            self.task_ui.comboBox_algorithm,
+        ):
+            combo.setMinimumWidth(180)
+
+        self.task_ui.lineEdit_workdir.setToolTip(self.task_ui.lineEdit_workdir.text())
+        self.task_ui.tabWidget_tables.setDocumentMode(True)
+        self._configure_task_table_columns()
+
+    def _configure_task_table_columns(self) -> None:
+        table_specs = (
+            (self.task_ui.tableWidget_variables, {0: 70, 2: 110, 3: 110, 4: 110}, (1, 5)),
+            (self.task_ui.tableWidget_objectives, {0: 70, 2: 120, 3: 90, 4: 90}, (1, 5)),
+            (self.task_ui.tableWidget_constraints, {0: 70, 2: 110, 3: 110}, (1, 4)),
+        )
+        for table, fixed_columns, stretch_columns in table_specs:
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            header = table.horizontalHeader()
+            for column, width in fixed_columns.items():
+                header.setSectionResizeMode(column, QHeaderView.Fixed)
+                table.setColumnWidth(column, width)
+            for column in stretch_columns:
+                header.setSectionResizeMode(column, QHeaderView.Stretch)
 
     def _init_task_builder_tables(self) -> None:
         variables_headers = ["Enable", "Name", "Lower", "Upper", "Initial", "Group"]
@@ -1119,23 +1326,20 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.ui.listWidget_navPages.currentRowChanged.connect(self._on_nav_changed)
 
-        self.ui.pushButton_newOfflineTask.clicked.connect(self._create_new_task)
         self.ui.pushButton_openConfig.clicked.connect(self._open_config)
         self.ui.pushButton_saveProject.clicked.connect(self._save_project)
         self.ui.pushButton_validateTask.clicked.connect(self.validate_task)
         self.ui.pushButton_startRun.clicked.connect(self.start_run)
-        self.ui.pushButton_pauseRun.clicked.connect(self.pause_run)
         self.ui.pushButton_stopRun.clicked.connect(self.stop_run)
         self.ui.pushButton_checkEnvironment.clicked.connect(self._check_environment)
 
-        self.ui.actionNewTask.triggered.connect(self._create_new_task)
+        self.ui.actionNewTask.triggered.connect(self._create_new_offline_task)
         self.ui.actionOpenConfig.triggered.connect(self._open_config)
         self.ui.actionSaveProject.triggered.connect(self._save_project)
         self.ui.actionExportResults.triggered.connect(self.export_results)
         self.ui.actionExit.triggered.connect(self.close)
         self.ui.actionValidate.triggered.connect(self.validate_task)
         self.ui.actionStart.triggered.connect(self.start_run)
-        self.ui.actionPause.triggered.connect(self.pause_run)
         self.ui.actionStop.triggered.connect(self.stop_run)
         self.ui.actionRestoreMachine.triggered.connect(self.abort_and_restore)
         self.ui.actionEnvironmentCheck.triggered.connect(self._check_environment)
@@ -1152,6 +1356,7 @@ class MainWindow(QMainWindow):
         self.task_ui.spinBox_seed.valueChanged.connect(self._refresh_task_preview)
         self.task_ui.spinBox_maxEval.valueChanged.connect(self._refresh_task_preview)
         self.task_ui.lineEdit_workdir.textChanged.connect(self._refresh_task_preview)
+        self.task_ui.lineEdit_workdir.textChanged.connect(self.task_ui.lineEdit_workdir.setToolTip)
         self.task_ui.pushButton_browseWorkdir.clicked.connect(self._browse_workdir)
         self.task_ui.pushButton_preview.clicked.connect(self._show_task_preview)
         self.task_ui.pushButton_validate.clicked.connect(self.validate_task)
@@ -1164,6 +1369,9 @@ class MainWindow(QMainWindow):
         self.task_ui.tableWidget_variables.itemChanged.connect(lambda *_: self._refresh_task_preview())
         self.task_ui.tableWidget_objectives.itemChanged.connect(lambda *_: self._refresh_task_preview())
         self.task_ui.tableWidget_constraints.itemChanged.connect(lambda *_: self._refresh_task_preview())
+        self.task_ui.tableWidget_variables.itemChanged.connect(self._sync_table_item_tooltip)
+        self.task_ui.tableWidget_objectives.itemChanged.connect(self._sync_table_item_tooltip)
+        self.task_ui.tableWidget_constraints.itemChanged.connect(self._sync_table_item_tooltip)
         self.task_ui.tableWidget_dynamicParams.itemChanged.connect(self._on_dynamic_param_table_changed)
         self.machine_ui.tableWidget_mapping.itemChanged.connect(lambda *_: self._refresh_task_preview())
         self.machine_ui.tableWidget_mapping.itemChanged.connect(lambda *_: self.machine_controller.refresh_selected_library_tables())
@@ -1188,8 +1396,10 @@ class MainWindow(QMainWindow):
         self.machine_ui.pushButton_removeConstraintPolicy.clicked.connect(self._remove_constraint_policy_rows)
         self.machine_ui.comboBox_policy.currentTextChanged.connect(self._log_machine_policy_change)
         self.machine_ui.checkBox_autoConnect.toggled.connect(self._refresh_task_preview)
-        self.machine_ui.checkBox_confirm.toggled.connect(self._refresh_task_preview)
         self.machine_ui.checkBox_restore.toggled.connect(self._refresh_task_preview)
+        self.machine_ui.checkBox_readbackCheck.toggled.connect(
+            self._set_readback_tolerance_enabled
+        )
         self.machine_ui.checkBox_readbackCheck.toggled.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_readbackTol.valueChanged.connect(self._refresh_task_preview)
         self.machine_ui.doubleSpinBox_setInterval.valueChanged.connect(self._refresh_task_preview)
@@ -1200,8 +1410,6 @@ class MainWindow(QMainWindow):
         self.machine_ui.tableWidget_constraintPolicies.itemChanged.connect(lambda *_: self._refresh_task_preview())
 
         self.run_ui.pushButton_start.clicked.connect(self.start_run)
-        self.run_ui.pushButton_pause.clicked.connect(self.pause_run)
-        self.run_ui.pushButton_resume.clicked.connect(self.resume_run)
         self.run_ui.pushButton_stop.clicked.connect(self.stop_run)
         self.run_ui.pushButton_abortRestore.clicked.connect(self.abort_and_restore)
         self.run_ui.pushButton_restoreInitial.clicked.connect(self.restore_initial_to_machine)
@@ -1214,6 +1422,9 @@ class MainWindow(QMainWindow):
             self.ui.tableWidget_history.cellClicked.connect(
                 lambda r, c: self._on_history_row_clicked(r)
             )
+        self.ui.tableWidget_recentEvaluations.cellClicked.connect(
+            lambda r, c: self._on_history_row_clicked(r)
+        )
 
     # ------------------------------------------------------------------
     # Generic helpers
@@ -1231,6 +1442,10 @@ class MainWindow(QMainWindow):
         header.setStretchLastSection(True)
         for idx in range(len(headers) - 1):
             header.setSectionResizeMode(idx, header.Stretch)
+
+    @staticmethod
+    def _sync_table_item_tooltip(item: QTableWidgetItem) -> None:
+        item.setToolTip(item.text())
 
     def _configure_recent_eval_table(self, table) -> None:
         table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
@@ -1371,6 +1586,7 @@ class MainWindow(QMainWindow):
             table.setRowCount(row + 1)
         for col, value in enumerate(values):
             item = QTableWidgetItem(str(value))
+            item.setToolTip(str(value))
             if col == 0:
                 item.setTextAlignment(Qt.AlignCenter)
             table.setItem(row, col, item)
@@ -1557,7 +1773,7 @@ class MainWindow(QMainWindow):
     # Task builder actions
     # ------------------------------------------------------------------
     def _create_new_task(self) -> None:
-        self.task_builder_controller.create_new_online_task()
+        self.task_builder_controller.create_new_offline_task()
 
     def _create_new_offline_task(self) -> None:
         self.task_builder_controller.create_new_offline_task()
@@ -1572,6 +1788,10 @@ class MainWindow(QMainWindow):
         self.task_builder_controller.refresh_task_preview()
         self._sync_mode_specific_setup_tabs()
         self.runtime_status_controller.sync_run_workspace()
+
+    def _set_readback_tolerance_enabled(self, enabled: bool) -> None:
+        self.machine_ui.label_readbackTol.setEnabled(enabled)
+        self.machine_ui.doubleSpinBox_readbackTol.setEnabled(enabled)
 
     def _sync_mode_specific_setup_tabs(self, task: dict | None = None) -> None:
         if task is None:
@@ -1615,8 +1835,8 @@ class MainWindow(QMainWindow):
     def validate_task(self) -> bool:
         return self.task_builder_controller.validate_task()
 
-    def validate_task_silent(self) -> bool:
-        return self.task_builder_controller.validate_task_silent()
+    def validate_task_silent(self, task: dict | None = None) -> bool:
+        return self.task_builder_controller.validate_task_silent(task)
 
     def export_config(self) -> None:
         self.task_builder_controller.export_config()
@@ -1684,12 +1904,6 @@ class MainWindow(QMainWindow):
     def start_run(self) -> None:
         self.run_controller.start_run()
 
-    def pause_run(self) -> None:
-        self.run_controller.pause_run()
-
-    def resume_run(self) -> None:
-        self.run_controller.resume_run()
-
     def stop_run(self) -> None:
         self.run_controller.stop_run()
 
@@ -1708,13 +1922,8 @@ class MainWindow(QMainWindow):
     def _update_runtime_labels(self) -> None:
         self.runtime_status_controller.update_runtime_labels()
 
-    def _set_run_buttons_enabled(self, *, start: bool, pause: bool, resume: bool, stop: bool) -> None:
-        self.runtime_status_controller.set_run_buttons_enabled(
-            start=start,
-            pause=pause,
-            resume=resume,
-            stop=stop,
-        )
+    def _set_run_buttons_enabled(self, *, start: bool, stop: bool) -> None:
+        self.runtime_status_controller.set_run_buttons_enabled(start=start, stop=stop)
 
     def _set_run_phase(self, text: str) -> None:
         self.runtime_status_controller.set_run_phase(text)
@@ -1858,15 +2067,15 @@ class MainWindow(QMainWindow):
         if hasattr(self.ui, "splitter_configureMain"):
             self.ui.splitter_configureMain.setSizes([1320])
         if hasattr(self.ui, "splitter_resultsMain"):
-            self.ui.splitter_resultsMain.setSizes([320, 1020])
+            self.ui.splitter_resultsMain.setSizes([270, 1070])
         if hasattr(self.ui, "splitter_resultsRight"):
-            self.ui.splitter_resultsRight.setSizes([480, 280])
+            self.ui.splitter_resultsRight.setSizes([460, 260])
         if hasattr(self.ui, "splitter_convergencePlots"):
-            self.ui.splitter_convergencePlots.setSizes([320, 240])
+            self.ui.splitter_convergencePlots.setSizes([1, 1])
         if hasattr(self.run_ui, "splitter_main"):
-            self.run_ui.splitter_main.setSizes([790, 540])
+            self.run_ui.splitter_main.setSizes([430, 240])
         if hasattr(self.run_ui, "splitter_runRight"):
-            self.run_ui.splitter_runRight.setSizes([130, 330])
+            self.run_ui.splitter_runRight.setSizes([280, 720])
         self.statusBar().showMessage("Layout reset")
 
     def _show_about(self) -> None:

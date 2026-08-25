@@ -101,8 +101,8 @@ class GuiViewAdapter:
     def update_runtime_labels(self) -> None:
         self.window._update_runtime_labels()
 
-    def set_run_buttons_enabled(self, *, start: bool, pause: bool, resume: bool, stop: bool) -> None:
-        self.window._set_run_buttons_enabled(start=start, pause=pause, resume=resume, stop=stop)
+    def set_run_buttons_enabled(self, *, start: bool, stop: bool) -> None:
+        self.window._set_run_buttons_enabled(start=start, stop=stop)
 
     def set_run_phase(self, text: str) -> None:
         self.window._set_run_phase(text)
