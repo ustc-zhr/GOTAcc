@@ -196,6 +196,7 @@ def _validate_policy_specs(
         kwargs = spec.get("kwargs", {})
         if not isinstance(kwargs, dict):
             raise TypeError(f"{field_name}[{i}]['kwargs'] must be a dict")
+        POLICY_REGISTRY.validate(policy_kind, name, kwargs)
 
 
 # =============================================================================
@@ -259,6 +260,18 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
 
     _ensure_duplicate_free(knobs_pvnames, "backend.kwargs['knobs_pvnames']")
     _ensure_duplicate_free(obj_pvnames, "backend.kwargs['obj_pvnames']")
+
+    if "objective_names" in kwargs and kwargs["objective_names"] is not None:
+        objective_names = _ensure_list_of_str(
+            kwargs["objective_names"],
+            "backend.kwargs['objective_names']",
+        )
+        if len(objective_names) != len(obj_pvnames):
+            raise ValueError(
+                f"len(objective_names) ({len(objective_names)}) must match "
+                f"len(obj_pvnames) ({len(obj_pvnames)})"
+            )
+        _ensure_duplicate_free(objective_names, "backend.kwargs['objective_names']")
 
     if "knob_readback_pvnames" in kwargs and kwargs["knob_readback_pvnames"] is not None:
         knob_readback_pvnames = _ensure_list_of_str(
@@ -339,6 +352,18 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
                 f"Unsupported constraint_math[{i}]={op!r}. "
                 f"Supported values: {sorted(SUPPORTED_OBJ_MATH)}"
             )
+
+    if "constraint_names" in kwargs and kwargs["constraint_names"] is not None:
+        constraint_names = _ensure_list_of_str(
+            kwargs["constraint_names"],
+            "backend.kwargs['constraint_names']",
+        )
+        if len(constraint_names) != len(constraint_pvnames):
+            raise ValueError(
+                f"len(constraint_names) ({len(constraint_names)}) must match "
+                f"len(constraint_pvnames) ({len(constraint_pvnames)})"
+            )
+        _ensure_duplicate_free(constraint_names, "backend.kwargs['constraint_names']")
 
     if "constraint_bounds" in kwargs and kwargs["constraint_bounds"] is not None:
         constraint_bounds = kwargs["constraint_bounds"]
@@ -423,6 +448,11 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
                 f"Unsupported write_policy={write_policy!r}. "
                 f"Supported values: {sorted(supported_write_policies)}"
             )
+        write_policy_kwargs = kwargs.get("write_policy_kwargs", {})
+        if not isinstance(write_policy_kwargs, dict):
+            raise TypeError("write_policy_kwargs must be a dict")
+        if str(write_policy).lower() != "none":
+            POLICY_REGISTRY.validate("write", str(write_policy), write_policy_kwargs)
 
     # objective_policy
     objective_policy_names = _normalize_policy_names(
@@ -432,12 +462,16 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
     supported_objective_policies = set(
         POLICY_REGISTRY.names("objective", include_aliases=True)
     )
+    objective_policy_kwargs = kwargs.get("objective_policy_kwargs", {})
+    if not isinstance(objective_policy_kwargs, dict):
+        raise TypeError("objective_policy_kwargs must be a dict")
     for name in objective_policy_names:
         if str(name).lower() not in supported_objective_policies:
             raise ValueError(
                 f"Unsupported objective_policy={name!r}. "
                 f"Supported values: {sorted(supported_objective_policies)}"
             )
+        POLICY_REGISTRY.validate("objective", name, objective_policy_kwargs)
 
     _validate_policy_specs(
         kwargs.get("objective_policies", None),
@@ -452,12 +486,16 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
     supported_constraint_policies = set(
         POLICY_REGISTRY.names("constraint", include_aliases=True)
     )
+    constraint_policy_kwargs = kwargs.get("constraint_policy_kwargs", {})
+    if not isinstance(constraint_policy_kwargs, dict):
+        raise TypeError("constraint_policy_kwargs must be a dict")
     for name in constraint_policy_names:
         if str(name).lower() not in supported_constraint_policies:
             raise ValueError(
                 f"Unsupported constraint_policy={name!r}. "
                 f"Supported values: {sorted(supported_constraint_policies)}"
             )
+        POLICY_REGISTRY.validate("constraint", name, constraint_policy_kwargs)
 
     _validate_policy_specs(
         kwargs.get("constraint_policies", None),

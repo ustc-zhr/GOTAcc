@@ -20,14 +20,19 @@ from gotacc.interfaces.policies import POLICY_REGISTRY, PolicyDefinition, Policy
 
 def test_builtin_policy_registry_exposes_canonical_names_aliases_and_defaults():
     assert POLICY_REGISTRY.names("write") == ("equal",)
-    assert POLICY_REGISTRY.names("objective") == ("fel_energy_guard", "zero_guard")
-    assert POLICY_REGISTRY.names("constraint") == ("bpm_guard",)
+    assert POLICY_REGISTRY.names("objective") == (
+        "fel_energy_guard",
+        "zero_guard",
+        "sample_guard",
+    )
+    assert POLICY_REGISTRY.names("constraint") == ("bpm_guard", "sample_guard")
     assert POLICY_REGISTRY.default_name("objective", gui_only=True) == "fel_energy_guard"
     assert POLICY_REGISTRY.default_name("constraint", gui_only=True) == "bpm_guard"
     assert POLICY_REGISTRY.names("objective", include_aliases=True) == (
         "fel_energy_guard",
         "zero_guard",
         "xiaosesan_zero_guard",
+        "sample_guard",
     )
     assert POLICY_REGISTRY.resolve("constraint", "bpm_zero_guard").name == "bpm_guard"
 

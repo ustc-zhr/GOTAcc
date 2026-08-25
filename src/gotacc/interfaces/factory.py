@@ -382,10 +382,12 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         knobs_pvnames = kwargs.pop("knobs_pvnames")
         knob_readback_pvnames = kwargs.pop("knob_readback_pvnames", None)
         obj_pvnames = kwargs.pop("obj_pvnames")
+        objective_names = kwargs.pop("objective_names", None)
         obj_weights = kwargs.pop("obj_weights")
         obj_samples = kwargs.pop("obj_samples")
         obj_math = kwargs.pop("obj_math")
         constraint_pvnames = kwargs.pop("constraint_pvnames", [])
+        constraint_names = kwargs.pop("constraint_names", None)
         constraint_math = kwargs.pop("constraint_math", [])
         constraint_bounds = kwargs.pop("constraint_bounds", [])
         set_interval = kwargs.pop("set_interval")
@@ -405,10 +407,12 @@ def _build_epics_backend(task_cfg: TaskConfig) -> ObjectiveBackend:
         knobs_pvnames=knobs_pvnames,
         knob_readback_pvnames=knob_readback_pvnames,
         obj_pvnames=obj_pvnames,
+        objective_names=objective_names,
         obj_weights=obj_weights,
         obj_samples=obj_samples,
         obj_math=obj_math,
         constraint_pvnames=constraint_pvnames,
+        constraint_names=constraint_names,
         constraint_math=constraint_math,
         constraint_bounds=constraint_bounds,
         set_interval=set_interval,

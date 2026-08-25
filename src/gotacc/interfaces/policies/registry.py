@@ -157,3 +157,12 @@ class PolicyRegistry:
         kwargs: Mapping[str, Any] | None = None,
     ) -> Any:
         return self.resolve(kind, name).build(kwargs)
+
+    def validate(
+        self,
+        kind: str,
+        name: str,
+        kwargs: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Construct a policy to validate its declarative configuration."""
+        self.resolve(kind, name).build(kwargs)

@@ -41,6 +41,11 @@
 - Renamed the canonical runner implementation to
   `gotacc.runners.task_runner` while keeping `gotacc.runners.optimize` as a
   compatibility import path
+- Added a central policy registry used by backend construction, TaskConfig
+  validation, and GUI policy discovery instead of duplicated policy whitelists
+- Added declarative objective and constraint `sample_guard` policies with
+  named signal targets, bounded condition/operator vocabularies, and
+  pre-evaluation target validation
 
 ## 1.2.0 - 2026-06-27
 

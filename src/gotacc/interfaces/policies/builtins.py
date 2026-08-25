@@ -10,6 +10,7 @@ from gotacc.interfaces.epics import (
 )
 
 from .registry import PolicyDefinition, PolicyRegistry
+from .sample_guard import SampleGuardConstraintPolicy, SampleGuardObjectivePolicy
 
 
 def _build_equal_write(kwargs: Mapping[str, Any]) -> EqualWritePolicy:
@@ -39,6 +40,30 @@ def _build_bpm_guard(kwargs: Mapping[str, Any]) -> BPMGuardConstraintPolicy:
         delta_ratio=kwargs["delta_ratio"],
         delta_min=kwargs["delta_min"],
         scale_floor=kwargs["scale_floor"],
+    )
+
+
+def _build_objective_sample_guard(
+    kwargs: Mapping[str, Any],
+) -> SampleGuardObjectivePolicy:
+    return SampleGuardObjectivePolicy(
+        target=kwargs["target"],
+        target_col=kwargs["target_col"],
+        conditions=kwargs["conditions"],
+        match=kwargs["match"],
+        action=kwargs["action"],
+    )
+
+
+def _build_constraint_sample_guard(
+    kwargs: Mapping[str, Any],
+) -> SampleGuardConstraintPolicy:
+    return SampleGuardConstraintPolicy(
+        target=kwargs["target"],
+        target_col=kwargs["target_col"],
+        conditions=kwargs["conditions"],
+        match=kwargs["match"],
+        action=kwargs["action"],
     )
 
 
@@ -100,5 +125,47 @@ POLICY_REGISTRY.register(
         factory=_build_bpm_guard,
         description="Treat all-zero BPM constraint samples as infeasible.",
         is_default=True,
+    )
+)
+
+POLICY_REGISTRY.register(
+    PolicyDefinition(
+        name="sample_guard",
+        kind="objective",
+        default_kwargs={
+            "target": None,
+            "target_col": 0,
+            "conditions": [
+                {"metric": "mean_abs", "operator": "gt", "value": 1e6},
+                {"metric": "peak_to_peak", "operator": "lt", "value": 1e-6},
+            ],
+            "match": "any",
+            "action": {"type": "replace", "value": 0.0},
+        },
+        factory=_build_objective_sample_guard,
+        description="Apply declarative sample conditions to an objective.",
+    )
+)
+
+POLICY_REGISTRY.register(
+    PolicyDefinition(
+        name="sample_guard",
+        kind="constraint",
+        default_kwargs={
+            "target": None,
+            "target_col": 0,
+            "conditions": [
+                {"metric": "max_abs", "operator": "le", "value": 1e-9},
+            ],
+            "match": "all",
+            "action": {
+                "type": "violate_bound",
+                "delta_ratio": 0.1,
+                "delta_min": 1e-6,
+                "scale_floor": 1.0,
+            },
+        },
+        factory=_build_constraint_sample_guard,
+        description="Apply declarative sample conditions to a constraint.",
     )
 )

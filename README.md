@@ -190,6 +190,39 @@ optimizer automatically. EPICS tasks can also define constraint policies such as
 `bpm_guard` / `bpm_zero_guard` to replace all-zero BPM constraint samples with a
 sentinel value derived from the configured constraint bounds.
 
+## Specific Policies
+
+Machine Setup -> Specific Policies supports registered write, objective, and
+constraint policies. The declarative `sample_guard` policy lets online tasks
+describe common signal-quality rules without executing user-provided code. For
+example, an objective policy can target the stable Task Builder objective name:
+
+```python
+"objective_policies": [
+    {
+        "name": "sample_guard",
+        "kwargs": {
+            "target": "fel_energy",
+            "conditions": [
+                {"metric": "mean_abs", "operator": "gt", "value": 1.0e6},
+                {"metric": "peak_to_peak", "operator": "lt", "value": 1.0e-6},
+            ],
+            "match": "any",
+            "action": {"type": "replace", "value": 0.0},
+        },
+    }
+]
+```
+
+Supported metrics are `mean_abs`, `max_abs`, `peak_to_peak`, `mean`, `std`, and
+`reduced`. Conditions use `gt`, `ge`, `lt`, `le`, `eq`, or `ne` and can be
+combined with `any` or `all`. Objective actions support `replace` and
+`add_offset`; constraint actions support `replace` and `violate_bound`.
+Constraint bound violations are derived from the task's configured
+`constraint_bounds`. A policy target is validated when the EPICS backend is
+built, before evaluation can write machine setpoints. `target_col` remains
+available for configurations that do not provide stable signal names.
+
 ## Repository Layout
 
 ```text

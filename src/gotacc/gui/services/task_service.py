@@ -818,6 +818,7 @@ class TaskService:
                     f"Objective policy row {idx} must have target_col >= 0 in Kwargs JSON."
                 )
             kwargs["target_col"] = target_col
+            POLICY_REGISTRY.validate("objective", name, kwargs)
             specs.append({"name": name, "kwargs": kwargs})
         return specs
 
@@ -869,6 +870,7 @@ class TaskService:
                         f"Constraint policy row {idx} must have {key} >= 0 in Kwargs JSON."
                     )
 
+            POLICY_REGISTRY.validate("constraint", name, kwargs)
             specs.append({"name": name, "kwargs": kwargs})
         return specs
 
@@ -1507,9 +1509,8 @@ class TaskService:
             kwargs.pop("variable_names", None)
             kwargs.pop("objective_names", None)
         elif str(cfg.backend.type).lower() == "epics":
-            # GUI helper metadata should not be consumed by the strict EPICS factory.
+            # Variable names are GUI-only. Objective/constraint names are consumed
+            # by the backend so policies can target stable task names instead of columns.
             kwargs.pop("variable_names", None)
-            kwargs.pop("objective_names", None)
-            kwargs.pop("constraint_names", None)
         cfg.backend.kwargs = kwargs
         return cfg
