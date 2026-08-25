@@ -596,6 +596,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         policy_name: str = "sample_guard",
         kwargs: dict | None = None,
         preset_name: str | None = None,
+        locked_target: str | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -603,6 +604,9 @@ class SampleGuardRuleEditorDialog(QDialog):
             raise ValueError("Rule Editor kind must be objective or constraint")
         self.kind = kind
         self.target_names = [str(name).strip() for name in target_names if str(name).strip()]
+        self.locked_target = str(locked_target or "").strip()
+        if self.locked_target and self.locked_target not in self.target_names:
+            self.target_names.append(self.locked_target)
         self._loading = False
         self.setWindowTitle(f"{kind.title()} Rule Editor")
         self.resize(760, 590)
@@ -626,6 +630,12 @@ class SampleGuardRuleEditorDialog(QDialog):
         self.comboBox_target = QComboBox(self)
         self.comboBox_target.setEditable(True)
         self.comboBox_target.addItems(self.target_names)
+        if self.locked_target:
+            self.comboBox_target.setCurrentText(self.locked_target)
+            self.comboBox_target.setEnabled(False)
+            self.comboBox_target.setToolTip(
+                "This target is bound to the selected PV Mapping row."
+            )
         form.addRow("Target", self.comboBox_target)
 
         self.comboBox_match = QComboBox(self)
@@ -744,7 +754,7 @@ class SampleGuardRuleEditorDialog(QDialog):
     def _load_rule(self, kwargs: dict, *, preset_name: str | None = None) -> None:
         self._loading = True
         try:
-            target = kwargs.get("target")
+            target = self.locked_target or kwargs.get("target")
             target_col = int(kwargs.get("target_col", 0) or 0)
             if target is None and 0 <= target_col < len(self.target_names):
                 target = self.target_names[target_col]
@@ -820,7 +830,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         self._on_rule_changed()
 
     def rule_state(self) -> dict:
-        target = self.comboBox_target.currentText().strip()
+        target = self.locked_target or self.comboBox_target.currentText().strip()
         target_col = self.target_names.index(target) if target in self.target_names else 0
         conditions = []
         for row in range(self.tableWidget_conditions.rowCount()):
@@ -859,9 +869,19 @@ class SampleGuardRuleEditorDialog(QDialog):
         state = self.rule_state()
         count = len(state["kwargs"]["conditions"])
         target = state["kwargs"]["target"] or f"column {state['kwargs']['target_col']}"
+        action_labels = {
+            "replace": "replace the result",
+            "add_offset": "add an offset",
+            "violate_bound": "mark the constraint as infeasible",
+        }
+        action = action_labels.get(
+            state["kwargs"]["action"]["type"], state["kwargs"]["action"]["type"]
+        )
+        match_text = "the condition matches" if count == 1 else (
+            f"{state['kwargs']['match']} of {count} conditions match"
+        )
         self.label_summary.setText(
-            f"{target}: match {state['kwargs']['match']} of {count} condition(s), then "
-            f"{state['kwargs']['action']['type']}."
+            f"{target}: When {match_text}, {action}."
         )
 
     def _accept_if_valid(self) -> None:
@@ -872,3 +892,80 @@ class SampleGuardRuleEditorDialog(QDialog):
             QMessageBox.critical(self, "Rule Editor", str(exc))
             return
         self.accept()
+
+
+class MappingPolicyManagerDialog(QDialog):
+    """Select an add/edit/remove action for policies bound to one mapping row."""
+
+    def __init__(self, *, target: str, pv_name: str, policies: list[dict], parent=None) -> None:
+        super().__init__(parent)
+        self._request: tuple[str, int | None] | None = None
+        self.setWindowTitle(f"Policies for {target}")
+        self.resize(620, 360)
+
+        root = QVBoxLayout(self)
+        heading = QLabel(f"{target} — {pv_name or 'PV not assigned'}", self)
+        heading.setWordWrap(True)
+        root.addWidget(heading)
+        hint = QLabel(
+            "Policies are bound to this Machine PV Mapping signal and are included when the task is built.",
+            self,
+        )
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self.tableWidget_policies = QTableWidget(0, 3, self)
+        self.tableWidget_policies.setHorizontalHeaderLabels(["Enabled", "Preset", "Rule"])
+        self.tableWidget_policies.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tableWidget_policies.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tableWidget_policies.setSelectionMode(QAbstractItemView.SingleSelection)
+        for policy in policies:
+            row = self.tableWidget_policies.rowCount()
+            self.tableWidget_policies.insertRow(row)
+            self.tableWidget_policies.setItem(
+                row, 0, QTableWidgetItem("Yes" if policy.get("enabled") else "No")
+            )
+            self.tableWidget_policies.setItem(
+                row, 1, QTableWidgetItem(str(policy.get("preset", "Custom Rule")))
+            )
+            self.tableWidget_policies.setItem(
+                row, 2, QTableWidgetItem(str(policy.get("summary", "sample guard")))
+            )
+        if self.tableWidget_policies.rowCount():
+            self.tableWidget_policies.selectRow(0)
+        root.addWidget(self.tableWidget_policies)
+
+        actions = QHBoxLayout()
+        self.pushButton_add = QPushButton("Add Policy", self)
+        self.pushButton_edit = QPushButton("Edit Selected", self)
+        self.pushButton_remove = QPushButton("Remove Selected", self)
+        self.pushButton_toggle = QPushButton("Enable / Disable", self)
+        close_button = QPushButton("Close", self)
+        actions.addWidget(self.pushButton_add)
+        actions.addWidget(self.pushButton_edit)
+        actions.addWidget(self.pushButton_remove)
+        actions.addWidget(self.pushButton_toggle)
+        actions.addStretch(1)
+        actions.addWidget(close_button)
+        root.addLayout(actions)
+
+        has_policies = bool(policies)
+        self.pushButton_edit.setEnabled(has_policies)
+        self.pushButton_remove.setEnabled(has_policies)
+        self.pushButton_toggle.setEnabled(has_policies)
+        self.pushButton_add.clicked.connect(lambda: self._finish("add"))
+        self.pushButton_edit.clicked.connect(lambda: self._finish("edit"))
+        self.pushButton_remove.clicked.connect(lambda: self._finish("remove"))
+        self.pushButton_toggle.clicked.connect(lambda: self._finish("toggle"))
+        self.tableWidget_policies.doubleClicked.connect(lambda *_: self._finish("edit"))
+        close_button.clicked.connect(self.reject)
+
+    def _finish(self, action: str) -> None:
+        row = self.tableWidget_policies.currentRow()
+        if action != "add" and row < 0:
+            return
+        self._request = (action, None if action == "add" else row)
+        self.accept()
+
+    def requested_action(self) -> tuple[str, int | None] | None:
+        return self._request

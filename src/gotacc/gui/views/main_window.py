@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
     QTableWidgetItem,
     QTabWidget,
@@ -47,7 +48,11 @@ try:
     from .ui_run_monitor import Ui_RunMonitorPage
     from .run_session import RunSession
     from .view_adapter import GuiViewAdapter
-    from .tool_dialogs import PVMonitorDialog, SampleGuardRuleEditorDialog
+    from .tool_dialogs import (
+        MappingPolicyManagerDialog,
+        PVMonitorDialog,
+        SampleGuardRuleEditorDialog,
+    )
 except ImportError:  # pragma: no cover - local script fallback
     CURRENT_DIR = Path(__file__).resolve().parent
     if str(CURRENT_DIR) not in sys.path:
@@ -59,7 +64,11 @@ except ImportError:  # pragma: no cover - local script fallback
     from ui_run_monitor import Ui_RunMonitorPage
     from run_session import RunSession
     from view_adapter import GuiViewAdapter
-    from tool_dialogs import PVMonitorDialog, SampleGuardRuleEditorDialog
+    from tool_dialogs import (
+        MappingPolicyManagerDialog,
+        PVMonitorDialog,
+        SampleGuardRuleEditorDialog,
+    )
 
 # -----------------------------------------------------------------------------
 # Service/worker imports
@@ -1217,42 +1226,66 @@ class MainWindow(QMainWindow):
         self.task_builder_controller.init_bounds_tool()
 
     def _init_machine_tables(self) -> None:
-        mapping_headers = ["Role", "Name", "PV Name", "Readback", "Group", "Note"]
+        mapping_headers = [
+            "Role",
+            "Name",
+            "PV Name",
+            "Readback",
+            "Group",
+            "Note",
+            "Policies",
+            "Policy Action",
+        ]
         write_headers = ["Source Index", "Target PV", "Enabled"]
-        objective_policy_headers = ["Enabled", "Preset", "Rule", "Policy Name", "Kwargs JSON"]
-        constraint_policy_headers = ["Enabled", "Preset", "Rule", "Policy Name", "Kwargs JSON"]
+        objective_policy_headers = [
+            "Enabled",
+            "Target",
+            "Preset",
+            "Rule",
+            "Policy Name",
+            "Kwargs JSON",
+        ]
+        constraint_policy_headers = list(objective_policy_headers)
 
         self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 3)
         self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
-        self._setup_table(self.machine_ui.tableWidget_objectivePolicies, objective_policy_headers, 1)
-        self._setup_table(self.machine_ui.tableWidget_constraintPolicies, constraint_policy_headers, 1)
+        self._setup_table(self.machine_ui.tableWidget_objectivePolicies, objective_policy_headers, 0)
+        self._setup_table(self.machine_ui.tableWidget_constraintPolicies, constraint_policy_headers, 0)
         for table in (
             self.machine_ui.tableWidget_objectivePolicies,
             self.machine_ui.tableWidget_constraintPolicies,
         ):
-            table.setColumnHidden(3, True)
             table.setColumnHidden(4, True)
+            table.setColumnHidden(5, True)
         self.machine_ui.tableWidget_writeLinks.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.machine_ui.tableWidget_objectivePolicies.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.machine_ui.tableWidget_constraintPolicies.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        for button in (
+            self.machine_ui.pushButton_addObjectivePolicy,
+            self.machine_ui.pushButton_removeObjectivePolicy,
+            self.machine_ui.pushButton_addConstraintPolicy,
+            self.machine_ui.pushButton_removeConstraintPolicy,
+        ):
+            button.setVisible(False)
+        objective_hint = QLabel(
+            "Summary only — add and edit policies from the matching PV Mapping row.",
+            self.machine_ui.tab_objectivePolicy,
+        )
+        constraint_hint = QLabel(
+            "Summary only — add and edit policies from the matching PV Mapping row.",
+            self.machine_ui.tab_constraintPolicy,
+        )
+        self.machine_ui.horizontalLayout_objectivePolicyTop.insertWidget(0, objective_hint)
+        self.machine_ui.horizontalLayout_constraintPolicyTop.insertWidget(0, constraint_hint)
 
         self._set_table_row(self.machine_ui.tableWidget_mapping, 0, ["knob", "x0", "", "", "main", ""])
         self._set_table_row(self.machine_ui.tableWidget_mapping, 1, ["objective", "obj0", "", "", "metric", ""])
         self._set_table_row(self.machine_ui.tableWidget_mapping, 2, ["", "", "", "", "", ""])
         self._set_table_row(self.machine_ui.tableWidget_writeLinks, 0, ["x0", "TEST:K1:LINK", "False"])
-        self._set_table_row(
-            self.machine_ui.tableWidget_objectivePolicies,
-            0,
-            self.task_builder_controller.objective_policy_default_row(enabled="False"),
-        )
-        self._set_table_row(
-            self.machine_ui.tableWidget_constraintPolicies,
-            0,
-            self.task_builder_controller.constraint_policy_default_row(enabled="False"),
-        )
         self.task_builder_controller.refresh_write_link_editors()
         self.task_builder_controller.refresh_objective_policy_editors()
         self.task_builder_controller.refresh_constraint_policy_editors()
+        self._refresh_mapping_policy_widgets()
 
     def _init_run_tables(self) -> None:
         recent_headers = ["Eval", "Time", "Status", "X", "Y", "Constraints"]
@@ -1408,6 +1441,9 @@ class MainWindow(QMainWindow):
         self.task_ui.tableWidget_dynamicParams.itemChanged.connect(self._on_dynamic_param_table_changed)
         self.machine_ui.tableWidget_mapping.itemChanged.connect(lambda *_: self._refresh_task_preview())
         self.machine_ui.tableWidget_mapping.itemChanged.connect(lambda *_: self.machine_controller.refresh_selected_library_tables())
+        self.machine_ui.tableWidget_mapping.itemChanged.connect(
+            lambda *_: self._refresh_mapping_policy_widgets()
+        )
         self.machine_ui.tableWidget_writeLinks.itemChanged.connect(lambda *_: self._refresh_task_preview())
 
         self.machine_ui.pushButton_connect.clicked.connect(self.connect_machine)
@@ -1536,29 +1572,157 @@ class MainWindow(QMainWindow):
             self.task_builder_controller.objective_policy_default_row(enabled="True"),
         )
         self.task_builder_controller.refresh_objective_policy_editors()
+        self._refresh_mapping_policy_widgets()
         self.machine_ui.tableWidget_objectivePolicies.selectRow(row)
         self._refresh_task_preview()
 
     def _policy_target_names(self, kind: str) -> list[str]:
-        table = (
-            self.task_ui.tableWidget_objectives
-            if kind == "objective"
-            else self.task_ui.tableWidget_constraints
-        )
+        mapping_rows = TaskService.table_to_records(self.machine_ui.tableWidget_mapping)
         return [
             str(row.get("Name", "")).strip()
-            for row in TaskService.table_to_records(table)
-            if str(row.get("Name", "")).strip()
+            for row in mapping_rows
+            if str(row.get("Role", "")).strip().lower() == kind
+            and str(row.get("Name", "")).strip()
         ]
 
-    def _edit_policy_rule_row(self, kind: str, row: int) -> None:
+    @staticmethod
+    def _policy_rule_summary(kwargs: dict) -> str:
+        conditions = kwargs.get("conditions", []) or []
+        action = str((kwargs.get("action", {}) or {}).get("type", "rule")).strip()
+        match = str(kwargs.get("match", "all")).strip()
+        action_labels = {
+            "replace": "Replace result",
+            "add_offset": "Add offset",
+            "violate_bound": "Mark infeasible",
+        }
+        if len(conditions) == 1:
+            condition = conditions[0]
+            operator_labels = {
+                "gt": ">",
+                "ge": "≥",
+                "lt": "<",
+                "le": "≤",
+                "eq": "=",
+                "ne": "≠",
+            }
+            condition_text = (
+                f"{condition.get('metric', 'value')} "
+                f"{operator_labels.get(str(condition.get('operator')), condition.get('operator', ''))} "
+                f"{condition.get('value', '')}"
+            )
+        else:
+            condition_text = f"{match.title()} of {len(conditions)} conditions"
+        return f"{condition_text} → {action_labels.get(action, action)}"
+
+    def _mapping_target_for_policy(self, kind: str, kwargs: dict) -> str:
+        target = str(kwargs.get("target") or "").strip()
+        if target:
+            return target
+        names = self._policy_target_names(kind)
+        try:
+            target_col = int(kwargs.get("target_col", 0) or 0)
+        except (TypeError, ValueError):
+            return ""
+        return names[target_col] if 0 <= target_col < len(names) else ""
+
+    def _bound_policy_rows(self, kind: str, target: str) -> list[dict]:
+        table = (
+            self.machine_ui.tableWidget_objectivePolicies
+            if kind == "objective"
+            else self.machine_ui.tableWidget_constraintPolicies
+        )
+        headers = self.task_builder_controller.table_headers(table)
+        results = []
+        for row in range(table.rowCount()):
+            enabled_widget = table.cellWidget(row, headers.index("Enabled"))
+            enabled_item = table.item(row, headers.index("Enabled"))
+            enabled_text = (
+                enabled_widget.currentText()
+                if enabled_widget is not None and hasattr(enabled_widget, "currentText")
+                else (enabled_item.text() if enabled_item is not None else "False")
+            )
+            kwargs_item = table.item(row, headers.index("Kwargs JSON"))
+            try:
+                kwargs = TaskService._parse_json_text(
+                    kwargs_item.text() if kwargs_item is not None else ""
+                )
+            except ValueError:
+                continue
+            if self._mapping_target_for_policy(kind, kwargs) != target:
+                continue
+            preset_item = table.item(row, headers.index("Preset"))
+            results.append(
+                {
+                    "row": row,
+                    "enabled": TaskService._is_enabled(enabled_text),
+                    "preset": preset_item.text() if preset_item is not None else "Custom Rule",
+                    "summary": self._policy_rule_summary(kwargs),
+                    "kwargs": kwargs,
+                }
+            )
+        return results
+
+    def _refresh_mapping_policy_widgets(self) -> None:
+        if not hasattr(self.machine_ui, "tableWidget_mapping"):
+            return
+        table = self.machine_ui.tableWidget_mapping
+        headers = self.task_builder_controller.table_headers(table)
+        if "Policies" not in headers or "Policy Action" not in headers:
+            return
+        policy_col = headers.index("Policies")
+        action_col = headers.index("Policy Action")
+        old_state = table.blockSignals(True)
+        try:
+            for row in range(table.rowCount()):
+                role_item = table.item(row, headers.index("Role"))
+                name_item = table.item(row, headers.index("Name"))
+                role = role_item.text().strip().lower() if role_item is not None else ""
+                target = name_item.text().strip() if name_item is not None else ""
+                if role not in {"objective", "constraint"} or not target:
+                    summary_item = QTableWidgetItem("—")
+                    summary_item.setFlags(summary_item.flags() & ~Qt.ItemIsEditable)
+                    table.setItem(row, policy_col, summary_item)
+                    table.setItem(row, action_col, QTableWidgetItem(""))
+                    table.removeCellWidget(row, action_col)
+                    continue
+                bound = self._bound_policy_rows(role, target)
+                enabled_count = sum(bool(policy["enabled"]) for policy in bound)
+                if not bound:
+                    summary = "None"
+                    button_text = "Add Policy"
+                else:
+                    labels = [str(policy["preset"]) for policy in bound]
+                    summary = ", ".join(labels)
+                    if enabled_count != len(bound):
+                        summary += f" ({enabled_count}/{len(bound)} enabled)"
+                    button_text = f"Manage ({len(bound)})"
+                summary_item = QTableWidgetItem(summary)
+                summary_item.setToolTip(summary)
+                summary_item.setFlags(summary_item.flags() & ~Qt.ItemIsEditable)
+                table.setItem(row, policy_col, summary_item)
+                table.setItem(row, action_col, QTableWidgetItem(""))
+                button = QPushButton(button_text, table)
+                button.clicked.connect(
+                    lambda _checked=False, row_idx=row: self._manage_mapping_policies(row_idx)
+                )
+                table.setCellWidget(row, action_col, button)
+        finally:
+            table.blockSignals(old_state)
+
+    def _edit_policy_rule_row(
+        self,
+        kind: str,
+        row: int,
+        *,
+        locked_target: str | None = None,
+    ) -> bool:
         table = (
             self.machine_ui.tableWidget_objectivePolicies
             if kind == "objective"
             else self.machine_ui.tableWidget_constraintPolicies
         )
         if row < 0 or row >= table.rowCount():
-            return
+            return False
         headers = self.task_builder_controller.table_headers(table)
         name_col = headers.index("Policy Name")
         kwargs_col = headers.index("Kwargs JSON")
@@ -1573,7 +1737,7 @@ class MainWindow(QMainWindow):
             kwargs = TaskService._parse_json_text(kwargs_text)
         except Exception as exc:
             QMessageBox.critical(self, "Rule Editor", str(exc))
-            return
+            return False
         preset_text = table.item(row, preset_col).text() if table.item(row, preset_col) else ""
         preset_name = next(
             (
@@ -1589,10 +1753,11 @@ class MainWindow(QMainWindow):
             policy_name=policy_name,
             kwargs=kwargs,
             preset_name=preset_name,
+            locked_target=locked_target,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
-            return
+            return False
         state = dialog.rule_state()
         table.setItem(row, name_col, QTableWidgetItem(state["name"]))
         table.setItem(
@@ -1609,13 +1774,152 @@ class MainWindow(QMainWindow):
             self.task_builder_controller.refresh_objective_policy_editors()
         else:
             self.task_builder_controller.refresh_constraint_policy_editors()
+        self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
+        return True
+
+    def _add_policy_for_mapping(self, kind: str, target: str) -> None:
+        table = (
+            self.machine_ui.tableWidget_objectivePolicies
+            if kind == "objective"
+            else self.machine_ui.tableWidget_constraintPolicies
+        )
+        values = (
+            self.task_builder_controller.objective_policy_default_row(enabled="True")
+            if kind == "objective"
+            else self.task_builder_controller.constraint_policy_default_row(enabled="True")
+        )
+        row = self._add_table_row(table, values)
+        if kind == "objective":
+            self.task_builder_controller.refresh_objective_policy_editors()
+        else:
+            self.task_builder_controller.refresh_constraint_policy_editors()
+        if not self._edit_policy_rule_row(kind, row, locked_target=target):
+            table.removeRow(row)
+            if kind == "objective":
+                self.task_builder_controller.refresh_objective_policy_editors()
+            else:
+                self.task_builder_controller.refresh_constraint_policy_editors()
+            self._refresh_mapping_policy_widgets()
+
+    def _manage_mapping_policies(self, mapping_row: int) -> None:
+        table = self.machine_ui.tableWidget_mapping
+        headers = self.task_builder_controller.table_headers(table)
+        if mapping_row < 0 or mapping_row >= table.rowCount():
+            return
+        role = table.item(mapping_row, headers.index("Role"))
+        name = table.item(mapping_row, headers.index("Name"))
+        pv = table.item(mapping_row, headers.index("PV Name"))
+        kind = role.text().strip().lower() if role is not None else ""
+        target = name.text().strip() if name is not None else ""
+        pv_name = pv.text().strip() if pv is not None else ""
+        if kind not in {"objective", "constraint"} or not target:
+            return
+        while True:
+            bound = self._bound_policy_rows(kind, target)
+            manager = MappingPolicyManagerDialog(
+                target=target,
+                pv_name=pv_name,
+                policies=bound,
+                parent=self,
+            )
+            if manager.exec_() != QDialog.Accepted:
+                break
+            request = manager.requested_action()
+            if request is None:
+                break
+            action, selected = request
+            if action == "add":
+                self._add_policy_for_mapping(kind, target)
+            elif selected is not None and selected < len(bound) and action == "edit":
+                self._edit_policy_rule_row(
+                    kind,
+                    int(bound[selected]["row"]),
+                    locked_target=target,
+                )
+            elif selected is not None and selected < len(bound) and action == "remove":
+                answer = QMessageBox.question(
+                    self,
+                    "Remove Policy",
+                    f"Remove {bound[selected]['preset']} from {target}?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer == QMessageBox.Yes:
+                    policy_table = (
+                        self.machine_ui.tableWidget_objectivePolicies
+                        if kind == "objective"
+                        else self.machine_ui.tableWidget_constraintPolicies
+                    )
+                    policy_table.removeRow(int(bound[selected]["row"]))
+                    if kind == "objective":
+                        self.task_builder_controller.refresh_objective_policy_editors()
+                    else:
+                        self.task_builder_controller.refresh_constraint_policy_editors()
+                    self._refresh_mapping_policy_widgets()
+            elif selected is not None and selected < len(bound) and action == "toggle":
+                policy_table = (
+                    self.machine_ui.tableWidget_objectivePolicies
+                    if kind == "objective"
+                    else self.machine_ui.tableWidget_constraintPolicies
+                )
+                headers = self.task_builder_controller.table_headers(policy_table)
+                policy_row = int(bound[selected]["row"])
+                enabled_col = headers.index("Enabled")
+                new_value = "False" if bound[selected]["enabled"] else "True"
+                enabled_widget = policy_table.cellWidget(policy_row, enabled_col)
+                if enabled_widget is not None and hasattr(enabled_widget, "setCurrentText"):
+                    enabled_widget.setCurrentText(new_value)
+                enabled_item = policy_table.item(policy_row, enabled_col)
+                if enabled_item is None:
+                    policy_table.setItem(policy_row, enabled_col, QTableWidgetItem(new_value))
+                else:
+                    enabled_item.setText(new_value)
+                self._refresh_mapping_policy_widgets()
+                self._refresh_task_preview()
 
     def _edit_objective_policy_row(self, row: int) -> None:
         self._edit_policy_rule_row("objective", row)
 
     def _edit_constraint_policy_row(self, row: int) -> None:
         self._edit_policy_rule_row("constraint", row)
+
+    def _open_policy_from_summary(self, kind: str, policy_row: int) -> None:
+        policy_table = (
+            self.machine_ui.tableWidget_objectivePolicies
+            if kind == "objective"
+            else self.machine_ui.tableWidget_constraintPolicies
+        )
+        headers = self.task_builder_controller.table_headers(policy_table)
+        kwargs_item = policy_table.item(policy_row, headers.index("Kwargs JSON"))
+        try:
+            kwargs = TaskService._parse_json_text(
+                kwargs_item.text() if kwargs_item is not None else ""
+            )
+        except ValueError as exc:
+            QMessageBox.critical(self, "Policy Summary", str(exc))
+            return
+        target = self._mapping_target_for_policy(kind, kwargs)
+        mapping = self.machine_ui.tableWidget_mapping
+        mapping_headers = self.task_builder_controller.table_headers(mapping)
+        for row in range(mapping.rowCount()):
+            role_item = mapping.item(row, mapping_headers.index("Role"))
+            name_item = mapping.item(row, mapping_headers.index("Name"))
+            role = role_item.text().strip().lower() if role_item is not None else ""
+            name = name_item.text().strip() if name_item is not None else ""
+            if role == kind and name == target:
+                self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_MACHINE)
+                self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_mapping)
+                self.go_to_page(self.PAGE_MACHINE)
+                mapping.selectRow(row)
+                self._manage_mapping_policies(row)
+                return
+        QMessageBox.information(
+            self,
+            "Policy Summary",
+            "This legacy policy is not bound to a current PV Mapping row. "
+            "Add or sync the mapping first.",
+        )
 
     def _remove_objective_policy_rows(self) -> None:
         table = self.machine_ui.tableWidget_objectivePolicies
@@ -1631,6 +1935,7 @@ class MainWindow(QMainWindow):
                 self.task_builder_controller.objective_policy_default_row(enabled="False"),
             )
         self.task_builder_controller.refresh_objective_policy_editors()
+        self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
 
     def _add_constraint_policy_row(self) -> None:
@@ -1639,6 +1944,7 @@ class MainWindow(QMainWindow):
             self.task_builder_controller.constraint_policy_default_row(enabled="True"),
         )
         self.task_builder_controller.refresh_constraint_policy_editors()
+        self._refresh_mapping_policy_widgets()
         self.machine_ui.tableWidget_constraintPolicies.selectRow(row)
         self._refresh_task_preview()
 
@@ -1656,6 +1962,7 @@ class MainWindow(QMainWindow):
                 self.task_builder_controller.constraint_policy_default_row(enabled="False"),
             )
         self.task_builder_controller.refresh_constraint_policy_editors()
+        self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
 
     def _qobj_alive(self, obj) -> bool:
@@ -2282,18 +2589,23 @@ class MainWindow(QMainWindow):
 
     def _show_policy_editor(self) -> None:
         self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_MACHINE)
-        if hasattr(self.machine_ui, "tab_advancedMachine"):
-            self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_advancedMachine)
-            self.machine_ui.tabWidget_machineAdvanced.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
-            location = "Machine Setup -> Specific Policies -> Objective Policy"
-        else:
-            self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
-            location = "Machine Setup -> Objective Policy"
+        self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_mapping)
         self.go_to_page(self.PAGE_MACHINE)
-        self._log_console(f"Opened {location}.")
-        table = self.machine_ui.tableWidget_objectivePolicies
-        row = table.currentRow() if table.currentRow() >= 0 else 0
-        self._edit_objective_policy_row(row)
+        self._log_console("Opened Machine Setup -> PV Mapping policy management.")
+        table = self.machine_ui.tableWidget_mapping
+        headers = self.task_builder_controller.table_headers(table)
+        for row in range(table.rowCount()):
+            role_item = table.item(row, headers.index("Role"))
+            role = role_item.text().strip().lower() if role_item is not None else ""
+            if role in {"objective", "constraint"}:
+                table.selectRow(row)
+                self._manage_mapping_policies(row)
+                return
+        QMessageBox.information(
+            self,
+            "Policy Editor",
+            "Add an objective or constraint row to PV Mapping before assigning a policy.",
+        )
 
     def _reset_layout(self) -> None:
         self.ui.splitter_main.setSizes([230, 1370])

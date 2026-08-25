@@ -50,6 +50,9 @@
   Editor and converted the FEL energy, zero-objective, and BPM guards into
   reusable presets that expand to `sample_guard`, while retaining legacy config
   compatibility
+- Integrated objective and constraint policy assignment into individual PV
+  Mapping rows, with stable-name target binding, multi-policy management, and a
+  read-only Specific Policies summary view
 
 ## 1.2.0 - 2026-06-27
 

@@ -1146,6 +1146,7 @@ class TaskBuilderController:
         spec = POLICY_REGISTRY.expand_preset("objective", preset_name)
         return [
             enabled,
+            "",
             preset.display_name,
             "Edit structured rule…",
             spec["name"],
@@ -1159,6 +1160,7 @@ class TaskBuilderController:
         spec = POLICY_REGISTRY.expand_preset("constraint", preset_name)
         return [
             enabled,
+            "",
             preset.display_name,
             "Edit structured rule…",
             spec["name"],
@@ -1242,6 +1244,7 @@ class TaskBuilderController:
         enabled_col = headers.index("Enabled")
         name_col = headers.index("Policy Name")
         preset_col = headers.index("Preset") if "Preset" in headers else None
+        target_col = headers.index("Target") if "Target" in headers else None
         rule_col = headers.index("Rule") if "Rule" in headers else None
         old_state = table.blockSignals(True)
         try:
@@ -1323,20 +1326,33 @@ class TaskBuilderController:
                     preset_item = table.item(row, preset_col)
                     if preset_item is None or not preset_item.text().strip():
                         table.setItem(row, preset_col, QTableWidgetItem("Custom Rule"))
-                if rule_col is not None:
-                    button = QPushButton("Edit Rule…", table)
-                    if table is self.window.machine_ui.tableWidget_objectivePolicies:
-                        button.clicked.connect(
-                            lambda _checked=False, row_idx=row: (
-                                self.window._edit_objective_policy_row(row_idx)
-                            )
+                if target_col is not None:
+                    kwargs_item = table.item(row, headers.index("Kwargs JSON"))
+                    try:
+                        kwargs = TaskService._parse_json_text(
+                            kwargs_item.text() if kwargs_item is not None else ""
                         )
+                    except ValueError:
+                        target_name = "Invalid rule"
                     else:
-                        button.clicked.connect(
-                            lambda _checked=False, row_idx=row: (
-                                self.window._edit_constraint_policy_row(row_idx)
-                            )
+                        target_name = self.window._mapping_target_for_policy(kind, kwargs)
+                    table.setItem(
+                        row,
+                        target_col,
+                        QTableWidgetItem(target_name or "Unbound"),
+                    )
+                    target_item = table.item(row, target_col)
+                    target_item.setFlags(target_item.flags() & ~Qt.ItemIsEditable)
+                if preset_col is not None:
+                    preset_item = table.item(row, preset_col)
+                    preset_item.setFlags(preset_item.flags() & ~Qt.ItemIsEditable)
+                if rule_col is not None:
+                    button = QPushButton("Open Mapping…", table)
+                    button.clicked.connect(
+                        lambda _checked=False, row_idx=row, policy_kind=kind: (
+                            self.window._open_policy_from_summary(policy_kind, row_idx)
                         )
+                    )
                     table.setCellWidget(row, rule_col, button)
         finally:
             table.blockSignals(old_state)
@@ -1816,6 +1832,7 @@ class TaskBuilderController:
                 self.window.machine_ui.tableWidget_constraintPolicies,
                 machine.get("constraint_policies", []),
             )
+            self.window._refresh_mapping_policy_widgets()
         finally:
             self.window._suppress_autofill = False
 

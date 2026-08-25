@@ -358,10 +358,11 @@ class MachineController:
 
     def _mapping_records(self) -> list[dict[str, str]]:
         rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_mapping)
+        fields = ("Role", "Name", "PV Name", "Readback", "Group", "Note")
         return [
-            row
+            {field: row.get(field, "") for field in fields}
             for row in rows
-            if any(str(value).strip() for value in row.values())
+            if any(str(row.get(field, "")).strip() for field in fields)
         ]
 
     def _mapping_sync_errors(self) -> list[str]:

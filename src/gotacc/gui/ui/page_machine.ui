@@ -283,7 +283,7 @@
          </layout>
         </widget>
        </item>
-       <item><widget class="QTableWidget" name="tableWidget_mapping"><column><property name="text"><string>Role</string></property></column><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>PV Name</string></property></column><column><property name="text"><string>Readback</string></property></column><column><property name="text"><string>Group</string></property></column><column><property name="text"><string>Note</string></property></column></widget></item>
+       <item><widget class="QTableWidget" name="tableWidget_mapping"><column><property name="text"><string>Role</string></property></column><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>PV Name</string></property></column><column><property name="text"><string>Readback</string></property></column><column><property name="text"><string>Group</string></property></column><column><property name="text"><string>Note</string></property></column><column><property name="text"><string>Policies</string></property></column><column><property name="text"><string>Policy Action</string></property></column></widget></item>
       </layout>
      </widget>
      <widget class="QWidget" name="tab_writePolicy">
@@ -387,6 +387,21 @@
          </column>
          <column>
           <property name="text">
+           <string>Target</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Preset</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Rule</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
            <string>Policy Name</string>
           </property>
          </column>
@@ -438,6 +453,21 @@
          <column>
           <property name="text">
            <string>Enabled</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Target</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Preset</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Rule</string>
           </property>
          </column>
          <column>

@@ -192,11 +192,14 @@ sentinel value derived from the configured constraint bounds.
 
 ## Specific Policies
 
-Machine Setup -> Specific Policies supports registered write, objective, and
-constraint policies. The declarative `sample_guard` policy lets online tasks
-describe common signal-quality rules without executing user-provided code. For
-objective and constraint rows, the GUI opens a structured Rule Editor for the
-target, conditions, match mode, and action instead of requiring JSON editing.
+Machine Setup -> PV Mapping is the primary assignment point for objective and
+constraint policies. Each mapped signal shows its bound policies and provides
+an `Add Policy` / `Manage` action. The structured Rule Editor locks the target
+to that mapping row and edits its conditions, match mode, and action without
+requiring JSON. Machine Setup -> Specific Policies remains a compatibility and
+summary view that links back to the corresponding mapping row. The declarative
+`sample_guard` policy lets online tasks describe common signal-quality rules
+without executing user-provided code.
 Reusable presets provide the former FEL energy, zero-objective, and BPM
 zero-signal behavior; saved task definitions expand those presets to the common
 `sample_guard` policy. Existing configs that name `fel_energy_guard`,

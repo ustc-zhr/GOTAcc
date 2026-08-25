@@ -633,6 +633,13 @@ class TaskService:
             else ""
         )
 
+        mapping_fields = ("Role", "Name", "PV Name", "Readback", "Group", "Note")
+        mapping_rows = [
+            {field: row.get(field, "") for field in mapping_fields}
+            for row in TaskService.table_to_records(machine_ui.tableWidget_mapping)
+            if any(str(row.get(field, "")).strip() for field in mapping_fields)
+        ]
+
         task: Dict[str, Any] = {
             "task_name": task_name,
             "mode": mode_text,
@@ -658,7 +665,7 @@ class TaskService:
                 "write_policy": machine_ui.comboBox_policy.currentText(),
                 "objective_policies": TaskService.table_to_records(machine_ui.tableWidget_objectivePolicies),
                 "constraint_policies": TaskService.table_to_records(machine_ui.tableWidget_constraintPolicies),
-                "mapping": TaskService.table_to_records(machine_ui.tableWidget_mapping),
+                "mapping": mapping_rows,
                 "write_links": TaskService.table_to_records(machine_ui.tableWidget_writeLinks),
             },
         }
