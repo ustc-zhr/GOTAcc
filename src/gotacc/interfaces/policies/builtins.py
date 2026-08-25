@@ -9,7 +9,7 @@ from gotacc.interfaces.epics import (
     ZeroGuardPolicy,
 )
 
-from .registry import PolicyDefinition, PolicyRegistry
+from .registry import PolicyDefinition, PolicyPreset, PolicyRegistry
 from .sample_guard import SampleGuardConstraintPolicy, SampleGuardObjectivePolicy
 
 
@@ -67,6 +67,36 @@ def _build_constraint_sample_guard(
     )
 
 
+def _adapt_fel_guard(kwargs: Mapping[str, Any], rule: dict[str, Any]) -> Mapping[str, Any]:
+    rule["target_col"] = int(kwargs.get("target_col", rule["target_col"]))
+    rule["conditions"][0]["value"] = float(
+        kwargs.get("large_threshold", rule["conditions"][0]["value"])
+    )
+    rule["conditions"][1]["value"] = float(
+        kwargs.get("change_threshold", rule["conditions"][1]["value"])
+    )
+    return rule
+
+
+def _adapt_zero_guard(kwargs: Mapping[str, Any], rule: dict[str, Any]) -> Mapping[str, Any]:
+    rule["target_col"] = int(kwargs.get("target_col", rule["target_col"]))
+    rule["conditions"][0]["atol"] = float(
+        kwargs.get("zero_atol", rule["conditions"][0]["atol"])
+    )
+    rule["action"]["value"] = float(kwargs.get("offset", rule["action"]["value"]))
+    return rule
+
+
+def _adapt_bpm_guard(kwargs: Mapping[str, Any], rule: dict[str, Any]) -> Mapping[str, Any]:
+    rule["target_col"] = int(kwargs.get("target_col", rule["target_col"]))
+    rule["conditions"][0]["value"] = float(
+        kwargs.get("zero_atol", rule["conditions"][0]["value"])
+    )
+    for key in ("delta_ratio", "delta_min", "scale_floor"):
+        rule["action"][key] = float(kwargs.get(key, rule["action"][key]))
+    return rule
+
+
 POLICY_REGISTRY = PolicyRegistry()
 
 POLICY_REGISTRY.register(
@@ -91,7 +121,7 @@ POLICY_REGISTRY.register(
         },
         factory=_build_fel_energy_guard,
         description="Replace abnormal or nearly constant FEL energy samples.",
-        is_default=True,
+        gui_visible=False,
     )
 )
 
@@ -107,6 +137,7 @@ POLICY_REGISTRY.register(
         },
         factory=_build_zero_guard,
         description="Add an offset when a reduced objective is effectively zero.",
+        gui_visible=False,
     )
 )
 
@@ -124,7 +155,7 @@ POLICY_REGISTRY.register(
         },
         factory=_build_bpm_guard,
         description="Treat all-zero BPM constraint samples as infeasible.",
-        is_default=True,
+        gui_visible=False,
     )
 )
 
@@ -144,6 +175,7 @@ POLICY_REGISTRY.register(
         },
         factory=_build_objective_sample_guard,
         description="Apply declarative sample conditions to an objective.",
+        is_default=True,
     )
 )
 
@@ -167,5 +199,72 @@ POLICY_REGISTRY.register(
         },
         factory=_build_constraint_sample_guard,
         description="Apply declarative sample conditions to a constraint.",
+        is_default=True,
+    )
+)
+
+POLICY_REGISTRY.register_preset(
+    PolicyPreset(
+        name="fel_energy_guard",
+        display_name="FEL Energy Guard",
+        kind="objective",
+        policy_name="sample_guard",
+        kwargs={
+            "target": None,
+            "target_col": 0,
+            "conditions": [
+                {"metric": "mean_abs", "operator": "gt", "value": 1e6},
+                {"metric": "peak_to_peak", "operator": "lt", "value": 1e-6},
+            ],
+            "match": "any",
+            "action": {"type": "replace", "value": 0.0},
+        },
+        description="Reject implausibly large or nearly constant FEL energy samples.",
+        legacy_kwargs_adapter=_adapt_fel_guard,
+    )
+)
+
+POLICY_REGISTRY.register_preset(
+    PolicyPreset(
+        name="zero_guard",
+        display_name="Zero Objective Guard",
+        kind="objective",
+        policy_name="sample_guard",
+        kwargs={
+            "target": None,
+            "target_col": 1,
+            "conditions": [
+                {"metric": "reduced", "operator": "eq", "value": 0.0, "atol": 1e-12},
+            ],
+            "match": "all",
+            "action": {"type": "add_offset", "value": 100.0},
+        },
+        description="Add an offset when the reduced objective is effectively zero.",
+        legacy_kwargs_adapter=_adapt_zero_guard,
+    )
+)
+
+POLICY_REGISTRY.register_preset(
+    PolicyPreset(
+        name="bpm_guard",
+        display_name="BPM Zero Guard",
+        kind="constraint",
+        policy_name="sample_guard",
+        kwargs={
+            "target": None,
+            "target_col": 0,
+            "conditions": [
+                {"metric": "max_abs", "operator": "le", "value": 1e-9},
+            ],
+            "match": "all",
+            "action": {
+                "type": "violate_bound",
+                "delta_ratio": 0.1,
+                "delta_min": 1e-6,
+                "scale_floor": 1.0,
+            },
+        },
+        description="Treat all-zero BPM samples as an infeasible constraint.",
+        legacy_kwargs_adapter=_adapt_bpm_guard,
     )
 )

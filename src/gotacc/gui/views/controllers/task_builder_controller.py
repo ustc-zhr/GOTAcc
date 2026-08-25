@@ -1141,25 +1141,29 @@ class TaskBuilderController:
 
     @staticmethod
     def objective_policy_default_row(name: str | None = None, enabled: str = "True") -> list[str]:
-        if name is None:
-            name = POLICY_REGISTRY.default_name("objective", gui_only=True)
-        normalized_name = TaskBuilderController._normalize_objective_policy_name(name)
-        kwargs_text = json.dumps(
-            POLICY_REGISTRY.resolve("objective", normalized_name).defaults(),
-            ensure_ascii=False,
-        )
-        return [enabled, normalized_name, kwargs_text]
+        preset_name = name if name in POLICY_REGISTRY.preset_names("objective") else "fel_energy_guard"
+        preset = POLICY_REGISTRY.resolve_preset("objective", preset_name)
+        spec = POLICY_REGISTRY.expand_preset("objective", preset_name)
+        return [
+            enabled,
+            preset.display_name,
+            "Edit structured rule…",
+            spec["name"],
+            json.dumps(spec["kwargs"], ensure_ascii=False),
+        ]
 
     @staticmethod
     def constraint_policy_default_row(name: str | None = None, enabled: str = "True") -> list[str]:
-        if name is None:
-            name = POLICY_REGISTRY.default_name("constraint", gui_only=True)
-        normalized_name = TaskBuilderController._normalize_constraint_policy_name(name)
-        kwargs_text = json.dumps(
-            POLICY_REGISTRY.resolve("constraint", normalized_name).defaults(),
-            ensure_ascii=False,
-        )
-        return [enabled, normalized_name, kwargs_text]
+        preset_name = name if name in POLICY_REGISTRY.preset_names("constraint") else "bpm_guard"
+        preset = POLICY_REGISTRY.resolve_preset("constraint", preset_name)
+        spec = POLICY_REGISTRY.expand_preset("constraint", preset_name)
+        return [
+            enabled,
+            preset.display_name,
+            "Edit structured rule…",
+            spec["name"],
+            json.dumps(spec["kwargs"], ensure_ascii=False),
+        ]
 
     def _ensure_policy_row_defaults(
         self,
@@ -1177,7 +1181,7 @@ class TaskBuilderController:
         kwargs_col = headers.index("Kwargs JSON")
         normalized_name = normalize_name(policy_name)
         defaults = default_row_factory(normalized_name)
-        default_kwargs = defaults[2]
+        default_kwargs = defaults[-1]
 
         kwargs_item = table.item(row, kwargs_col)
         kwargs_text = kwargs_item.text().strip() if kwargs_item is not None else ""
@@ -1237,6 +1241,8 @@ class TaskBuilderController:
             return
         enabled_col = headers.index("Enabled")
         name_col = headers.index("Policy Name")
+        preset_col = headers.index("Preset") if "Preset" in headers else None
+        rule_col = headers.index("Rule") if "Rule" in headers else None
         old_state = table.blockSignals(True)
         try:
             for row in range(table.rowCount()):
@@ -1265,6 +1271,33 @@ class TaskBuilderController:
                 else:
                     current_item = table.item(row, name_col)
                     name_value = current_item.text().strip() if current_item is not None else ""
+                legacy_name = name_value.lower()
+                kind = (
+                    "objective"
+                    if table is self.window.machine_ui.tableWidget_objectivePolicies
+                    else "constraint"
+                )
+                if legacy_name in POLICY_REGISTRY.preset_names(kind):
+                    preset = POLICY_REGISTRY.resolve_preset(kind, legacy_name)
+                    kwargs_item = table.item(row, headers.index("Kwargs JSON"))
+                    try:
+                        legacy_kwargs = TaskService._parse_json_text(
+                            kwargs_item.text() if kwargs_item is not None else ""
+                        )
+                    except ValueError:
+                        legacy_kwargs = None
+                    if legacy_kwargs is not None:
+                        spec = POLICY_REGISTRY.expand_preset(
+                            kind, legacy_name, legacy_kwargs=legacy_kwargs
+                        )
+                        name_value = spec["name"]
+                        table.setItem(
+                            row,
+                            headers.index("Kwargs JSON"),
+                            QTableWidgetItem(json.dumps(spec["kwargs"], ensure_ascii=False)),
+                        )
+                        if preset_col is not None:
+                            table.setItem(row, preset_col, QTableWidgetItem(preset.display_name))
                 name_value = normalize_name(name_value)
                 name_combo = QComboBox(table)
                 name_combo.addItems(allowed_names)
@@ -1286,6 +1319,25 @@ class TaskBuilderController:
                     normalize_name,
                     default_row_factory,
                 )
+                if preset_col is not None:
+                    preset_item = table.item(row, preset_col)
+                    if preset_item is None or not preset_item.text().strip():
+                        table.setItem(row, preset_col, QTableWidgetItem("Custom Rule"))
+                if rule_col is not None:
+                    button = QPushButton("Edit Rule…", table)
+                    if table is self.window.machine_ui.tableWidget_objectivePolicies:
+                        button.clicked.connect(
+                            lambda _checked=False, row_idx=row: (
+                                self.window._edit_objective_policy_row(row_idx)
+                            )
+                        )
+                    else:
+                        button.clicked.connect(
+                            lambda _checked=False, row_idx=row: (
+                                self.window._edit_constraint_policy_row(row_idx)
+                            )
+                        )
+                    table.setCellWidget(row, rule_col, button)
         finally:
             table.blockSignals(old_state)
 

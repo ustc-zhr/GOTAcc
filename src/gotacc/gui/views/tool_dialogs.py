@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -9,14 +8,18 @@ from typing import Callable
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHeaderView,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
     QTabWidget,
     QTableWidget,
@@ -26,17 +29,17 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from gotacc.interfaces.policies import POLICY_REGISTRY
+
 try:
     from .ui_dialog_algorithm_detail import Ui_AlgorithmDetailDialog
     from .ui_dialog_bounds_tools import Ui_BoundsToolsDialog
     from .ui_dialog_pv_library_selector import Ui_PVLibrarySelectorDialog
-    from .ui_dialog_policy_editor import Ui_PolicyEditorDialog
     from .ui_dialog_pv_monitor import Ui_PVMonitorDialog
 except ImportError:  # pragma: no cover
     from ui_dialog_algorithm_detail import Ui_AlgorithmDetailDialog
     from ui_dialog_bounds_tools import Ui_BoundsToolsDialog
     from ui_dialog_pv_library_selector import Ui_PVLibrarySelectorDialog
-    from ui_dialog_policy_editor import Ui_PolicyEditorDialog
     from ui_dialog_pv_monitor import Ui_PVMonitorDialog
 
 try:
@@ -579,60 +582,293 @@ class PVMonitorDialog(QDialog):
         self._read_indices(list(range(len(self._rows))))
 
 
-class PolicyEditorDialog(QDialog):
-    def __init__(self, policy_state: dict, parent=None) -> None:
+class SampleGuardRuleEditorDialog(QDialog):
+    """Structured editor for declarative objective/constraint sample guards."""
+
+    METRICS = ("mean_abs", "max_abs", "peak_to_peak", "mean", "std", "reduced")
+    OPERATORS = ("gt", "ge", "lt", "le", "eq", "ne")
+
+    def __init__(
+        self,
+        *,
+        kind: str,
+        target_names: list[str] | tuple[str, ...],
+        policy_name: str = "sample_guard",
+        kwargs: dict | None = None,
+        preset_name: str | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
-        self.ui = Ui_PolicyEditorDialog()
-        self.ui.setupUi(self)
+        if kind not in {"objective", "constraint"}:
+            raise ValueError("Rule Editor kind must be objective or constraint")
+        self.kind = kind
+        self.target_names = [str(name).strip() for name in target_names if str(name).strip()]
+        self._loading = False
+        self.setWindowTitle(f"{kind.title()} Rule Editor")
+        self.resize(760, 590)
 
-        self.ui.buttonBox.accepted.connect(self._accept_if_valid)
-        self.ui.buttonBox.rejected.connect(self.reject)
-        self.ui.comboBox_writePolicy.currentTextChanged.connect(self._refresh_preview)
-        self.ui.comboBox_objectivePolicy.currentTextChanged.connect(self._refresh_preview)
-        self.ui.spinBox_targetCol.valueChanged.connect(self._refresh_preview)
-        self.ui.plainTextEdit_kwargs.textChanged.connect(self._refresh_preview)
+        root = QVBoxLayout(self)
+        intro = QLabel(
+            "Build a reusable sample rule from fields. No Python expressions or raw JSON are required.",
+            self,
+        )
+        intro.setWordWrap(True)
+        root.addWidget(intro)
 
-        self.ui.comboBox_writePolicy.setCurrentText(str(policy_state.get("write_policy", "none")))
-        self.ui.comboBox_objectivePolicy.setCurrentText(str(policy_state.get("objective_policy", "none")))
-        self.ui.spinBox_targetCol.setValue(int(policy_state.get("target_col", 0)))
-        kwargs_text = str(policy_state.get("policy_kwargs_text", "{}") or "{}")
-        self.ui.plainTextEdit_kwargs.setPlainText(kwargs_text)
-        self._refresh_preview()
+        form = QFormLayout()
+        self.comboBox_preset = QComboBox(self)
+        self.comboBox_preset.addItem("Custom Rule", "")
+        for name in POLICY_REGISTRY.preset_names(kind, gui_only=True):
+            preset = POLICY_REGISTRY.resolve_preset(kind, name)
+            self.comboBox_preset.addItem(preset.display_name, preset.name)
+        form.addRow("Preset", self.comboBox_preset)
 
-    def _normalized_state(self) -> dict:
-        kwargs_text = self.ui.plainTextEdit_kwargs.toPlainText().strip() or "{}"
-        kwargs = TaskService._parse_json_text(kwargs_text)
-        kwargs.setdefault("target_col", int(self.ui.spinBox_targetCol.value()))
+        self.comboBox_target = QComboBox(self)
+        self.comboBox_target.setEditable(True)
+        self.comboBox_target.addItems(self.target_names)
+        form.addRow("Target", self.comboBox_target)
+
+        self.comboBox_match = QComboBox(self)
+        self.comboBox_match.addItems(["any", "all"])
+        form.addRow("Match conditions", self.comboBox_match)
+        root.addLayout(form)
+
+        condition_group = QGroupBox("Conditions", self)
+        condition_layout = QVBoxLayout(condition_group)
+        self.tableWidget_conditions = QTableWidget(0, 4, condition_group)
+        self.tableWidget_conditions.setHorizontalHeaderLabels(
+            ["Metric", "Operator", "Value", "Tolerance"]
+        )
+        self.tableWidget_conditions.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tableWidget_conditions.setSelectionBehavior(QAbstractItemView.SelectRows)
+        condition_layout.addWidget(self.tableWidget_conditions)
+        condition_buttons = QHBoxLayout()
+        self.pushButton_addCondition = QPushButton("Add Condition", condition_group)
+        self.pushButton_removeCondition = QPushButton("Remove Selected", condition_group)
+        condition_buttons.addWidget(self.pushButton_addCondition)
+        condition_buttons.addWidget(self.pushButton_removeCondition)
+        condition_buttons.addStretch(1)
+        condition_layout.addLayout(condition_buttons)
+        root.addWidget(condition_group)
+
+        action_group = QGroupBox("Action", self)
+        action_form = QFormLayout(action_group)
+        self.comboBox_action = QComboBox(action_group)
+        self.comboBox_action.addItems(
+            ["replace", "add_offset"] if kind == "objective" else ["replace", "violate_bound"]
+        )
+        action_form.addRow("Type", self.comboBox_action)
+        self.doubleSpinBox_actionValue = self._number_box(action_group)
+        action_form.addRow("Value", self.doubleSpinBox_actionValue)
+        self.doubleSpinBox_deltaRatio = self._nonnegative_box(action_group, 0.1)
+        self.doubleSpinBox_deltaMin = self._nonnegative_box(action_group, 1e-6)
+        self.doubleSpinBox_scaleFloor = self._nonnegative_box(action_group, 1.0)
+        action_form.addRow("Delta ratio", self.doubleSpinBox_deltaRatio)
+        action_form.addRow("Minimum delta", self.doubleSpinBox_deltaMin)
+        action_form.addRow("Scale floor", self.doubleSpinBox_scaleFloor)
+        root.addWidget(action_group)
+
+        self.label_summary = QLabel(self)
+        self.label_summary.setWordWrap(True)
+        root.addWidget(self.label_summary)
+        self.buttonBox = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
+        )
+        root.addWidget(self.buttonBox)
+
+        self.comboBox_preset.currentIndexChanged.connect(self._on_preset_changed)
+        self.comboBox_target.currentTextChanged.connect(self._on_rule_changed)
+        self.comboBox_match.currentTextChanged.connect(self._on_rule_changed)
+        self.comboBox_action.currentTextChanged.connect(self._on_action_changed)
+        self.pushButton_addCondition.clicked.connect(self._add_custom_condition)
+        self.pushButton_removeCondition.clicked.connect(self._remove_selected_conditions)
+        self.buttonBox.accepted.connect(self._accept_if_valid)
+        self.buttonBox.rejected.connect(self.reject)
+        for box in (
+            self.doubleSpinBox_actionValue,
+            self.doubleSpinBox_deltaRatio,
+            self.doubleSpinBox_deltaMin,
+            self.doubleSpinBox_scaleFloor,
+        ):
+            box.valueChanged.connect(self._on_rule_changed)
+
+        initial_preset = preset_name or self._legacy_preset_name(policy_name)
+        initial_kwargs = dict(kwargs or {})
+        if not initial_kwargs and initial_preset:
+            initial_kwargs = POLICY_REGISTRY.expand_preset(kind, initial_preset)["kwargs"]
+        if not initial_kwargs:
+            initial_kwargs = POLICY_REGISTRY.resolve(kind, "sample_guard").defaults()
+        self._load_rule(initial_kwargs, preset_name=initial_preset)
+
+    @staticmethod
+    def _number_box(parent) -> QDoubleSpinBox:
+        box = QDoubleSpinBox(parent)
+        box.setDecimals(12)
+        box.setRange(-1e15, 1e15)
+        box.setSingleStep(0.1)
+        return box
+
+    @classmethod
+    def _nonnegative_box(cls, parent, value: float) -> QDoubleSpinBox:
+        box = cls._number_box(parent)
+        box.setRange(0.0, 1e15)
+        box.setValue(value)
+        return box
+
+    def _legacy_preset_name(self, policy_name: str) -> str | None:
+        name = str(policy_name or "").strip().lower()
+        return name if name in POLICY_REGISTRY.preset_names(self.kind) else None
+
+    def _set_condition_row(self, row: int, condition: dict) -> None:
+        self.tableWidget_conditions.insertRow(row)
+        metric = QComboBox(self.tableWidget_conditions)
+        metric.addItems(list(self.METRICS))
+        metric.setCurrentText(str(condition.get("metric", "mean_abs")))
+        operator = QComboBox(self.tableWidget_conditions)
+        operator.addItems(list(self.OPERATORS))
+        operator.setCurrentText(str(condition.get("operator", "gt")))
+        value = self._number_box(self.tableWidget_conditions)
+        value.setValue(float(condition.get("value", 0.0)))
+        atol = self._nonnegative_box(
+            self.tableWidget_conditions, float(condition.get("atol", 0.0))
+        )
+        self.tableWidget_conditions.setCellWidget(row, 0, metric)
+        self.tableWidget_conditions.setCellWidget(row, 1, operator)
+        self.tableWidget_conditions.setCellWidget(row, 2, value)
+        self.tableWidget_conditions.setCellWidget(row, 3, atol)
+        metric.currentTextChanged.connect(self._on_rule_changed)
+        operator.currentTextChanged.connect(self._on_rule_changed)
+        value.valueChanged.connect(self._on_rule_changed)
+        atol.valueChanged.connect(self._on_rule_changed)
+
+    def _load_rule(self, kwargs: dict, *, preset_name: str | None = None) -> None:
+        self._loading = True
+        try:
+            target = kwargs.get("target")
+            target_col = int(kwargs.get("target_col", 0) or 0)
+            if target is None and 0 <= target_col < len(self.target_names):
+                target = self.target_names[target_col]
+            self.comboBox_target.setCurrentText(str(target or ""))
+            self.comboBox_match.setCurrentText(str(kwargs.get("match", "any")))
+            self.tableWidget_conditions.setRowCount(0)
+            for condition in kwargs.get("conditions", []):
+                self._set_condition_row(self.tableWidget_conditions.rowCount(), dict(condition))
+            action = dict(kwargs.get("action", {}))
+            self.comboBox_action.setCurrentText(str(action.get("type", "replace")))
+            self.doubleSpinBox_actionValue.setValue(float(action.get("value", 0.0)))
+            self.doubleSpinBox_deltaRatio.setValue(float(action.get("delta_ratio", 0.1)))
+            self.doubleSpinBox_deltaMin.setValue(float(action.get("delta_min", 1e-6)))
+            self.doubleSpinBox_scaleFloor.setValue(float(action.get("scale_floor", 1.0)))
+            index = self.comboBox_preset.findData(preset_name or "")
+            self.comboBox_preset.setCurrentIndex(max(0, index))
+        finally:
+            self._loading = False
+        self._update_action_fields()
+        self._refresh_summary()
+
+    def _on_preset_changed(self) -> None:
+        if self._loading:
+            return
+        name = str(self.comboBox_preset.currentData() or "")
+        if name:
+            self._load_rule(POLICY_REGISTRY.expand_preset(self.kind, name)["kwargs"], preset_name=name)
+
+    def _on_rule_changed(self, *_args) -> None:
+        if self._loading:
+            return
+        self._loading = True
+        self.comboBox_preset.setCurrentIndex(0)
+        self._loading = False
+        self._refresh_summary()
+
+    def _on_action_changed(self, *_args) -> None:
+        self._update_action_fields()
+        self._on_rule_changed()
+
+    def _update_action_fields(self) -> None:
+        violate = self.comboBox_action.currentText() == "violate_bound"
+        self.doubleSpinBox_actionValue.setVisible(not violate)
+        value_label = self.doubleSpinBox_actionValue.parent().layout().labelForField(
+            self.doubleSpinBox_actionValue
+        )
+        if value_label is not None:
+            value_label.setVisible(not violate)
+        for box in (
+            self.doubleSpinBox_deltaRatio,
+            self.doubleSpinBox_deltaMin,
+            self.doubleSpinBox_scaleFloor,
+        ):
+            box.setVisible(violate)
+            label = box.parent().layout().labelForField(box)
+            if label is not None:
+                label.setVisible(violate)
+
+    def _add_custom_condition(self) -> None:
+        self._set_condition_row(
+            self.tableWidget_conditions.rowCount(),
+            {"metric": "mean_abs", "operator": "gt", "value": 0.0},
+        )
+        self._on_rule_changed()
+
+    def _remove_selected_conditions(self) -> None:
+        rows = sorted(
+            {index.row() for index in self.tableWidget_conditions.selectionModel().selectedRows()},
+            reverse=True,
+        )
+        for row in rows:
+            self.tableWidget_conditions.removeRow(row)
+        self._on_rule_changed()
+
+    def rule_state(self) -> dict:
+        target = self.comboBox_target.currentText().strip()
+        target_col = self.target_names.index(target) if target in self.target_names else 0
+        conditions = []
+        for row in range(self.tableWidget_conditions.rowCount()):
+            condition = {
+                "metric": self.tableWidget_conditions.cellWidget(row, 0).currentText(),
+                "operator": self.tableWidget_conditions.cellWidget(row, 1).currentText(),
+                "value": self.tableWidget_conditions.cellWidget(row, 2).value(),
+            }
+            atol = self.tableWidget_conditions.cellWidget(row, 3).value()
+            if atol:
+                condition["atol"] = atol
+            conditions.append(condition)
+        action_type = self.comboBox_action.currentText()
+        if action_type == "violate_bound":
+            action = {
+                "type": action_type,
+                "delta_ratio": self.doubleSpinBox_deltaRatio.value(),
+                "delta_min": self.doubleSpinBox_deltaMin.value(),
+                "scale_floor": self.doubleSpinBox_scaleFloor.value(),
+            }
+        else:
+            action = {"type": action_type, "value": self.doubleSpinBox_actionValue.value()}
         return {
-            "write_policy": self.ui.comboBox_writePolicy.currentText(),
-            "objective_policy": self.ui.comboBox_objectivePolicy.currentText(),
-            "target_col": int(self.ui.spinBox_targetCol.value()),
-            "policy_kwargs_text": json.dumps(kwargs, indent=2, ensure_ascii=False),
+            "preset": str(self.comboBox_preset.currentData() or "custom"),
+            "name": "sample_guard",
+            "kwargs": {
+                "target": target or None,
+                "target_col": target_col,
+                "conditions": conditions,
+                "match": self.comboBox_match.currentText(),
+                "action": action,
+            },
         }
 
-    def _refresh_preview(self) -> None:
-        try:
-            state = self._normalized_state()
-        except Exception as exc:
-            self.ui.plainTextEdit_preview.setPlainText(f"Invalid JSON:\n{exc}")
-            return
-        preview = [
-            f"Write Policy: {state['write_policy']}",
-            f"Objective Policy: {state['objective_policy']}",
-            f"Target Column: {state['target_col']}",
-            "",
-            "Normalized Objective Policy Kwargs:",
-            state["policy_kwargs_text"],
-        ]
-        self.ui.plainTextEdit_preview.setPlainText("\n".join(preview))
+    def _refresh_summary(self) -> None:
+        state = self.rule_state()
+        count = len(state["kwargs"]["conditions"])
+        target = state["kwargs"]["target"] or f"column {state['kwargs']['target_col']}"
+        self.label_summary.setText(
+            f"{target}: match {state['kwargs']['match']} of {count} condition(s), then "
+            f"{state['kwargs']['action']['type']}."
+        )
 
     def _accept_if_valid(self) -> None:
         try:
-            self._normalized_state()
+            state = self.rule_state()
+            POLICY_REGISTRY.validate(self.kind, state["name"], state["kwargs"])
         except Exception as exc:
-            QMessageBox.critical(self, "Policy Editor", str(exc))
+            QMessageBox.critical(self, "Rule Editor", str(exc))
             return
         self.accept()
-
-    def policy_state(self) -> dict:
-        return self._normalized_state()

@@ -7,6 +7,7 @@ from typing import Any, Callable, Literal, Mapping
 
 PolicyKind = Literal["write", "objective", "constraint"]
 PolicyFactory = Callable[[Mapping[str, Any]], Any]
+PresetAdapter = Callable[[Mapping[str, Any], dict[str, Any]], Mapping[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,23 @@ class PolicyDefinition:
         return self.factory(params)
 
 
+@dataclass(frozen=True)
+class PolicyPreset:
+    """Reusable declarative configuration for a registered policy."""
+
+    name: str
+    kind: PolicyKind
+    policy_name: str
+    kwargs: Mapping[str, Any] = field(default_factory=dict)
+    display_name: str = ""
+    description: str = ""
+    gui_visible: bool = True
+    legacy_kwargs_adapter: PresetAdapter | None = None
+
+    def expanded_kwargs(self) -> dict[str, Any]:
+        return copy.deepcopy(dict(self.kwargs))
+
+
 class PolicyRegistry:
     """Central registry for write, objective and constraint policies."""
 
@@ -49,6 +67,12 @@ class PolicyRegistry:
         }
         self._default_names: dict[PolicyKind, str | None] = {
             kind: None for kind in self.KINDS
+        }
+        self._presets: dict[PolicyKind, dict[str, PolicyPreset]] = {
+            kind: {} for kind in self.KINDS
+        }
+        self._preset_names: dict[PolicyKind, list[str]] = {
+            kind: [] for kind in self.KINDS
         }
 
     @classmethod
@@ -103,6 +127,58 @@ class PolicyRegistry:
             raise ValueError(
                 f"Unknown {normalized_kind} policy: {normalized_name!r}"
             ) from exc
+
+    def register_preset(self, preset: PolicyPreset) -> None:
+        kind = self._normalize_kind(preset.kind)
+        name = self._normalize_name(preset.name)
+        policy_name = self.resolve(kind, preset.policy_name).name
+        if name in self._presets[kind]:
+            raise ValueError(f"Policy preset already registered for {kind}: {name!r}")
+        normalized = replace(
+            preset,
+            name=name,
+            kind=kind,
+            policy_name=policy_name,
+            kwargs=copy.deepcopy(dict(preset.kwargs)),
+            display_name=preset.display_name.strip() or name,
+        )
+        # Fail fast when a built-in preset is declared incorrectly.
+        self.validate(kind, policy_name, normalized.kwargs)
+        self._presets[kind][name] = normalized
+        self._preset_names[kind].append(name)
+
+    def resolve_preset(self, kind: str, name: str) -> PolicyPreset:
+        normalized_kind = self._normalize_kind(kind)
+        normalized_name = self._normalize_name(name)
+        try:
+            return self._presets[normalized_kind][normalized_name]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown {normalized_kind} policy preset: {normalized_name!r}"
+            ) from exc
+
+    def preset_names(self, kind: str, *, gui_only: bool = False) -> tuple[str, ...]:
+        normalized_kind = self._normalize_kind(kind)
+        names = self._preset_names[normalized_kind]
+        if gui_only:
+            names = [
+                name
+                for name in names
+                if self._presets[normalized_kind][name].gui_visible
+            ]
+        return tuple(names)
+
+    def expand_preset(
+        self,
+        kind: str,
+        name: str,
+        legacy_kwargs: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        preset = self.resolve_preset(kind, name)
+        kwargs = preset.expanded_kwargs()
+        if legacy_kwargs is not None and preset.legacy_kwargs_adapter is not None:
+            kwargs = dict(preset.legacy_kwargs_adapter(legacy_kwargs, kwargs))
+        return {"name": preset.policy_name, "kwargs": kwargs}
 
     def contains(self, kind: str, name: str) -> bool:
         try:

@@ -195,7 +195,13 @@ sentinel value derived from the configured constraint bounds.
 Machine Setup -> Specific Policies supports registered write, objective, and
 constraint policies. The declarative `sample_guard` policy lets online tasks
 describe common signal-quality rules without executing user-provided code. For
-example, an objective policy can target the stable Task Builder objective name:
+objective and constraint rows, the GUI opens a structured Rule Editor for the
+target, conditions, match mode, and action instead of requiring JSON editing.
+Reusable presets provide the former FEL energy, zero-objective, and BPM
+zero-signal behavior; saved task definitions expand those presets to the common
+`sample_guard` policy. Existing configs that name `fel_energy_guard`,
+`zero_guard`, or `bpm_guard` directly remain supported. For example, an
+objective policy can target the stable Task Builder objective name:
 
 ```python
 "objective_policies": [

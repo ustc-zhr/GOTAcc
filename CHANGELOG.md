@@ -46,6 +46,10 @@
 - Added declarative objective and constraint `sample_guard` policies with
   named signal targets, bounded condition/operator vocabularies, and
   pre-evaluation target validation
+- Replaced raw JSON policy editing in Machine Setup with a structured Rule
+  Editor and converted the FEL energy, zero-objective, and BPM guards into
+  reusable presets that expand to `sample_guard`, while retaining legacy config
+  compatibility
 
 ## 1.2.0 - 2026-06-27
 

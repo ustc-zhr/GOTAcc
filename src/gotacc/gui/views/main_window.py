@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QDialog,
     QFileDialog,
     QFrame,
     QHeaderView,
@@ -30,6 +31,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from gotacc.interfaces.policies import POLICY_REGISTRY
+
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -44,7 +47,7 @@ try:
     from .ui_run_monitor import Ui_RunMonitorPage
     from .run_session import RunSession
     from .view_adapter import GuiViewAdapter
-    from .tool_dialogs import PVMonitorDialog
+    from .tool_dialogs import PVMonitorDialog, SampleGuardRuleEditorDialog
 except ImportError:  # pragma: no cover - local script fallback
     CURRENT_DIR = Path(__file__).resolve().parent
     if str(CURRENT_DIR) not in sys.path:
@@ -56,7 +59,7 @@ except ImportError:  # pragma: no cover - local script fallback
     from ui_run_monitor import Ui_RunMonitorPage
     from run_session import RunSession
     from view_adapter import GuiViewAdapter
-    from tool_dialogs import PVMonitorDialog
+    from tool_dialogs import PVMonitorDialog, SampleGuardRuleEditorDialog
 
 # -----------------------------------------------------------------------------
 # Service/worker imports
@@ -1216,13 +1219,19 @@ class MainWindow(QMainWindow):
     def _init_machine_tables(self) -> None:
         mapping_headers = ["Role", "Name", "PV Name", "Readback", "Group", "Note"]
         write_headers = ["Source Index", "Target PV", "Enabled"]
-        objective_policy_headers = ["Enabled", "Policy Name", "Kwargs JSON"]
-        constraint_policy_headers = ["Enabled", "Policy Name", "Kwargs JSON"]
+        objective_policy_headers = ["Enabled", "Preset", "Rule", "Policy Name", "Kwargs JSON"]
+        constraint_policy_headers = ["Enabled", "Preset", "Rule", "Policy Name", "Kwargs JSON"]
 
         self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 3)
         self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
         self._setup_table(self.machine_ui.tableWidget_objectivePolicies, objective_policy_headers, 1)
         self._setup_table(self.machine_ui.tableWidget_constraintPolicies, constraint_policy_headers, 1)
+        for table in (
+            self.machine_ui.tableWidget_objectivePolicies,
+            self.machine_ui.tableWidget_constraintPolicies,
+        ):
+            table.setColumnHidden(3, True)
+            table.setColumnHidden(4, True)
         self.machine_ui.tableWidget_writeLinks.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.machine_ui.tableWidget_objectivePolicies.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.machine_ui.tableWidget_constraintPolicies.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -1370,7 +1379,7 @@ class MainWindow(QMainWindow):
         self.ui.actionRestoreMachine.triggered.connect(self.abort_and_restore)
         self.ui.actionEnvironmentCheck.triggered.connect(self._check_environment)
         self.ui.actionPVMonitor.triggered.connect(self._show_pv_monitor_stub)
-        self.ui.actionPolicyEditor.triggered.connect(self._show_policy_editor_stub)
+        self.ui.actionPolicyEditor.triggered.connect(self._show_policy_editor)
         self.ui.actionResetLayout.triggered.connect(self._reset_layout)
         self.ui.actionAboutGOTAcc.triggered.connect(self._show_about)
 
@@ -1529,6 +1538,84 @@ class MainWindow(QMainWindow):
         self.task_builder_controller.refresh_objective_policy_editors()
         self.machine_ui.tableWidget_objectivePolicies.selectRow(row)
         self._refresh_task_preview()
+
+    def _policy_target_names(self, kind: str) -> list[str]:
+        table = (
+            self.task_ui.tableWidget_objectives
+            if kind == "objective"
+            else self.task_ui.tableWidget_constraints
+        )
+        return [
+            str(row.get("Name", "")).strip()
+            for row in TaskService.table_to_records(table)
+            if str(row.get("Name", "")).strip()
+        ]
+
+    def _edit_policy_rule_row(self, kind: str, row: int) -> None:
+        table = (
+            self.machine_ui.tableWidget_objectivePolicies
+            if kind == "objective"
+            else self.machine_ui.tableWidget_constraintPolicies
+        )
+        if row < 0 or row >= table.rowCount():
+            return
+        headers = self.task_builder_controller.table_headers(table)
+        name_col = headers.index("Policy Name")
+        kwargs_col = headers.index("Kwargs JSON")
+        preset_col = headers.index("Preset")
+        policy_name = (
+            table.item(row, name_col).text()
+            if table.item(row, name_col)
+            else "sample_guard"
+        )
+        kwargs_text = table.item(row, kwargs_col).text() if table.item(row, kwargs_col) else "{}"
+        try:
+            kwargs = TaskService._parse_json_text(kwargs_text)
+        except Exception as exc:
+            QMessageBox.critical(self, "Rule Editor", str(exc))
+            return
+        preset_text = table.item(row, preset_col).text() if table.item(row, preset_col) else ""
+        preset_name = next(
+            (
+                name
+                for name in POLICY_REGISTRY.preset_names(kind)
+                if POLICY_REGISTRY.resolve_preset(kind, name).display_name == preset_text
+            ),
+            None,
+        )
+        dialog = SampleGuardRuleEditorDialog(
+            kind=kind,
+            target_names=self._policy_target_names(kind),
+            policy_name=policy_name,
+            kwargs=kwargs,
+            preset_name=preset_name,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        state = dialog.rule_state()
+        table.setItem(row, name_col, QTableWidgetItem(state["name"]))
+        table.setItem(
+            row,
+            kwargs_col,
+            QTableWidgetItem(json.dumps(state["kwargs"], ensure_ascii=False)),
+        )
+        if state["preset"] == "custom":
+            preset_label = "Custom Rule"
+        else:
+            preset_label = POLICY_REGISTRY.resolve_preset(kind, state["preset"]).display_name
+        table.setItem(row, preset_col, QTableWidgetItem(preset_label))
+        if kind == "objective":
+            self.task_builder_controller.refresh_objective_policy_editors()
+        else:
+            self.task_builder_controller.refresh_constraint_policy_editors()
+        self._refresh_task_preview()
+
+    def _edit_objective_policy_row(self, row: int) -> None:
+        self._edit_policy_rule_row("objective", row)
+
+    def _edit_constraint_policy_row(self, row: int) -> None:
+        self._edit_policy_rule_row("constraint", row)
 
     def _remove_objective_policy_rows(self) -> None:
         table = self.machine_ui.tableWidget_objectivePolicies
@@ -2193,7 +2280,7 @@ class MainWindow(QMainWindow):
         )
         dialog.exec_()
 
-    def _show_policy_editor_stub(self) -> None:
+    def _show_policy_editor(self) -> None:
         self.ui.tabWidget_configure.setCurrentIndex(self.CONFIGURE_TAB_MACHINE)
         if hasattr(self.machine_ui, "tab_advancedMachine"):
             self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_advancedMachine)
@@ -2202,13 +2289,11 @@ class MainWindow(QMainWindow):
         else:
             self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
             location = "Machine Setup -> Objective Policy"
-        QMessageBox.information(
-            self,
-            "Policy Editor",
-            f"Objective policies are now edited directly in {location}.",
-        )
         self.go_to_page(self.PAGE_MACHINE)
         self._log_console(f"Opened {location}.")
+        table = self.machine_ui.tableWidget_objectivePolicies
+        row = table.currentRow() if table.currentRow() >= 0 else 0
+        self._edit_objective_policy_row(row)
 
     def _reset_layout(self) -> None:
         self.ui.splitter_main.setSizes([230, 1370])

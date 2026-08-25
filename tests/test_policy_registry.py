@@ -26,8 +26,15 @@ def test_builtin_policy_registry_exposes_canonical_names_aliases_and_defaults():
         "sample_guard",
     )
     assert POLICY_REGISTRY.names("constraint") == ("bpm_guard", "sample_guard")
-    assert POLICY_REGISTRY.default_name("objective", gui_only=True) == "fel_energy_guard"
-    assert POLICY_REGISTRY.default_name("constraint", gui_only=True) == "bpm_guard"
+    assert POLICY_REGISTRY.default_name("objective", gui_only=True) == "sample_guard"
+    assert POLICY_REGISTRY.default_name("constraint", gui_only=True) == "sample_guard"
+    assert POLICY_REGISTRY.names("objective", gui_only=True) == ("sample_guard",)
+    assert POLICY_REGISTRY.names("constraint", gui_only=True) == ("sample_guard",)
+    assert POLICY_REGISTRY.preset_names("objective") == (
+        "fel_energy_guard",
+        "zero_guard",
+    )
+    assert POLICY_REGISTRY.preset_names("constraint") == ("bpm_guard",)
     assert POLICY_REGISTRY.names("objective", include_aliases=True) == (
         "fel_energy_guard",
         "zero_guard",
@@ -39,6 +46,24 @@ def test_builtin_policy_registry_exposes_canonical_names_aliases_and_defaults():
     defaults = POLICY_REGISTRY.resolve("objective", "fel_energy_guard").defaults()
     defaults["target_col"] = 99
     assert POLICY_REGISTRY.resolve("objective", "fel_energy_guard").defaults()["target_col"] == 0
+
+    fel_preset = POLICY_REGISTRY.expand_preset("objective", "fel_energy_guard")
+    assert fel_preset["name"] == "sample_guard"
+    assert fel_preset["kwargs"]["conditions"][0] == {
+        "metric": "mean_abs",
+        "operator": "gt",
+        "value": 1e6,
+    }
+    migrated = POLICY_REGISTRY.expand_preset(
+        "objective",
+        "fel_energy_guard",
+        legacy_kwargs={"target_col": 2, "large_threshold": 42, "change_threshold": 0.5},
+    )
+    assert migrated["kwargs"]["target_col"] == 2
+    assert [condition["value"] for condition in migrated["kwargs"]["conditions"]] == [
+        42.0,
+        0.5,
+    ]
 
 
 def test_factory_builders_delegate_to_registry_without_changing_policy_behavior():
