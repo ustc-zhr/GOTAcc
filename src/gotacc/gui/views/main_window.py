@@ -1234,12 +1234,12 @@ class MainWindow(QMainWindow):
         self._set_table_row(
             self.machine_ui.tableWidget_objectivePolicies,
             0,
-            self.task_builder_controller.objective_policy_default_row("fel_energy_guard", enabled="False"),
+            self.task_builder_controller.objective_policy_default_row(enabled="False"),
         )
         self._set_table_row(
             self.machine_ui.tableWidget_constraintPolicies,
             0,
-            self.task_builder_controller.constraint_policy_default_row("bpm_guard", enabled="False"),
+            self.task_builder_controller.constraint_policy_default_row(enabled="False"),
         )
         self.task_builder_controller.refresh_write_link_editors()
         self.task_builder_controller.refresh_objective_policy_editors()
@@ -1524,7 +1524,7 @@ class MainWindow(QMainWindow):
     def _add_objective_policy_row(self) -> None:
         row = self._add_table_row(
             self.machine_ui.tableWidget_objectivePolicies,
-            self.task_builder_controller.objective_policy_default_row("fel_energy_guard", enabled="True"),
+            self.task_builder_controller.objective_policy_default_row(enabled="True"),
         )
         self.task_builder_controller.refresh_objective_policy_editors()
         self.machine_ui.tableWidget_objectivePolicies.selectRow(row)
@@ -1541,10 +1541,7 @@ class MainWindow(QMainWindow):
         if table.rowCount() == 0:
             self._add_table_row(
                 table,
-                self.task_builder_controller.objective_policy_default_row(
-                    "fel_energy_guard",
-                    enabled="False",
-                ),
+                self.task_builder_controller.objective_policy_default_row(enabled="False"),
             )
         self.task_builder_controller.refresh_objective_policy_editors()
         self._refresh_task_preview()
@@ -1552,7 +1549,7 @@ class MainWindow(QMainWindow):
     def _add_constraint_policy_row(self) -> None:
         row = self._add_table_row(
             self.machine_ui.tableWidget_constraintPolicies,
-            self.task_builder_controller.constraint_policy_default_row("bpm_guard", enabled="True"),
+            self.task_builder_controller.constraint_policy_default_row(enabled="True"),
         )
         self.task_builder_controller.refresh_constraint_policy_editors()
         self.machine_ui.tableWidget_constraintPolicies.selectRow(row)
@@ -1569,10 +1566,7 @@ class MainWindow(QMainWindow):
         if table.rowCount() == 0:
             self._add_table_row(
                 table,
-                self.task_builder_controller.constraint_policy_default_row(
-                    "bpm_guard",
-                    enabled="False",
-                ),
+                self.task_builder_controller.constraint_policy_default_row(enabled="False"),
             )
         self.task_builder_controller.refresh_constraint_policy_editors()
         self._refresh_task_preview()

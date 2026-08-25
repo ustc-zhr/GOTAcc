@@ -7,6 +7,8 @@ from typing import Any, Callable, Dict, List, Mapping, Tuple
 
 import numpy as np
 
+from gotacc.interfaces.policies import POLICY_REGISTRY
+
 
 # -----------------------------------------------------------------------------
 # Small offline objective helpers used by the GUI.
@@ -789,7 +791,7 @@ class TaskService:
         machine = task.get("machine", {}) or {}
         rows = machine.get("objective_policies", []) or []
         specs: List[Dict[str, Any]] = []
-        supported = {"fel_energy_guard", "zero_guard"}
+        supported = set(POLICY_REGISTRY.names("objective", include_aliases=True))
         for idx, row in enumerate(rows, start=1):
             enabled_text = row.get("Enabled", "")
             if enabled_text and not TaskService._is_enabled(enabled_text):
@@ -802,6 +804,7 @@ class TaskService:
                     f"Unsupported objective policy in row {idx}: {name!r}. "
                     f"Use one of: {', '.join(sorted(supported))}."
                 )
+            name = POLICY_REGISTRY.resolve("objective", name).name
             kwargs = TaskService._parse_json_text(row.get("Kwargs JSON", ""))
             target_text = kwargs.get("target_col", 0)
             try:
@@ -823,7 +826,7 @@ class TaskService:
         machine = task.get("machine", {}) or {}
         rows = machine.get("constraint_policies", []) or []
         specs: List[Dict[str, Any]] = []
-        supported = {"bpm_guard", "bpm_zero_guard"}
+        supported = set(POLICY_REGISTRY.names("constraint", include_aliases=True))
         for idx, row in enumerate(rows, start=1):
             enabled_text = row.get("Enabled", "")
             if enabled_text and not TaskService._is_enabled(enabled_text):
@@ -837,6 +840,7 @@ class TaskService:
                     f"Use one of: {', '.join(sorted(supported))}."
                 )
 
+            name = POLICY_REGISTRY.resolve("constraint", name).name
             kwargs = TaskService._parse_json_text(row.get("Kwargs JSON", ""))
             target_text = kwargs.get("target_col", 0)
             try:
@@ -865,8 +869,7 @@ class TaskService:
                         f"Constraint policy row {idx} must have {key} >= 0 in Kwargs JSON."
                     )
 
-            normalized_name = "bpm_guard" if name == "bpm_zero_guard" else name
-            specs.append({"name": normalized_name, "kwargs": kwargs})
+            specs.append({"name": name, "kwargs": kwargs})
         return specs
 
     @staticmethod
@@ -1060,7 +1063,11 @@ class TaskService:
                 )
 
             write_policy = str(task.get("machine", {}).get("write_policy", "none")).strip().lower()
-            if write_policy not in {"none", "equal"}:
+            supported_write_policies = {
+                "none",
+                *POLICY_REGISTRY.names("write", include_aliases=True),
+            }
+            if write_policy not in supported_write_policies:
                 errors.append(
                     f"Unsupported write policy for current GUI flow: {write_policy!r}"
                 )

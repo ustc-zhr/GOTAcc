@@ -27,6 +27,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from gotacc.interfaces.policies import POLICY_REGISTRY
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
 
@@ -118,38 +120,6 @@ PARAM_NOTES = {
     "crossover_eta": "SBX crossover eta.",
     "mutation_eta": "Polynomial mutation eta.",
     "verbose": "Print optimizer progress logs.",
-}
-
-OBJECTIVE_POLICY_DEFAULTS = {
-    "fel_energy_guard": {
-        "target_col": 0,
-        "kwargs": {
-            "target_col": 0,
-            "large_threshold": 1e6,
-            "change_threshold": 1e-6,
-        },
-    },
-    "zero_guard": {
-        "target_col": 1,
-        "kwargs": {
-            "target_col": 1,
-            "zero_atol": 1e-12,
-            "offset": 100.0,
-        },
-    },
-}
-
-CONSTRAINT_POLICY_DEFAULTS = {
-    "bpm_guard": {
-        "target_col": 0,
-        "kwargs": {
-            "target_col": 0,
-            "zero_atol": 1e-9,
-            "delta_ratio": 0.1,
-            "delta_min": 1e-6,
-            "scale_floor": 1.0,
-        },
-    },
 }
 
 _NO_DEFAULT_OVERRIDE = object()
@@ -1150,29 +1120,45 @@ class TaskBuilderController:
     @staticmethod
     def _normalize_objective_policy_name(value: str) -> str:
         text = str(value or "").strip().lower()
-        if text in {"fel_energy_guard", "zero_guard"}:
-            return text
-        return "fel_energy_guard"
+        try:
+            definition = POLICY_REGISTRY.resolve("objective", text)
+            if definition.gui_visible:
+                return definition.name
+        except ValueError:
+            pass
+        return POLICY_REGISTRY.default_name("objective", gui_only=True)
 
     @staticmethod
     def _normalize_constraint_policy_name(value: str) -> str:
         text = str(value or "").strip().lower()
-        if text in {"bpm_guard", "bpm_zero_guard"}:
-            return "bpm_guard"
-        return "bpm_guard"
+        try:
+            definition = POLICY_REGISTRY.resolve("constraint", text)
+            if definition.gui_visible:
+                return definition.name
+        except ValueError:
+            pass
+        return POLICY_REGISTRY.default_name("constraint", gui_only=True)
 
     @staticmethod
-    def objective_policy_default_row(name: str = "fel_energy_guard", enabled: str = "True") -> list[str]:
+    def objective_policy_default_row(name: str | None = None, enabled: str = "True") -> list[str]:
+        if name is None:
+            name = POLICY_REGISTRY.default_name("objective", gui_only=True)
         normalized_name = TaskBuilderController._normalize_objective_policy_name(name)
-        spec = OBJECTIVE_POLICY_DEFAULTS[normalized_name]
-        kwargs_text = json.dumps(spec["kwargs"], ensure_ascii=False)
+        kwargs_text = json.dumps(
+            POLICY_REGISTRY.resolve("objective", normalized_name).defaults(),
+            ensure_ascii=False,
+        )
         return [enabled, normalized_name, kwargs_text]
 
     @staticmethod
-    def constraint_policy_default_row(name: str = "bpm_guard", enabled: str = "True") -> list[str]:
+    def constraint_policy_default_row(name: str | None = None, enabled: str = "True") -> list[str]:
+        if name is None:
+            name = POLICY_REGISTRY.default_name("constraint", gui_only=True)
         normalized_name = TaskBuilderController._normalize_constraint_policy_name(name)
-        spec = CONSTRAINT_POLICY_DEFAULTS[normalized_name]
-        kwargs_text = json.dumps(spec["kwargs"], ensure_ascii=False)
+        kwargs_text = json.dumps(
+            POLICY_REGISTRY.resolve("constraint", normalized_name).defaults(),
+            ensure_ascii=False,
+        )
         return [enabled, normalized_name, kwargs_text]
 
     def _ensure_policy_row_defaults(
@@ -1308,7 +1294,7 @@ class TaskBuilderController:
             return
         self._install_policy_widgets(
             table,
-            allowed_names=["fel_energy_guard", "zero_guard"],
+            allowed_names=list(POLICY_REGISTRY.names("objective", gui_only=True)),
             normalize_name=self._normalize_objective_policy_name,
             default_row_factory=self.objective_policy_default_row,
             name_change_handler=self._on_objective_policy_name_changed,
@@ -1322,7 +1308,7 @@ class TaskBuilderController:
             return
         self._install_policy_widgets(
             table,
-            allowed_names=["bpm_guard"],
+            allowed_names=list(POLICY_REGISTRY.names("constraint", gui_only=True)),
             normalize_name=self._normalize_constraint_policy_name,
             default_row_factory=self.constraint_policy_default_row,
             name_change_handler=self._on_constraint_policy_name_changed,

@@ -32,6 +32,7 @@ from collections import Counter
 from typing import Any, Iterable, Sequence
 
 from gotacc.configs.schema import TaskConfig
+from gotacc.interfaces.policies import POLICY_REGISTRY
 
 
 # =============================================================================
@@ -149,22 +150,18 @@ SUPPORTED_COMBINE_MODES = {
     "vector",
 }
 
+# Compatibility exports. Validation itself queries the registry at runtime so
+# policies registered before validation are immediately available.
 SUPPORTED_WRITE_POLICIES = {
     "none",
-    "equal",
-    "xiaosesan_symmetry",
+    *POLICY_REGISTRY.names("write", include_aliases=True),
 }
-
-SUPPORTED_OBJECTIVE_POLICIES = {
-    "fel_energy_guard",
-    "zero_guard",
-    "xiaosesan_zero_guard",
-}
-
-SUPPORTED_CONSTRAINT_POLICIES = {
-    "bpm_guard",
-    "bpm_zero_guard",
-}
+SUPPORTED_OBJECTIVE_POLICIES = set(
+    POLICY_REGISTRY.names("objective", include_aliases=True)
+)
+SUPPORTED_CONSTRAINT_POLICIES = set(
+    POLICY_REGISTRY.names("constraint", include_aliases=True)
+)
 
 SUPPORTED_OBJ_MATH = {
     "mean",
@@ -176,12 +173,15 @@ def _validate_policy_specs(
     specs: Any,
     *,
     field_name: str,
-    supported_names: set[str],
+    policy_kind: str,
 ) -> None:
     if specs is None:
         return
     if not isinstance(specs, list):
         raise TypeError(f"{field_name} must be a list")
+    supported_names = set(
+        POLICY_REGISTRY.names(policy_kind, include_aliases=True)
+    )
     for i, spec in enumerate(specs):
         if not isinstance(spec, dict):
             raise TypeError(f"{field_name}[{i}] must be a dict")
@@ -414,10 +414,14 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
     # write_policy
     write_policy = kwargs.get("write_policy", None)
     if write_policy is not None:
-        if str(write_policy).lower() not in SUPPORTED_WRITE_POLICIES:
+        supported_write_policies = {
+            "none",
+            *POLICY_REGISTRY.names("write", include_aliases=True),
+        }
+        if str(write_policy).lower() not in supported_write_policies:
             raise ValueError(
                 f"Unsupported write_policy={write_policy!r}. "
-                f"Supported values: {sorted(SUPPORTED_WRITE_POLICIES)}"
+                f"Supported values: {sorted(supported_write_policies)}"
             )
 
     # objective_policy
@@ -425,34 +429,40 @@ def _validate_epics_backend(cfg: TaskConfig) -> None:
         kwargs.get("objective_policy", None),
         "backend.kwargs['objective_policy']",
     )
+    supported_objective_policies = set(
+        POLICY_REGISTRY.names("objective", include_aliases=True)
+    )
     for name in objective_policy_names:
-        if str(name).lower() not in SUPPORTED_OBJECTIVE_POLICIES:
+        if str(name).lower() not in supported_objective_policies:
             raise ValueError(
                 f"Unsupported objective_policy={name!r}. "
-                f"Supported values: {sorted(SUPPORTED_OBJECTIVE_POLICIES)}"
+                f"Supported values: {sorted(supported_objective_policies)}"
             )
 
     _validate_policy_specs(
         kwargs.get("objective_policies", None),
         field_name="backend.kwargs['objective_policies']",
-        supported_names=SUPPORTED_OBJECTIVE_POLICIES,
+        policy_kind="objective",
     )
 
     constraint_policy_names = _normalize_policy_names(
         kwargs.get("constraint_policy", None),
         "backend.kwargs['constraint_policy']",
     )
+    supported_constraint_policies = set(
+        POLICY_REGISTRY.names("constraint", include_aliases=True)
+    )
     for name in constraint_policy_names:
-        if str(name).lower() not in SUPPORTED_CONSTRAINT_POLICIES:
+        if str(name).lower() not in supported_constraint_policies:
             raise ValueError(
                 f"Unsupported constraint_policy={name!r}. "
-                f"Supported values: {sorted(SUPPORTED_CONSTRAINT_POLICIES)}"
+                f"Supported values: {sorted(supported_constraint_policies)}"
             )
 
     _validate_policy_specs(
         kwargs.get("constraint_policies", None),
         field_name="backend.kwargs['constraint_policies']",
-        supported_names=SUPPORTED_CONSTRAINT_POLICIES,
+        policy_kind="constraint",
     )
 
 

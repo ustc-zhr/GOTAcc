@@ -19,6 +19,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from gotacc.interfaces.policies import POLICY_REGISTRY
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
 
@@ -61,7 +63,16 @@ class MachineController:
 
         self._configure_simple_connection_panel()
         self._configure_pv_mapping_actions()
+        self._configure_policy_options()
         self._move_advanced_machine_controls()
+
+    def _configure_policy_options(self) -> None:
+        combo = self.window.machine_ui.comboBox_policy
+        current = combo.currentText().strip().lower()
+        options = ["none", *POLICY_REGISTRY.names("write", gui_only=True)]
+        combo.clear()
+        combo.addItems(options)
+        combo.setCurrentText(current if current in options else "none")
 
     def _configure_simple_connection_panel(self) -> None:
         ui = self.window.machine_ui
