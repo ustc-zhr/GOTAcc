@@ -898,6 +898,20 @@ class TaskService:
         if not enabled_objectives:
             errors.append("At least one enabled objective is required.")
 
+        for label, rows in (
+            ("variable", enabled_variables),
+            ("objective", enabled_objectives),
+            ("constraint", TaskService._enabled_rows(task.get("constraints", []))),
+        ):
+            names = [str(row.get("Name", "")).strip() for row in rows]
+            if any(not name for name in names):
+                errors.append(f"Every enabled {label} row must have a Name.")
+            duplicates = sorted({name for name in names if name and names.count(name) > 1})
+            if duplicates:
+                errors.append(
+                    f"Duplicate enabled {label} name(s): {', '.join(duplicates)}."
+                )
+
         deprecated_keys = TaskService._deprecated_dynamic_params(task.get("algorithm_params", []))
         if deprecated_keys:
             errors.append(
@@ -956,6 +970,63 @@ class TaskService:
                 errors.append(f"Variable row {idx} initial value is out of bounds.")
 
         if mode.lower() == "online epics":
+            mapping_rows = [
+                row
+                for row in (task.get("machine", {}).get("mapping", []) or [])
+                if any(str(value).strip() for value in row.values())
+            ]
+            seen_mapping_keys: set[tuple[str, str]] = set()
+            mapping_names_by_role = {
+                "knob": set(),
+                "objective": set(),
+                "constraint": set(),
+            }
+            names_to_roles: dict[str, str] = {}
+            knob_pvs: dict[str, str] = {}
+            for idx, row in enumerate(mapping_rows, start=1):
+                role = str(row.get("Role", "")).strip().lower()
+                name = str(row.get("Name", "")).strip()
+                pv_name = str(row.get("PV Name", "")).strip()
+                if role not in mapping_names_by_role:
+                    errors.append(f"PV Mapping row {idx} has an invalid Role.")
+                    continue
+                if not name:
+                    errors.append(f"PV Mapping row {idx} has no Name.")
+                    continue
+                if not pv_name:
+                    errors.append(f"PV Mapping row {idx} ({name}) has no PV Name.")
+                key = (role, name)
+                if key in seen_mapping_keys:
+                    errors.append(f"Duplicate PV Mapping for {role} {name!r}.")
+                seen_mapping_keys.add(key)
+                mapping_names_by_role[role].add(name)
+                previous_role = names_to_roles.get(name)
+                if previous_role is not None and previous_role != role:
+                    errors.append(
+                        f"PV Mapping name {name!r} is used as both {previous_role} and {role}."
+                    )
+                names_to_roles[name] = role
+                if role == "knob" and pv_name:
+                    previous_name = knob_pvs.get(pv_name)
+                    if previous_name is not None and previous_name != name:
+                        errors.append(
+                            f"Knobs {previous_name!r} and {name!r} share Setpoint PV {pv_name!r}."
+                        )
+                    knob_pvs[pv_name] = name
+
+            enabled_names_by_role = {
+                "knob": {str(row.get("Name", "")).strip() for row in enabled_variables},
+                "objective": {str(row.get("Name", "")).strip() for row in enabled_objectives},
+                "constraint": {
+                    str(row.get("Name", "")).strip() for row in enabled_constraints
+                },
+            }
+            for role, mapped_names in mapping_names_by_role.items():
+                if mapped_names != enabled_names_by_role[role]:
+                    errors.append(
+                        f"PV Mapping has pending {role} changes. Sync Mapping To Task before validation."
+                    )
+
             try:
                 TaskService._resolve_online_knob_pvs(task, enabled_variables)
             except Exception as exc:

@@ -388,7 +388,7 @@ class Ui_MachinePage(object):
         item.setText(_translate("MachinePage", "Target PV"))
         item = self.tableWidget_writeLinks.horizontalHeaderItem(2)
         item.setText(_translate("MachinePage", "Enabled"))
-        self.tabWidget_machine.setTabText(self.tabWidget_machine.indexOf(self.tab_writePolicy), _translate("MachinePage", "Write Links"))
+        self.tabWidget_machine.setTabText(self.tabWidget_machine.indexOf(self.tab_writePolicy), _translate("MachinePage", "Write Policy"))
         self.pushButton_addObjectivePolicy.setText(_translate("MachinePage", "Add Policy"))
         self.pushButton_removeObjectivePolicy.setText(_translate("MachinePage", "Remove Selected"))
         item = self.tableWidget_objectivePolicies.horizontalHeaderItem(0)

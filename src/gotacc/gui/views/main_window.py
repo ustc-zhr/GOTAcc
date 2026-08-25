@@ -447,9 +447,9 @@ class MainWindow(QMainWindow):
         task_item, self.label_workspace_task = self._status_strip_item("TASK", "Untitled Task")
         mode_item, self.label_workspace_mode = self._status_strip_item("MODE", "Offline")
         algorithm_item, self.label_workspace_algorithm = self._status_strip_item("ALGORITHM", "BO")
-        backend_item, self.label_workspace_backend = self._status_strip_item("EPICS", "Disconnected")
-        best_item, self.label_workspace_best = self._status_strip_item("BEST", "--")
-        self._add_status_strip_items(task_item, mode_item, algorithm_item, backend_item, best_item)
+        run_item, self.label_workspace_run = self._status_strip_item("RUN", "Idle")
+        machine_item, self.label_workspace_machine = self._status_strip_item("MACHINE", "Offline")
+        self._add_status_strip_items(task_item, mode_item, algorithm_item, run_item, machine_item)
         outer_layout.addWidget(self.frame_workspace_status)
 
         header_row = QHBoxLayout()
@@ -460,8 +460,13 @@ class MainWindow(QMainWindow):
         shell_layout.addWidget(self.ui.splitter_main, 1)
         self._promote_bottom_log_panel()
 
-    def _status_strip_item(self, title: str, value: str) -> tuple[QFrame, QLabel]:
-        item = QFrame(self.frame_workspace_status)
+    def _status_strip_item(
+        self,
+        title: str,
+        value: str,
+        parent: QWidget | None = None,
+    ) -> tuple[QFrame, QLabel]:
+        item = QFrame(parent or self.frame_workspace_status)
         item.setObjectName("statusItem")
         item.setProperty("tone", "subtle")
         item.setMinimumWidth(102)
@@ -573,10 +578,10 @@ class MainWindow(QMainWindow):
         self.ui.progressBar_run.setRange(0, 100)
         self.ui.progressBar_run.setValue(0)
 
-        self.ui.label_cardCurrentTaskValue.setText("Untitled Task")
-        self.ui.label_cardModeValue.setText("Offline")
-        self.ui.label_cardAlgorithmValue.setText("BO")
-        self.ui.label_cardStatusValue.setText("Idle")
+        self.ui.label_cardCurrentTaskValue.setText("Not validated")
+        self.ui.label_cardModeValue.setText("--")
+        self.ui.label_cardAlgorithmValue.setText("Offline benchmark")
+        self.ui.label_cardStatusValue.setText("No run yet")
 
         self.ui.label_statusTaskValue.setText("Untitled Task")
         self.ui.label_statusModeValue.setText("Offline")
@@ -634,7 +639,7 @@ class MainWindow(QMainWindow):
         self._simplify_bottom_output_tabs()
         self._simplify_task_builder_table_tabs()
         self._compact_task_builder_inline_actions()
-        self._compact_task_builder_footer_actions()
+        self._configure_run_readiness_actions()
         self._compact_run_monitor_actions()
         self._configure_results_workspace_layout()
         self._configure_tab_text_sizing()
@@ -645,6 +650,7 @@ class MainWindow(QMainWindow):
             self.ui.pushButton_newOnlineTask,
             self.ui.pushButton_openConfig,
             self.ui.pushButton_saveProject,
+            self.ui.pushButton_preview,
             self.ui.pushButton_validateTask,
             self.ui.pushButton_startRun,
             self.ui.pushButton_stopRun,
@@ -668,9 +674,7 @@ class MainWindow(QMainWindow):
             self.task_ui.pushButton_browseWorkdir,
             self.task_ui.pushButton_openAlgorithmDetail,
             self.task_ui.pushButton_openBoundsTools,
-            self.task_ui.pushButton_preview,
-            self.task_ui.pushButton_validate,
-            self.task_ui.pushButton_export,
+            self.ui.pushButton_preview,
             self.run_ui.pushButton_abortRestore,
             self.run_ui.pushButton_restoreInitial,
             self.run_ui.pushButton_setBest,
@@ -780,35 +784,19 @@ class MainWindow(QMainWindow):
         self.task_ui.horizontalLayout_variablesToolbar.addStretch(1)
         self.task_ui.frame_variablesToolbar.setMaximumHeight(34)
 
-    def _compact_task_builder_footer_actions(self) -> None:
-        actions = (
-            self.task_ui.pushButton_preview,
-            self.task_ui.pushButton_validate,
-            self.task_ui.pushButton_export,
-        )
-        for button in actions:
-            button.setProperty("inlineAction", True)
-            button.setFixedHeight(24)
-            button.setFixedWidth(88)
-            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-
-        self.task_ui.pushButton_export.setText("Export Task")
-        self.task_ui.pushButton_export.setToolTip("Export a runnable TaskConfig.")
-
-        layout = self.task_ui.horizontalLayout_actionBar
-        while layout.count():
-            layout.takeAt(0)
-        layout.setContentsMargins(0, 4, 0, 0)
-        layout.setSpacing(6)
-        status = QLabel("Not validated", self.task_builder_page)
-        status.setObjectName("label_validationStatus")
-        status.setProperty("tone", "subtle")
-        status.setToolTip("The current task has not been validated.")
-        layout.addWidget(status)
-        layout.addStretch(1)
-        for button in actions:
-            layout.addWidget(button)
-        self.task_ui.label_validationStatus = status
+    def _configure_run_readiness_actions(self) -> None:
+        self.ui.pushButton_preview.setToolTip("Preview the complete TaskConfig before validation or start.")
+        self.ui.label_validationStatus.setProperty("tone", "subtle")
+        self.ui.gridLayout_runActions.setColumnStretch(0, 1)
+        self.ui.gridLayout_runActions.setColumnStretch(1, 1)
+        for button in (
+            self.ui.pushButton_preview,
+            self.ui.pushButton_validateTask,
+            self.ui.pushButton_startRun,
+            self.ui.pushButton_stopRun,
+        ):
+            button.setProperty("runControl", True)
+            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
     def _compact_run_monitor_actions(self) -> None:
         self._run_primary_actions_in_sidebar = True
@@ -894,8 +882,8 @@ class MainWindow(QMainWindow):
             self.run_ui.frame_elapsed,
             self.run_ui.frame_best,
             self.run_ui.frame_feasibility,
-            self.run_ui.frame_phase,
         )
+        self.run_ui.frame_phase.setVisible(False)
         separators = []
         for index, frame in enumerate(frames):
             frame.setObjectName("statusItem")
@@ -918,7 +906,6 @@ class MainWindow(QMainWindow):
             self.run_ui.verticalLayout_elapsed,
             self.run_ui.verticalLayout_best,
             self.run_ui.verticalLayout_feasibility,
-            self.run_ui.verticalLayout_phase,
         )
         for layout in layouts:
             layout.setContentsMargins(10, 0, 8, 0)
@@ -929,7 +916,6 @@ class MainWindow(QMainWindow):
             self.run_ui.label_elapsedTitle,
             self.run_ui.label_bestTitle,
             self.run_ui.label_feasibilityTitle,
-            self.run_ui.label_phaseTitle,
         )
         for label in title_labels:
             label.setProperty("role", "title")
@@ -941,7 +927,6 @@ class MainWindow(QMainWindow):
             self.run_ui.label_elapsedValue,
             self.run_ui.label_bestValue,
             self.run_ui.label_feasibilityValue,
-            self.run_ui.label_phaseValue,
         )
         for label in value_labels:
             label.setProperty("role", "value")
@@ -954,8 +939,34 @@ class MainWindow(QMainWindow):
             widget.style().polish(widget)
 
     def _configure_results_workspace_layout(self) -> None:
-        self.ui.verticalLayout_resultsPage.setContentsMargins(0, 0, 0, 0)
-        self.ui.verticalLayout_resultsPage.setSpacing(0)
+        self.ui.verticalLayout_resultsPage.setContentsMargins(8, 8, 8, 8)
+        self.ui.verticalLayout_resultsPage.setSpacing(8)
+
+        self.frame_results_source = QFrame(self.ui.page_results)
+        self.frame_results_source.setObjectName("statusStrip")
+        self.frame_results_source.setFixedHeight(58)
+        source_layout = QHBoxLayout(self.frame_results_source)
+        source_layout.setContentsMargins(8, 4, 8, 4)
+        source_layout.setSpacing(0)
+        source_items = (
+            self._status_strip_item("RESULT TASK", "No run", self.frame_results_source),
+            self._status_strip_item("OUTCOME", "--", self.frame_results_source),
+            self._status_strip_item("OUTPUT", "--", self.frame_results_source),
+        )
+        for index, (item, _label) in enumerate(source_items):
+            if index:
+                separator = QFrame(self.frame_results_source)
+                separator.setObjectName("statusSeparator")
+                separator.setFrameShape(QFrame.VLine)
+                separator.setFrameShadow(QFrame.Plain)
+                source_layout.addWidget(separator)
+            source_layout.addWidget(item)
+        source_items[-1][0].setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        source_layout.addStretch(1)
+        self.label_results_source_task = source_items[0][1]
+        self.label_results_source_outcome = source_items[1][1]
+        self.label_results_source_output = source_items[2][1]
+        self.ui.verticalLayout_resultsPage.insertWidget(0, self.frame_results_source)
 
         self.ui.splitter_resultsMain.setChildrenCollapsible(False)
         self.ui.splitter_resultsMain.setStretchFactor(0, 0)
@@ -1031,20 +1042,30 @@ class MainWindow(QMainWindow):
         self.log_toggle_button.style().polish(self.log_toggle_button)
 
     def _compact_overview_panels(self) -> None:
-        self.ui.groupBox_dashboardSummary.setMaximumHeight(170)
-        self.ui.gridLayout_dashboardSummary.setContentsMargins(10, 12, 10, 10)
+        self.ui.groupBox_dashboardSummary.setMaximumHeight(146)
+        self.ui.gridLayout_dashboardSummary.setContentsMargins(10, 10, 10, 8)
         self.ui.gridLayout_dashboardSummary.setHorizontalSpacing(8)
         self.ui.gridLayout_dashboardSummary.setVerticalSpacing(8)
 
-        for frame in (
-            self.ui.frame_cardCurrentTask,
-            self.ui.frame_cardMode,
-            self.ui.frame_cardAlgorithm,
-            self.ui.frame_cardStatus,
-        ):
-            frame.setMinimumHeight(82)
-            frame.setMaximumHeight(108)
+        cards = (
+            (self.ui.frame_cardCurrentTask, self.ui.verticalLayout_cardCurrentTask),
+            (self.ui.frame_cardMode, self.ui.verticalLayout_cardMode),
+            (self.ui.frame_cardAlgorithm, self.ui.verticalLayout_cardAlgorithm),
+            (self.ui.frame_cardStatus, self.ui.verticalLayout_cardStatus),
+        )
+        for frame, layout in cards:
+            frame.setFixedHeight(84)
             frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            layout.setContentsMargins(8, 6, 8, 6)
+            layout.setSpacing(2)
+
+        for label in (
+            self.ui.label_cardCurrentTaskTitle,
+            self.ui.label_cardModeTitle,
+            self.ui.label_cardAlgorithmTitle,
+            self.ui.label_cardStatusTitle,
+        ):
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         for label in (
             self.ui.label_cardCurrentTaskValue,
@@ -1286,10 +1307,15 @@ class MainWindow(QMainWindow):
 
     def _configure_dashboard_layout(self) -> None:
         self.ui.frame_dashboardHero.setVisible(False)
-        self.ui.groupBox_dashboardSummary.setTitle("Current Task")
+        self.ui.groupBox_dashboardSummary.setTitle("Run Readiness")
+        self.ui.label_cardCurrentTaskTitle.setText("Task Readiness")
+        self.ui.label_cardModeTitle.setText("Run Plan")
+        self.ui.label_cardAlgorithmTitle.setText("Backend Readiness")
+        self.ui.label_cardStatusTitle.setText("Last Outcome")
         self.ui.label_recentActivityHint.setVisible(False)
         self.ui.label_readinessHint.setVisible(False)
         self.ui.label_recentActivityEmpty.setText("No recent activity.")
+        self._refresh_overview_cards()
 
     def _init_theme_toggle(self) -> None:
         self.ui.menuView.removeAction(self.ui.menuTheme.menuAction())
@@ -1358,9 +1384,7 @@ class MainWindow(QMainWindow):
         self.task_ui.lineEdit_workdir.textChanged.connect(self._refresh_task_preview)
         self.task_ui.lineEdit_workdir.textChanged.connect(self.task_ui.lineEdit_workdir.setToolTip)
         self.task_ui.pushButton_browseWorkdir.clicked.connect(self._browse_workdir)
-        self.task_ui.pushButton_preview.clicked.connect(self._show_task_preview)
-        self.task_ui.pushButton_validate.clicked.connect(self.validate_task)
-        self.task_ui.pushButton_export.clicked.connect(self.export_config)
+        self.ui.pushButton_preview.clicked.connect(self._show_task_preview)
         self.task_ui.pushButton_openBoundsTools.clicked.connect(self._open_bounds_tools)
         self.task_ui.pushButton_openAlgorithmDetail.clicked.connect(self._open_algorithm_detail)
         self.task_ui.toolButton_toggleAlgorithmOverrides.toggled.connect(self._toggle_algorithm_overrides)
@@ -1663,6 +1687,147 @@ class MainWindow(QMainWindow):
             return
         empty_label.setVisible(table.rowCount() == 0)
 
+    def _refresh_overview_cards(self, task: dict | None = None) -> None:
+        if task is None:
+            try:
+                task = self._current_task()
+            except Exception:
+                task = {}
+
+        validation_label = getattr(self.ui, "label_validationStatus", None)
+        validation_text = validation_label.text().strip() if validation_label is not None else "Not validated"
+        validation_tooltip = validation_label.toolTip() if validation_label is not None else ""
+
+        variables = TaskService._enabled_rows(task.get("variables", []))
+        objectives = TaskService._enabled_rows(task.get("objectives", []))
+        constraints = TaskService._enabled_rows(task.get("constraints", []))
+        objective_type = str(task.get("objective_type", "--")).replace(" Objective", "").strip() or "--"
+        budget = int(task.get("max_evaluations", 0) or 0)
+        run_plan = (
+            f"{objective_type} · Vars {len(variables)} · Obj {len(objectives)} · "
+            f"Cons {len(constraints)} · {budget} evals"
+        )
+
+        mode = str(task.get("mode", "Offline")).strip()
+        if mode == "Offline":
+            backend_text = "Offline benchmark"
+            backend_tooltip = "No machine connection is required for this task."
+            backend_tone = "success"
+        else:
+            machine_status = self.machine_ui.label_statusValue.text().strip() or "Disconnected"
+            test_status = self.state.last_test_read_status or "Not checked"
+            backend_text = f"{machine_status} · PV {test_status}"
+            backend_tooltip = self.state.last_test_read_detail or "Run PV Check before an Online start."
+            readiness_text = f"{machine_status} {test_status}".lower()
+            if "failed" in readiness_text or "error" in readiness_text:
+                backend_tone = "danger"
+            elif "passed" in machine_status.lower() and "passed" in test_status.lower():
+                backend_tone = "success"
+            else:
+                backend_tone = "warning"
+
+        run = self.state.run
+        has_run = bool(self.state.latest_task_snapshot) or run.phase != "Idle" or run.eval_count > 0
+        if has_run:
+            last_outcome = f"{run.phase} · {run.eval_count} evals"
+            run_task = str((self.state.latest_task_snapshot or {}).get("task_name", "")).strip()
+            outcome_tooltip = f"Run task: {run_task}" if run_task else "Latest run in this GUI session."
+        else:
+            last_outcome = "No run yet"
+            outcome_tooltip = "No optimization run has started in this GUI session."
+
+        card_values = (
+            (self.ui.label_cardCurrentTaskValue, validation_text, validation_tooltip),
+            (self.ui.label_cardModeValue, run_plan, run_plan),
+            (self.ui.label_cardAlgorithmValue, backend_text, backend_tooltip),
+            (self.ui.label_cardStatusValue, last_outcome, outcome_tooltip),
+        )
+        for label, text, tooltip in card_values:
+            label.setText(text)
+            label.setToolTip(tooltip or text)
+
+        validation_tone = str(validation_label.property("tone") or "subtle") if validation_label else "subtle"
+        if validation_tone == "subtle" and validation_text == "Not validated":
+            validation_tone = "warning"
+        outcome_tone = {
+            "Running": "success",
+            "Finished": "success",
+            "Completed": "success",
+            "Stopping": "warning",
+            "Aborted": "warning",
+            "Restoring": "warning",
+            "Abort Requested": "danger",
+            "Error": "danger",
+            "Failed": "danger",
+            "Restore Failed": "danger",
+        }.get(run.phase, "subtle")
+        card_tones = (
+            (self.ui.frame_cardCurrentTask, self.ui.label_cardCurrentTaskValue, validation_tone),
+            (self.ui.frame_cardMode, self.ui.label_cardModeValue, "info"),
+            (self.ui.frame_cardAlgorithm, self.ui.label_cardAlgorithmValue, backend_tone),
+            (self.ui.frame_cardStatus, self.ui.label_cardStatusValue, outcome_tone),
+        )
+        for frame, label, tone in card_tones:
+            frame.setProperty("tone", tone)
+            label.setProperty("tone", tone)
+            for widget in (frame, label):
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+
+    def _sync_workspace_status(self, task: dict | None = None) -> None:
+        if not hasattr(self, "label_workspace_mode"):
+            return
+        if task is None:
+            try:
+                task = self._current_task()
+            except Exception:
+                task = {}
+
+        mode = str(task.get("mode", "Offline")).strip() or "Offline"
+        self.label_workspace_task.setText(str(task.get("task_name", "untitled_task")))
+        self.label_workspace_mode.setText(mode)
+        self.label_workspace_algorithm.setText(str(task.get("algorithm", "--")))
+        self.label_workspace_run.setText(self.state.run.phase)
+
+        if mode == "Offline":
+            machine_text = "Offline"
+            machine_tone = "subtle"
+        else:
+            machine_text = self.machine_ui.label_statusValue.text().strip() or "Disconnected"
+            normalized_machine = machine_text.lower()
+            if normalized_machine in {"ready", "connected"} or "passed" in normalized_machine:
+                machine_tone = "success"
+            elif "error" in normalized_machine or "failed" in normalized_machine:
+                machine_tone = "danger"
+            else:
+                machine_tone = "warning"
+        self.label_workspace_machine.setText(machine_text)
+
+        run_tone = {
+            "Running": "success",
+            "Finished": "success",
+            "Completed": "success",
+            "Stopping": "warning",
+            "Aborted": "warning",
+            "Restoring": "warning",
+            "Abort Requested": "danger",
+            "Error": "danger",
+            "Failed": "danger",
+            "Restore Failed": "danger",
+        }.get(self.state.run.phase, "subtle")
+        self._set_status_label_tone(self.label_workspace_run, run_tone)
+        self._set_status_label_tone(self.label_workspace_machine, machine_tone)
+        self._resize_workspace_status_items()
+
+    @staticmethod
+    def _set_status_label_tone(label: QLabel, tone: str) -> None:
+        frame = label.parentWidget()
+        label.setProperty("tone", tone)
+        frame.setProperty("tone", tone)
+        for widget in (frame, label):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
     def _refresh_overview_readiness(self) -> None:
         task = self.state.latest_task_snapshot or self._current_task()
         online_task = self._is_online_task(task)
@@ -1702,6 +1867,8 @@ class MainWindow(QMainWindow):
         if self.state.last_test_read_detail:
             detail_parts.append(self.state.last_test_read_detail)
         self.ui.label_readinessDetail.setText("  ".join(detail_parts))
+        self._sync_workspace_status(self._current_task())
+        self._refresh_overview_cards(self._current_task())
 
     def _current_task(self) -> dict:
         return TaskService.collect_task_data(self.task_ui, self.machine_ui)
@@ -1933,21 +2100,14 @@ class MainWindow(QMainWindow):
 
     def _sync_status_panels(self) -> None:
         self.runtime_status_controller.sync_status_panels()
-        if hasattr(self, "label_workspace_mode"):
-            self.label_workspace_task.setText(self.ui.label_statusTaskValue.text())
-            self.label_workspace_mode.setText(self.ui.label_cardModeValue.text())
-            self.label_workspace_algorithm.setText(self.ui.label_cardAlgorithmValue.text())
-            self.label_workspace_backend.setText(self.ui.label_statusConnectionValue.text())
-            self.label_workspace_best.setText(self.ui.label_statusBestValue.text())
-            self._resize_workspace_status_items()
 
     def _resize_workspace_status_items(self) -> None:
         value_labels = (
             self.label_workspace_task,
             self.label_workspace_mode,
             self.label_workspace_algorithm,
-            self.label_workspace_backend,
-            self.label_workspace_best,
+            self.label_workspace_run,
+            self.label_workspace_machine,
         )
         for value_label in value_labels:
             item = value_label.parentWidget()
@@ -2044,7 +2204,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.machine_ui, "tab_advancedMachine"):
             self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_advancedMachine)
             self.machine_ui.tabWidget_machineAdvanced.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
-            location = "Machine Setup -> Advanced -> Objective Policy"
+            location = "Machine Setup -> Specific Policies -> Objective Policy"
         else:
             self.machine_ui.tabWidget_machine.setCurrentWidget(self.machine_ui.tab_objectivePolicy)
             location = "Machine Setup -> Objective Policy"

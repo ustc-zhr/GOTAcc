@@ -74,10 +74,11 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
     import sys
 
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication, QSizePolicy
+    from PyQt5.QtWidgets import QApplication, QDialog, QPushButton, QSizePolicy
 
     import gotacc.gui.main  # noqa: F401 - configures Qt runtime paths
     import gotacc.gui.views.main_window as main_window_module
+    import gotacc.gui.views.controllers.task_builder_controller as task_builder_controller_module
     from gotacc.gui.theme import DARK_THEME_KEY, apply_theme, current_theme_key
     from gotacc.gui.views.main_window import MainWindow
 
@@ -98,6 +99,20 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert not window.ui.pushButton_newOnlineTask.isVisible()
         assert window.ui.pushButton_openConfig.text() == "Open Project"
         assert window.ui.pushButton_saveProject.text() == "Save Project"
+        assert window.label_workspace_run.text() == "Idle"
+        assert window.label_workspace_machine.text() == "Disconnected"
+        assert not hasattr(window, "label_workspace_best")
+        assert window.ui.groupBox_dashboardSummary.title() == "Run Readiness"
+        assert window.ui.label_cardCurrentTaskTitle.text() == "Task Readiness"
+        assert window.ui.label_cardModeTitle.text() == "Run Plan"
+        assert window.ui.label_cardAlgorithmTitle.text() == "Backend Readiness"
+        assert window.ui.label_cardStatusTitle.text() == "Last Outcome"
+        assert window.ui.label_cardCurrentTaskValue.text() == "Not validated"
+        assert window.ui.label_cardCurrentTaskValue.property("tone") == "warning"
+        assert window.ui.label_cardModeValue.property("tone") == "info"
+        assert window.ui.label_cardAlgorithmValue.property("tone") == "warning"
+        assert "Vars 2" in window.ui.label_cardModeValue.text()
+        assert window.ui.label_cardStatusValue.text() == "No run yet"
         assert window.ui.tabWidget_configure.tabText(0) == "Task Builder"
         assert window.ui.tabWidget_configure.tabBar().elideMode() == Qt.ElideNone
         task_table_tabs = [
@@ -111,20 +126,33 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
             window.task_ui.horizontalLayout_variablesToolbarActions.itemAt(0).widget()
             is window.task_ui.pushButton_openBoundsTools
         )
-        footer_buttons = [
-            window.task_ui.pushButton_preview,
-            window.task_ui.pushButton_validate,
-            window.task_ui.pushButton_export,
-        ]
-        assert [button.text() for button in footer_buttons] == ["Preview", "Validate", "Export Task"]
-        assert all(button.height() == 24 for button in footer_buttons)
-        assert len({button.width() for button in footer_buttons}) == 1
-        assert [
-            window.task_ui.horizontalLayout_actionBar.itemAt(index).widget()
-            for index in range(2, 5)
-        ] == footer_buttons
-        assert window.task_ui.horizontalLayout_actionBar.itemAt(0).widget() is window.task_ui.label_validationStatus
-        assert window.task_ui.label_validationStatus.text() == "Not validated"
+        preview_button = window.ui.pushButton_preview
+        assert preview_button.text() == "Preview Task"
+        assert window.ui.label_validationStatus.text() == "Not validated"
+        assert preview_button.parent() is window.ui.groupBox_runActions
+        assert window.ui.label_validationStatus.parent() is window.ui.groupBox_runActions
+        assert preview_button.isVisible()
+
+        preview_dialogs = []
+        export_requests = []
+        with monkeypatch.context() as preview_patch:
+            preview_patch.setattr(
+                task_builder_controller_module.QDialog,
+                "exec_",
+                lambda dialog: preview_dialogs.append(dialog) or QDialog.Rejected,
+            )
+            preview_patch.setattr(
+                window.task_builder_controller,
+                "export_config",
+                lambda: export_requests.append(True),
+            )
+            window.task_builder_controller.show_task_preview()
+        preview_actions = {
+            button.text(): button for button in preview_dialogs[0].findChildren(QPushButton)
+        }
+        assert set(preview_actions) == {"Export TaskConfig", "Close"}
+        preview_actions["Export TaskConfig"].click()
+        assert export_requests == [True]
         assert window.task_ui.spinBox_seed.maximumWidth() == 160
         assert window.task_ui.spinBox_maxEval.maximumWidth() == 160
         assert window.task_ui.comboBox_mode.minimumWidth() == 180
@@ -138,30 +166,49 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         window.task_builder_controller._set_validation_status(
             "Validated", "success", "Task validation passed."
         )
-        assert window.task_ui.label_validationStatus.text() == "Validated"
-        assert window.task_ui.label_validationStatus.property("tone") == "success"
+        assert window.ui.label_validationStatus.text() == "Validated"
+        assert window.ui.label_validationStatus.property("tone") == "success"
+        assert window.ui.label_cardCurrentTaskValue.text() == "Validated"
+        assert window.ui.label_cardCurrentTaskValue.property("tone") == "success"
         window.task_builder_controller.refresh_task_preview()
-        assert window.task_ui.label_validationStatus.text() == "Not validated"
+        assert window.ui.label_validationStatus.text() == "Not validated"
+        assert window.ui.label_cardCurrentTaskValue.text() == "Not validated"
+        assert "Online EPICS" not in window.task_ui.label_builderSummary.text()
+        assert "· BO ·" not in window.task_ui.label_builderSummary.text()
         window.task_ui.comboBox_mode.setCurrentText("Offline")
         window.task_ui.comboBox_algorithm.setCurrentText("BO")
         app.processEvents()
         assert window.label_workspace_mode.text() == "Offline"
         assert window.label_workspace_algorithm.text() == "BO"
+        assert window.label_workspace_machine.text() == "Offline"
+        assert window.ui.label_cardAlgorithmValue.text() == "Offline benchmark"
+        assert window.ui.label_cardAlgorithmValue.property("tone") == "success"
         run_action_buttons = [
+            window.ui.pushButton_preview,
             window.ui.pushButton_validateTask,
             window.ui.pushButton_startRun,
             window.ui.pushButton_stopRun,
         ]
         assert len({button.height() for button in run_action_buttons}) == 1
+        assert len({button.width() for button in run_action_buttons}) == 1
         assert all(button.property("compact") is True for button in run_action_buttons)
+        assert all(button.property("runControl") is True for button in run_action_buttons)
+        assert all(
+            button.fontMetrics().horizontalAdvance(button.text()) <= button.width() - 6
+            for button in run_action_buttons
+        )
         assert not hasattr(window.ui, "pushButton_pauseRun")
         assert not hasattr(window.ui, "actionPause")
         assert not hasattr(window.run_ui, "pushButton_pause")
         assert not hasattr(window.run_ui, "pushButton_resume")
+        status_index = window.ui.gridLayout_runActions.indexOf(window.ui.label_validationStatus)
+        assert window.ui.gridLayout_runActions.getItemPosition(status_index) == (0, 0, 1, 2)
+        preview_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_preview)
+        assert window.ui.gridLayout_runActions.getItemPosition(preview_index) == (1, 0, 1, 1)
         validate_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_validateTask)
-        assert window.ui.gridLayout_runActions.getItemPosition(validate_index) == (0, 0, 1, 2)
+        assert window.ui.gridLayout_runActions.getItemPosition(validate_index) == (1, 1, 1, 1)
         stop_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_stopRun)
-        assert window.ui.gridLayout_runActions.getItemPosition(stop_index) == (1, 1, 1, 1)
+        assert window.ui.gridLayout_runActions.getItemPosition(stop_index) == (2, 1, 1, 1)
         assert window.machine_ui.groupBox_connection.title() == "EPICS"
         assert not window.machine_ui.label_caAddress.isVisible()
         assert not window.machine_ui.lineEdit_caAddress.isVisible()
@@ -185,9 +232,11 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.groupBox_connection.maximumHeight() == 82
         assert window.machine_ui.pushButton_test.property("inlineAction") is True
         assert window.machine_ui.label_statusValue.property("role") == "statusPill"
-        assert window.machine_ui.frame_pvPresetLibrary.maximumHeight() == 34
+        assert window.machine_ui.frame_pvPresetLibrary.maximumHeight() == 70
         assert window.machine_ui.pushButton_selectPvs.text() == "Select PVs"
         assert window.machine_ui.pushButton_applySelectedPvLibrary.text() == "Sync To Task"
+        assert window.machine_ui.pushButton_undoMappingSync.text() == "Undo Sync"
+        assert not window.machine_ui.label_pvLibrarySummary.isHidden()
         assert window.machine_ui.pushButton_selectPvs.property("inlineAction") is True
         assert window.machine_ui.pushButton_applySelectedPvLibrary.property("inlineAction") is True
         assert (
@@ -205,6 +254,18 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.label_readbackTol.isEnabled()
         assert window.machine_ui.doubleSpinBox_readbackTol.isEnabled()
         assert window.machine_ui.tabWidget_machineAdvanced.documentMode()
+        assert [
+            window.machine_ui.tabWidget_machine.tabText(index)
+            for index in range(window.machine_ui.tabWidget_machine.count())
+        ] == ["PV Mapping", "Run Safeguards", "Specific Policies"]
+        assert [
+            window.machine_ui.tabWidget_machineAdvanced.tabText(index)
+            for index in range(window.machine_ui.tabWidget_machineAdvanced.count())
+        ] == ["Write Policy", "Objective Policy", "Constraint Policy"]
+        assert (
+            window.machine_ui.tabWidget_machine.indexOf(window.machine_ui.tab_runSafeguards)
+            == 1
+        )
         assert window.machine_ui.groupBox_guard.title() == ""
         assert (
             window.machine_ui.groupBox_guard.sizePolicy().verticalPolicy()
@@ -239,6 +300,10 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
             window.machine_ui.horizontalLayout_pvLibraryControls.itemAt(1).widget()
             is window.machine_ui.pushButton_applySelectedPvLibrary
         )
+        assert (
+            window.machine_ui.horizontalLayout_pvLibraryControls.itemAt(2).widget()
+            is window.machine_ui.pushButton_undoMappingSync
+        )
         assert not window.offline_ui.frame_offlineHero.isVisible()
         assert not window.offline_ui.frame_offlinePlaceholder.isVisible()
         assert window.offline_ui.groupBox_benchmark.title() == "Benchmark"
@@ -247,6 +312,20 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.run_ui.frame_eval.objectName() == "statusItem"
         assert window.run_ui.label_evalTitle.property("role") == "title"
         assert window.run_ui.label_evalValue.property("role") == "value"
+        assert window.run_ui.label_evalValue.text() == "0/100"
+        window.state.latest_task_snapshot = {"max_evaluations": 50}
+        window.state.run.eval_count = 12
+        window.runtime_status_controller.update_evaluation_label()
+        assert window.run_ui.label_evalValue.text() == "12/50"
+        window.task_ui.spinBox_maxEval.setValue(75)
+        assert window.run_ui.label_evalValue.text() == "12/50"
+        window.state.latest_task_snapshot.clear()
+        window.state.run.eval_count = 0
+        window.runtime_status_controller.update_evaluation_label()
+        assert window.run_ui.label_evalValue.text() == "0/75"
+        window.task_ui.spinBox_maxEval.setValue(100)
+        assert window.run_ui.label_evalValue.text() == "0/100"
+        assert window.run_ui.frame_phase.isHidden()
         assert window.run_ui.splitter_main.orientation() == Qt.Vertical
         assert window.run_ui.splitter_runRight.orientation() == Qt.Horizontal
         assert not window.run_ui.splitter_main.childrenCollapsible()
@@ -269,18 +348,34 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.ui.pushButton_writeSelectedPareto.text() == "Write Selected to Machine"
         assert window.ui.pushButton_writeSelectedPareto.property("machineWrite") is True
         assert window.ui.label_paretoSolutionsHint.isHidden()
+        assert window.label_results_source_task.text() == "No run"
+        assert window.label_results_source_outcome.text() == "--"
+        assert window.ui.treeWidget_runList.topLevelItem(0).text(0) == "No run results"
+        window.state.latest_task_snapshot = {"task_name": "result_task"}
+        window.state.latest_result_output_dir = "/tmp/gotacc/result_task"
+        window.state.run.phase = "Finished"
+        window.results_controller.refresh_result_source()
+        assert window.label_results_source_task.text() == "result_task"
+        assert window.label_results_source_outcome.text() == "Finished"
+        assert window.label_results_source_output.text() == "result_task"
+        window.state.reset_results_snapshot()
+        window.state.run.phase = "Idle"
         window.state.eval_history = [({"x0": 0.25}, 1.5, {"c0": 0.0})]
         window.results_controller.on_history_row_clicked(0)
         assert window.ui.tableWidget_solutionInspector.rowCount() == 4
         assert window.ui.tableWidget_solutionInspector.item(3, 0).text() == "Constraints"
         window.state.eval_history.clear()
         window.results_controller.update_results_summary_table()
+        window.state.run.phase = "Running"
         window.runtime_status_controller.set_run_phase("Running")
-        assert window.run_ui.frame_phase.property("tone") == "success"
+        assert window.label_workspace_run.text() == "Running"
+        assert window.label_workspace_run.property("tone") == "success"
+        window.state.run.phase = "Abort Requested"
         window.runtime_status_controller.set_run_phase("Abort Requested")
-        assert window.run_ui.frame_phase.property("tone") == "danger"
+        assert window.label_workspace_run.property("tone") == "danger"
+        window.state.run.phase = "Idle"
         window.runtime_status_controller.set_run_phase("Idle")
-        assert window.run_ui.frame_phase.property("tone") == "subtle"
+        assert window.label_workspace_run.property("tone") == "subtle"
         window.state.run.phase = "Running"
         window.runtime_status_controller.sync_run_workspace()
         assert not window.run_ui.pushButton_abortRestore.isHidden()

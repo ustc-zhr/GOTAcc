@@ -6,10 +6,15 @@
   shell, including dark/light theme switching, a horizontal workspace status
   strip, simplified log panel, and tighter Run-page monitoring
 - Simplified GUI task entry points around `New Task`, `Open Project`,
-  `Save Project`, and `Export Task`, with new tasks defaulting to Online EPICS
-  while preserving Offline mode switching in Task Builder
+  `Save Project`, and `Export TaskConfig`, with explicit Offline/Online task
+  selection
 - Simplified Machine Setup for online tasks with a read-only EPICS PV check
   flow, compact PV mapping actions, and clearer selected-row table styling
+- Made PV Mapping sync preserve Task Builder parameters by role and name,
+  remove rows absent from the current mapping with one-step undo, expose sync
+  status, and reject ambiguous names or duplicate knob Setpoint PVs
+- Bound read-only PV Check results to the current task mapping, invalidating
+  stale checks after configuration changes and checking every required run PV
 - Required explicit operator authorization for every Online Start and every
   post-run machine write, removing the optional write-confirmation setting
 - Bound initial, best, and Pareto writeback values to a frozen run-task identity
@@ -18,6 +23,8 @@
   Pause/Resume workflow while preserving abort-and-restore handling
 - Refined Task Builder, Run, Results, and Machine Setup layouts for clearer
   status hierarchy, aligned controls, and denser control-room use
+- Reworked Bounds Tools around a row-by-row preview table and frozen apply
+  plan, so applied bounds exactly match the reviewed source values
 - Made GUI task preview and validation side-effect free by deferring runtime
   directory creation until run or explicit export
 - Aligned GUI worker error handling with runner restore behavior by attempting

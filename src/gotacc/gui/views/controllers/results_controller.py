@@ -54,6 +54,44 @@ class ResultsController:
         self._ensure_pareto_solution_controls()
         self.populate_results_tree()
         self.update_results_summary_table()
+        self.refresh_result_source()
+
+    def refresh_result_source(self) -> None:
+        if not hasattr(self.window, "label_results_source_task"):
+            return
+        state = self.window.state
+        task = state.latest_task_snapshot or {}
+        task_name = str(task.get("task_name", "")).strip() or "No run"
+        outcome = (
+            str(state.latest_finish_payload.get("state", state.run.phase))
+            if state.latest_finish_payload
+            else state.run.phase if task else "--"
+        )
+        output_path = state.latest_result_output_dir or ""
+        output_text = Path(output_path).name if output_path else "--"
+
+        self.window.label_results_source_task.setText(task_name)
+        self.window.label_results_source_task.setToolTip(
+            f"Frozen result task: {task_name}" if task else "No run result is available."
+        )
+        self.window.label_results_source_outcome.setText(outcome)
+        self.window.label_results_source_outcome.setToolTip("Outcome of the result-producing run.")
+        self.window.label_results_source_output.setText(output_text)
+        self.window.label_results_source_output.setToolTip(output_path or "No output directory is available.")
+
+        tone = {
+            "Running": "success",
+            "Finished": "success",
+            "Completed": "success",
+            "Stopping": "warning",
+            "Aborted": "warning",
+            "Restoring": "warning",
+            "Abort Requested": "danger",
+            "Error": "danger",
+            "Failed": "danger",
+            "Restore Failed": "danger",
+        }.get(outcome, "subtle")
+        self.window._set_status_label_tone(self.window.label_results_source_outcome, tone)
 
     def init_plot_canvases(self) -> None:
         self.window.obj_canvas = self.attach_plot_canvas(self.window.run_ui.frame_obj)
@@ -520,10 +558,14 @@ class ResultsController:
         tree = self.window.ui.treeWidget_runList
         tree.clear()
 
-        run_task = (state.latest_task_snapshot or {}).get(
-            "task_name",
-            self.window.task_ui.lineEdit_taskName.text().strip() or "untitled_task",
-        )
+        if not state.latest_task_snapshot:
+            empty_item = QTreeWidgetItem(["No run results", "--"])
+            empty_item.setData(0, Qt.UserRole, {"kind": "empty"})
+            tree.addTopLevelItem(empty_item)
+            tree.setCurrentItem(empty_item)
+            return
+
+        run_task = state.latest_task_snapshot.get("task_name", "untitled_task")
         run_state = (
             state.latest_finish_payload.get("state", state.run.phase)
             if state.latest_finish_payload
@@ -606,17 +648,14 @@ class ResultsController:
         state = self.window.state
         table = self.window.ui.tableWidget_solutionInspector
         rows = []
-        task_name = (state.latest_task_snapshot or {}).get(
-            "task_name",
-            self.window.task_ui.lineEdit_taskName.text().strip() or "untitled_task",
-        )
+        task_name = (state.latest_task_snapshot or {}).get("task_name", "No run")
         rows.append(("Task", task_name))
         rows.append(
             (
                 "Status",
                 state.latest_finish_payload.get("state", state.run.phase)
                 if state.latest_finish_payload
-                else state.run.phase,
+                else state.run.phase if state.latest_task_snapshot else "--",
             )
         )
         rows.append(("Best Value", "--" if state.run.best_value is None else f"{state.run.best_value:.6f}"))
@@ -676,6 +715,7 @@ class ResultsController:
         self.populate_pareto_solution_table()
         self.populate_results_tree()
         self.update_results_summary_table()
+        self.refresh_result_source()
 
     def update_results_after_evaluation(self, payload: dict) -> None:
         state = self.window.state
@@ -684,6 +724,7 @@ class ResultsController:
             state.latest_best_x = dict(payload.get("x_values", {}))
         self.populate_results_tree()
         self.update_results_summary_table()
+        self.refresh_result_source()
 
     def update_results_after_finish(self, payload: dict) -> None:
         state = self.window.state
@@ -716,6 +757,7 @@ class ResultsController:
         self.populate_pareto_solution_table()
         self.populate_results_tree()
         self.update_results_summary_table()
+        self.refresh_result_source()
 
     def save_result_images(self, output_dir: str | Path | None = None) -> dict[str, str]:
         state = self.window.state
@@ -744,6 +786,7 @@ class ResultsController:
             state.latest_result_output_dir = str(target_dir)
         self.populate_results_tree()
         self.update_results_summary_table()
+        self.refresh_result_source()
         return saved
 
     def _result_artifact_stem(self) -> str:

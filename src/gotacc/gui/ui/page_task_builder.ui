@@ -257,44 +257,6 @@
      </widget>
     </widget>
    </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_actionBar">
-     <item>
-      <widget class="QPushButton" name="pushButton_preview">
-       <property name="text">
-        <string>Preview</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-     <widget class="QPushButton" name="pushButton_validate">
-       <property name="text">
-        <string>Validate</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacer">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_export">
-       <property name="text">
-        <string>Export TaskConfig</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
   </layout>
  </widget>
  <resources/>

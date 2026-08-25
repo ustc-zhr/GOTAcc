@@ -307,6 +307,7 @@ class TaskBuilderController:
         self._algorithm_detail_dialog: AlgorithmDetailDialog | None = None
         self._syncing_objective_algorithm = False
         self._last_bounds_preview = ""
+        self._bounds_preview_plan: list[dict[str, object]] = []
         self._bounds_dialog: BoundsToolsDialog | None = None
         self._bounds_tool_state: dict[str, object] = {
             "source": "Current machine readback",
@@ -1404,6 +1405,10 @@ class TaskBuilderController:
             secondary_label.setVisible(False)
             secondary_spin.setVisible(False)
 
+        source_required = "fixed" not in mode or ui.checkBox_boundsUpdateInitial.isChecked()
+        ui.label_boundsSource.setEnabled(source_required)
+        source_combo.setEnabled(source_required)
+
         if self._last_bounds_preview:
             ui.label_boundsToolSummary.setText(self._last_bounds_preview)
         else:
@@ -1446,7 +1451,7 @@ class TaskBuilderController:
         if ui.checkBox_boundsSelectedOnly.isChecked():
             selected_rows = {index.row() for index in table.selectionModel().selectedRows()}
             if not selected_rows:
-                raise ValueError("Select one or more variable rows, or turn off 'Selected rows only'.")
+                raise ValueError("Select one or more variables, or turn off 'Only selected variables'.")
             targets = [(row_index, row) for row_index, row in rows if row_index in selected_rows]
         else:
             targets = [
@@ -1509,80 +1514,108 @@ class TaskBuilderController:
             raise ValueError(f"Computed bounds are invalid: lower={lower:g}, upper={upper:g}.")
         return lower, upper
 
-    def _build_bounds_preview(
-        self,
-        task: dict,
-        *,
-        apply_changes: bool,
-    ) -> str:
+    def _build_bounds_plan(self, task: dict) -> list[dict[str, object]]:
         ui = self._bounds_ui()
         if ui is None:
             raise ValueError("Bounds Tools dialog is not open.")
         target_rows = self._target_variable_rows()
-        source_values = self._resolve_bounds_source_values(task, target_rows)
         update_initial = ui.checkBox_boundsUpdateInitial.isChecked()
+        mode = ui.comboBox_boundsMode.currentText().strip().lower()
+        source_required = "fixed" not in mode or update_initial
+        source_values: list[float | None]
+        if source_required:
+            source_values = self._resolve_bounds_source_values(task, target_rows)
+        else:
+            source_values = [None] * len(target_rows)
+        plan: list[dict[str, object]] = []
+        for (row_index, row), source_value in zip(target_rows, source_values):
+            lower, upper = self._compute_bounds_from_source(
+                0.0 if source_value is None else source_value
+            )
+            plan.append(
+                {
+                    "row_index": row_index,
+                    "name": str(row.get("Name", "")).strip() or f"x{row_index}",
+                    "source": None if source_value is None else float(source_value),
+                    "lower": float(lower),
+                    "upper": float(upper),
+                    "initial": float(source_value) if update_initial and source_value is not None else None,
+                }
+            )
+        return plan
+
+    def _show_bounds_plan(self, plan: list[dict[str, object]]) -> str:
+        ui = self._bounds_ui()
+        if ui is None:
+            raise ValueError("Bounds Tools dialog is not open.")
+        table = ui.tableWidget_boundsPreview
+        table.setRowCount(len(plan))
+        for row_index, entry in enumerate(plan):
+            initial = entry["initial"]
+            source = entry["source"]
+            values = (
+                str(entry["name"]),
+                "Not used" if source is None else format(float(source), "g"),
+                format(float(entry["lower"]), "g"),
+                format(float(entry["upper"]), "g"),
+                "Unchanged" if initial is None else format(float(initial), "g"),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                if column > 0:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(row_index, column, item)
+
+        scope = "selected" if ui.checkBox_boundsSelectedOnly.isChecked() else "enabled"
+        preview = f"Preview ready for {len(plan)} {scope} variable row(s)."
+        self._last_bounds_preview = preview
+        ui.label_boundsToolSummary.setText(preview)
+        ui.pushButton_applyBounds.setEnabled(bool(plan))
+        return preview
+
+    def _apply_bounds_plan(self, plan: list[dict[str, object]]) -> None:
         table = self.window.task_ui.tableWidget_variables
         headers = self.table_headers(table)
         lower_col = headers.index("Lower")
         upper_col = headers.index("Upper")
         initial_col = headers.index("Initial")
-        name_col = headers.index("Name")
-
-        preview_lines: list[str] = []
-        old_state = table.blockSignals(True) if apply_changes else None
+        old_state = table.blockSignals(True)
         try:
-            for (row_index, row), source_value in zip(target_rows, source_values):
-                lower, upper = self._compute_bounds_from_source(source_value)
-                name = str(row.get("Name", "")).strip() or f"x{row_index}"
-                preview_lines.append(
-                    f"{name}: [{lower:g}, {upper:g}]"
-                    + (f" | Initial <- {source_value:g}" if update_initial else "")
-                )
-                if not apply_changes:
-                    continue
-
-                for col, value in (
-                    (lower_col, lower),
-                    (upper_col, upper),
+            for entry in plan:
+                row_index = int(entry["row_index"])
+                for column, value in (
+                    (lower_col, entry["lower"]),
+                    (upper_col, entry["upper"]),
                 ):
-                    item = table.item(row_index, col)
+                    item = table.item(row_index, column)
                     if item is None:
                         item = QTableWidgetItem()
-                        table.setItem(row_index, col, item)
+                        table.setItem(row_index, column, item)
                     item.setText(format(float(value), "g"))
 
-                if update_initial:
-                    initial_item = table.item(row_index, initial_col)
-                    if initial_item is None:
-                        initial_item = QTableWidgetItem()
-                        table.setItem(row_index, initial_col, initial_item)
-                    initial_item.setText(format(float(source_value), "g"))
-
-                name_item = table.item(row_index, name_col)
-                if name_item is not None:
-                    row["Name"] = name_item.text().strip()
+                if entry["initial"] is not None:
+                    item = table.item(row_index, initial_col)
+                    if item is None:
+                        item = QTableWidgetItem()
+                        table.setItem(row_index, initial_col, item)
+                    item.setText(format(float(entry["initial"]), "g"))
         finally:
-            if apply_changes and old_state is not None:
-                table.blockSignals(old_state)
-
-        scope = "selected rows" if ui.checkBox_boundsSelectedOnly.isChecked() else "enabled rows"
-        preview = f"{len(target_rows)} row(s) updated for {scope}. "
-        preview += "  ".join(preview_lines[:4])
-        if len(preview_lines) > 4:
-            preview += f"  ... (+{len(preview_lines) - 4} more)"
-        self._last_bounds_preview = preview
-        ui.label_boundsToolSummary.setText(preview)
-        return preview
+            table.blockSignals(old_state)
 
     def preview_bounds_tool(self) -> None:
         task = self.view.current_task()
         try:
-            preview = self._build_bounds_preview(task, apply_changes=False)
+            plan = self._build_bounds_plan(task)
+            self._bounds_preview_plan = plan
+            preview = self._show_bounds_plan(plan)
         except Exception as exc:
+            self._bounds_preview_plan = []
             self._last_bounds_preview = f"Bounds preview failed: {exc}"
             ui = self._bounds_ui()
             if ui is not None:
                 ui.label_boundsToolSummary.setText(self._last_bounds_preview)
+                ui.tableWidget_boundsPreview.setRowCount(0)
+                ui.pushButton_applyBounds.setEnabled(False)
             self.view.log_warning(f"Bounds preview failed: {exc}")
             QMessageBox.warning(self.window, "Bounds Preview", str(exc))
             return
@@ -1591,9 +1624,16 @@ class TaskBuilderController:
         self.view.status_message("Bounds preview updated.", 3000)
 
     def apply_bounds_tool(self) -> None:
-        task = self.view.current_task()
+        if not self._bounds_preview_plan:
+            QMessageBox.information(
+                self.window,
+                "Apply Bounds",
+                "Preview the bounds before applying them.",
+            )
+            return
         try:
-            preview = self._build_bounds_preview(task, apply_changes=True)
+            plan = list(self._bounds_preview_plan)
+            self._apply_bounds_plan(plan)
         except Exception as exc:
             self._last_bounds_preview = f"Bounds apply failed: {exc}"
             ui = self._bounds_ui()
@@ -1603,6 +1643,13 @@ class TaskBuilderController:
             QMessageBox.warning(self.window, "Apply Bounds", str(exc))
             return
 
+        ui = self._bounds_ui()
+        self._bounds_preview_plan = []
+        preview = f"Applied previewed bounds to {len(plan)} variable row(s)."
+        self._last_bounds_preview = preview
+        if ui is not None:
+            ui.label_boundsToolSummary.setText(preview)
+            ui.pushButton_applyBounds.setEnabled(False)
         self._save_bounds_tool_state()
         self.view.log_console(f"Applied generated bounds. {preview}")
         self.view.append_overview_activity("Bounds", status="Updated knob bounds from bounds tool.")
@@ -1612,15 +1659,23 @@ class TaskBuilderController:
     def _on_bounds_tool_settings_changed(self) -> None:
         self._save_bounds_tool_state()
         self._last_bounds_preview = ""
+        self._bounds_preview_plan = []
+        ui = self._bounds_ui()
+        if ui is not None:
+            ui.tableWidget_boundsPreview.setRowCount(0)
+            ui.pushButton_applyBounds.setEnabled(False)
         self.update_bounds_tool_controls()
 
     def _on_bounds_dialog_finished(self, _result: int) -> None:
         self._save_bounds_tool_state()
+        self._bounds_preview_plan = []
         self._bounds_dialog = None
 
     def open_bounds_tool_dialog(self) -> None:
         dialog = BoundsToolsDialog(self.window)
         self._bounds_dialog = dialog
+        self._last_bounds_preview = ""
+        self._bounds_preview_plan = []
         self._restore_bounds_tool_state()
         ui = dialog.ui
         ui.comboBox_boundsSource.currentTextChanged.connect(self._on_bounds_tool_settings_changed)
@@ -1769,6 +1824,7 @@ class TaskBuilderController:
 
     def refresh_task_preview(self) -> None:
         task = self.view.current_task()
+        self.window.machine_controller.invalidate_machine_check_if_stale(task)
         self._set_validation_status(
             "Not validated",
             "subtle",
@@ -1786,21 +1842,16 @@ class TaskBuilderController:
         enabled_objectives = len(TaskService._enabled_rows(task.get("objectives", [])))
         enabled_constraints = len(TaskService._enabled_rows(task.get("constraints", [])))
         self.window.task_ui.label_builderSummary.setText(
-            f"{task['mode']} · {task['objective_type']} · {task['algorithm']} · "
-            f"{enabled_variables} variable(s) · {enabled_objectives} objective(s) · "
+            f"{task['objective_type']} · {enabled_variables} variable(s) · {enabled_objectives} objective(s) · "
             f"{enabled_constraints} constraint(s) · budget {int(task.get('max_evaluations', 0) or 0)}"
         )
-        self.window.ui.label_cardCurrentTaskValue.setText(task["task_name"])
-        self.window.ui.label_cardModeValue.setText(task["mode"])
-        self.window.ui.label_cardAlgorithmValue.setText(task["algorithm"])
         self.window.ui.label_statusTaskValue.setText(task["task_name"])
         self.window.ui.label_statusModeValue.setText(task["mode"])
         self.window.ui.label_statusAlgorithmValue.setText(task["algorithm"])
-        if hasattr(self.window, "label_workspace_mode"):
-            self.window.label_workspace_task.setText(task["task_name"])
-            self.window.label_workspace_mode.setText(task["mode"])
-            self.window.label_workspace_algorithm.setText(task["algorithm"])
-            self.window._resize_workspace_status_items()
+        self.window._sync_workspace_status(task)
+        self.window._refresh_overview_cards(task)
+        if not self.window.state.latest_task_snapshot:
+            self.window.runtime_status_controller.update_evaluation_label()
         self.window.machine_controller.update_pv_library_summary()
         self.window.machine_controller.refresh_machine_summary()
         self.view.refresh_overview_readiness()
@@ -1941,7 +1992,14 @@ class TaskBuilderController:
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        export_button = QPushButton("Export TaskConfig", dialog)
+        export_button.setProperty("inlineAction", True)
+        export_button.setFixedSize(142, 28)
+        export_button.clicked.connect(self.export_config)
+        button_row.addWidget(export_button)
         close_button = QPushButton("Close", dialog)
+        close_button.setProperty("inlineAction", True)
+        close_button.setFixedSize(104, 28)
         close_button.clicked.connect(dialog.accept)
         button_row.addWidget(close_button)
         layout.addLayout(button_row)
@@ -2044,7 +2102,7 @@ class TaskBuilderController:
         return ok
 
     def _set_validation_status(self, text: str, tone: str, tooltip: str) -> None:
-        label = getattr(self.window.task_ui, "label_validationStatus", None)
+        label = getattr(self.window.ui, "label_validationStatus", None)
         if label is None:
             return
         label.setText(text)
@@ -2052,6 +2110,7 @@ class TaskBuilderController:
         label.setProperty("tone", tone)
         label.style().unpolish(label)
         label.style().polish(label)
+        self.window._refresh_overview_cards()
 
     def export_config(self) -> None:
         task = self.view.current_task()
@@ -2059,7 +2118,7 @@ class TaskBuilderController:
         default_name = f"{task.get('task_name', 'task')}_task_config.yaml"
         path, _ = QFileDialog.getSaveFileName(
             self.window,
-            "Export Task",
+            "Export TaskConfig",
             str(TASK_CONFIG_YAML_DIR / default_name),
             "YAML Files (*.yaml *.yml);;All Files (*)",
         )

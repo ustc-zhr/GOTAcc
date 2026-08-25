@@ -89,17 +89,36 @@ gotacc-gui
 The current GUI opens in a compact control-room style with dark mode enabled by
 default. Use the top-right theme button to switch between dark and light modes,
 and use the adjacent `Log` button to show or hide the bottom log panel.
+The persistent status strip shows the current task, mode, algorithm, run phase,
+and machine/backend state. Overview focuses on task readiness, the planned
+evaluation budget, backend readiness, the latest run outcome, and recent
+session activity rather than repeating those global fields.
 
 The left-side quick actions are project-oriented:
 
 - `New Task`: explicitly choose an Offline benchmark or Online EPICS task
 - `Open Project` / `Save Project`: load or save the editable GUI project state
-- `Export Task`: write a runnable `TaskConfig` YAML for the runner
+
+The Configure footer opens `Preview Task` for the normalized runnable
+configuration. `Export TaskConfig` is available from that preview and writes a
+standard YAML file for the runner, while project files retain the GUI editing
+state.
 
 Configure pages are mode-specific: `Machine Setup` is shown for Online EPICS
 tasks, while `Offline Setup` is shown for Offline tasks. Machine Setup uses a
 read-only EPICS PV check flow for connectivity verification; real online runs
 still require a reachable EPICS environment and the `epics` extra.
+
+For Online EPICS tasks, `Sync To Task` merges PV Mapping rows into Task Builder
+by role and name. Existing bounds, initial values, and objective settings are
+preserved; new knobs require explicit task setup, and task rows absent from the
+current Mapping are removed. `Undo Sync` restores the previous rows. PV Mapping
+changes invalidate the previous PV Check, which must match the current task
+before an online run can start.
+
+Task Builder `Bounds` generates a row-by-row preview before enabling
+`Apply Bounds`. Applying uses the previewed values without reading the machine
+again; changing any bounds option invalidates the previous preview.
 
 Every Online Start requires explicit operator authorization. Post-run machine
 writes (`Restore Initial`, `Set Best`, and selected Pareto points) use the frozen
@@ -219,7 +238,7 @@ GOTAcc/
 - `config/task_configs/python/para_half.py`
 - `config/task_configs/python/para_irfel.py`
 - `config/task_configs/yaml/irfel_bo.yaml`
-- `config/pv_libraries/irfel.json`
+- `config/pv_libraries/irfel_pvlist.json`
 - GUI task builder support for `MGGPO-SO` and `ConsMGGPO-SO`
 
 ## Notes

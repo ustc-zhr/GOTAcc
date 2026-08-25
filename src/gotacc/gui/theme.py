@@ -332,7 +332,7 @@ QGroupBox#groupBox_primaryNav {
 }
 
 QGroupBox#groupBox_primaryNav::title {
-    color: $nav_subtitle;
+    color: $panel_title;
     font-weight: 700;
 }
 
@@ -357,6 +357,60 @@ QFrame#frame_phase {
     background: $status_strip_bg;
     border: 1px solid $status_strip_border;
     border-radius: 12px;
+}
+
+QFrame#frame_cardCurrentTask,
+QFrame#frame_cardMode,
+QFrame#frame_cardAlgorithm,
+QFrame#frame_cardStatus {
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+}
+
+QFrame#frame_cardCurrentTask[tone="info"],
+QFrame#frame_cardMode[tone="info"],
+QFrame#frame_cardAlgorithm[tone="info"],
+QFrame#frame_cardStatus[tone="info"] {
+    border-left: 3px solid $status_tone_info_bar;
+}
+
+QFrame#frame_cardCurrentTask[tone="success"],
+QFrame#frame_cardMode[tone="success"],
+QFrame#frame_cardAlgorithm[tone="success"],
+QFrame#frame_cardStatus[tone="success"] {
+    border-left: 3px solid $status_tone_success_bar;
+}
+
+QFrame#frame_cardCurrentTask[tone="warning"],
+QFrame#frame_cardMode[tone="warning"],
+QFrame#frame_cardAlgorithm[tone="warning"],
+QFrame#frame_cardStatus[tone="warning"] {
+    border-left: 3px solid $status_tone_warning_bar;
+}
+
+QFrame#frame_cardCurrentTask[tone="danger"],
+QFrame#frame_cardMode[tone="danger"],
+QFrame#frame_cardAlgorithm[tone="danger"],
+QFrame#frame_cardStatus[tone="danger"] {
+    border-left: 3px solid $status_tone_danger_bar;
+}
+
+QLabel#label_cardCurrentTaskValue[tone="success"],
+QLabel#label_cardAlgorithmValue[tone="success"],
+QLabel#label_cardStatusValue[tone="success"] {
+    color: $status_tone_success_fg;
+}
+
+QLabel#label_cardCurrentTaskValue[tone="warning"],
+QLabel#label_cardAlgorithmValue[tone="warning"],
+QLabel#label_cardStatusValue[tone="warning"] {
+    color: $status_tone_warning_fg;
+}
+
+QLabel#label_cardCurrentTaskValue[tone="danger"],
+QLabel#label_cardAlgorithmValue[tone="danger"],
+QLabel#label_cardStatusValue[tone="danger"] {
+    color: $status_tone_danger_fg;
 }
 
 QFrame#frame_variablesToolbar {
@@ -518,6 +572,13 @@ QPushButton:pressed {
 
 QPushButton[compact="true"] {
     padding: 3px 10px;
+    min-height: 22px;
+    max-height: 26px;
+    font-size: 11px;
+}
+
+QPushButton[runControl="true"] {
+    padding: 3px 2px;
     min-height: 22px;
     max-height: 26px;
     font-size: 11px;

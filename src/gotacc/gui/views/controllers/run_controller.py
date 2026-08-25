@@ -59,7 +59,7 @@ class RunController:
             QMessageBox.warning(
                 self.window,
                 "Cannot Start",
-                "Online EPICS tasks require the machine interface to be connected first.",
+                "Run PV Check for the current Online EPICS task before starting.",
             )
             return
 

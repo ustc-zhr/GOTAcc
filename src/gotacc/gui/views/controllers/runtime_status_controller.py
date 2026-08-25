@@ -20,7 +20,7 @@ class RuntimeStatusController:
         mm = (run.elapsed_seconds % 3600) // 60
         ss = run.elapsed_seconds % 60
         self.window.run_ui.label_elapsedValue.setText(f"{hh:02d}:{mm:02d}:{ss:02d}")
-        self.window.run_ui.label_evalValue.setText(str(run.eval_count))
+        self.update_evaluation_label()
         self.window.run_ui.label_bestValue.setText(
             "--" if run.best_value is None else f"{run.best_value:.6f}"
         )
@@ -34,6 +34,21 @@ class RuntimeStatusController:
                 f"{run.phase} · {run.eval_count} evaluation(s) · best {best_text} · feasibility {run.feasibility_ratio:.2f}"
             )
         self.sync_status_panels()
+
+    def update_evaluation_label(self) -> None:
+        state = self.window.state
+        task = state.latest_task_snapshot
+        if not task:
+            try:
+                task = self.view.current_task()
+            except Exception:
+                task = {}
+        try:
+            budget = int(task.get("max_evaluations", 0) or 0)
+        except (TypeError, ValueError):
+            budget = 0
+        budget_text = str(budget) if budget > 0 else "--"
+        self.window.run_ui.label_evalValue.setText(f"{state.run.eval_count}/{budget_text}")
 
     def set_run_buttons_enabled(self, *, start: bool, stop: bool) -> None:
         self.window.ui.pushButton_startRun.setEnabled(start)
@@ -50,9 +65,11 @@ class RuntimeStatusController:
 
     def set_run_phase(self, text: str) -> None:
         self.window.run_ui.label_phaseValue.setText(text)
-        self.window.ui.label_cardStatusValue.setText(text)
         self._sync_phase_tone(text)
         self._sync_run_action_visibility()
+        self.window._sync_workspace_status()
+        self.window._refresh_overview_cards()
+        self.window.results_controller.refresh_result_source()
 
     def append_run_history(self, status: str) -> None:
         task_name = self.window.task_ui.lineEdit_taskName.text().strip() or "untitled_task"
@@ -79,7 +96,6 @@ class RuntimeStatusController:
 
     def sync_status_panels(self) -> None:
         run = self.window.state.run
-        self.window.ui.label_cardStatusValue.setText(run.phase)
         self._sync_phase_tone(run.phase)
         self.window.ui.label_statusBestValue.setText(
             "--" if run.best_value is None else f"{run.best_value:.6f}"
@@ -95,6 +111,9 @@ class RuntimeStatusController:
                 bool(run.phase not in {"Running", "Stopping"} and self.window.state.latest_initial_x)
             )
         self.sync_run_workspace()
+        self.window._sync_workspace_status()
+        self.window._refresh_overview_cards()
+        self.window.results_controller.refresh_result_source()
 
     def _sync_phase_tone(self, phase: str) -> None:
         tone = {

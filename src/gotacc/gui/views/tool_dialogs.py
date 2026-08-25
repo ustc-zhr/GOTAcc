@@ -13,8 +13,11 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QGroupBox,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QSizePolicy,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -331,6 +334,18 @@ class PVMappingSelectorDialog(QDialog):
             source.setWordWrap(True)
             layout.addWidget(source)
 
+        self.lineEdit_filter = QLineEdit(self)
+        self.lineEdit_filter.setObjectName("lineEdit_pvMappingFilter")
+        self.lineEdit_filter.setClearButtonEnabled(True)
+        self.lineEdit_filter.setPlaceholderText(
+            "Search by name, PV, readback, group or note..."
+        )
+        self.lineEdit_filter.setToolTip(
+            "Filters Knobs, Objectives and Constraints without clearing selected rows."
+        )
+        self.lineEdit_filter.textChanged.connect(self._apply_filter)
+        layout.addWidget(self.lineEdit_filter)
+
         tabs = QTabWidget(self)
         for role in ("knob", "objective", "constraint"):
             tabs.addTab(self._build_role_tab(role), self.ROLE_TITLES[role])
@@ -374,6 +389,21 @@ class PVMappingSelectorDialog(QDialog):
                 )
         table.resizeColumnsToContents()
 
+    def _apply_filter(self, text: str) -> None:
+        tokens = str(text).strip().casefold().split()
+        for role, table in self._tables.items():
+            for row, entry in enumerate(self._entries[role]):
+                searchable = "\n".join(
+                    (
+                        entry.name,
+                        entry.pv_name,
+                        entry.readback,
+                        entry.group,
+                        entry.note,
+                    )
+                ).casefold()
+                table.setRowHidden(row, not all(token in searchable for token in tokens))
+
     @staticmethod
     def _entry_matches_current(entry: PVLibraryItem, current_keys: set[str]) -> bool:
         return (
@@ -414,6 +444,24 @@ class BoundsToolsDialog(QDialog):
         super().__init__(parent)
         self.ui = Ui_BoundsToolsDialog()
         self.ui.setupUi(self)
+        self.setModal(True)
+        self.ui.gridLayout_boundsTools.setColumnStretch(1, 1)
+        self.ui.gridLayout_boundsTools.setColumnStretch(3, 1)
+        table = self.ui.tableWidget_boundsPreview
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.setMinimumHeight(150)
+        self.ui.buttonBox.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.ui.pushButton_applyBounds.setProperty("primary", True)
+        close_button = self.ui.buttonBox.button(QDialogButtonBox.Close)
+        for button in (
+            self.ui.pushButton_previewBounds,
+            self.ui.pushButton_applyBounds,
+            close_button,
+        ):
+            button.setProperty("inlineAction", True)
+            button.setFixedWidth(112)
+            button.setFixedHeight(28)
         self.ui.buttonBox.rejected.connect(self.reject)
 
 

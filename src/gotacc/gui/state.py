@@ -49,6 +49,7 @@ class GuiSessionState:
     recent_activity: list[dict[str, str]] = field(default_factory=list)
     last_test_read_status: str = "Not checked"
     last_test_read_detail: str = ""
+    machine_check_identity: dict[str, Any] = field(default_factory=dict)
 
     def add_recent_activity(self, entry: dict[str, Any], limit: int = 12) -> None:
         normalized = {

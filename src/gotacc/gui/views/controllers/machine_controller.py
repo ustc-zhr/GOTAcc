@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import sys
 from pathlib import Path
@@ -41,6 +42,7 @@ class MachineController:
         self.window = window
         self.view = window.view_adapter
         self._loaded_pv_library: PVLibraryDocument | None = None
+        self._last_sync_snapshot: dict[str, list[dict[str, str]]] | None = None
 
     @staticmethod
     def _default_config_directory() -> Path:
@@ -119,15 +121,32 @@ class MachineController:
 
         ui.pushButton_loadPvLibrary.setVisible(False)
         ui.pushButton_applySelectedPvLibrary.setText("Sync To Task")
-        ui.pushButton_applySelectedPvLibrary.setToolTip("Sync the PV Mapping table into Task Builder.")
+        ui.pushButton_applySelectedPvLibrary.setToolTip(
+            "Merge PV Mapping into Task Builder by role and name. Existing task parameters are preserved."
+        )
         ui.horizontalLayout_pvLibraryControls.removeWidget(ui.pushButton_applySelectedPvLibrary)
         ui.horizontalLayout_pvLibraryControls.insertWidget(1, ui.pushButton_applySelectedPvLibrary)
+        undo_button = QPushButton("Undo Sync", ui.frame_pvPresetLibrary)
+        undo_button.setObjectName("pushButton_undoMappingSync")
+        undo_button.setToolTip("Restore Task Builder rows from before the most recent mapping sync.")
+        undo_button.setEnabled(False)
+        undo_button.clicked.connect(self.undo_last_mapping_sync)
+        ui.horizontalLayout_pvLibraryControls.insertWidget(2, undo_button)
+        ui.pushButton_undoMappingSync = undo_button
         ui.horizontalLayout_pvLibraryControls.setContentsMargins(0, 0, 0, 0)
         ui.horizontalLayout_pvLibraryControls.setSpacing(6)
-        ui.verticalLayout_pvPresetLibrary.setContentsMargins(8, 4, 8, 4)
-        ui.verticalLayout_pvPresetLibrary.setSpacing(4)
-        ui.frame_pvPresetLibrary.setMaximumHeight(34)
-        for button in (ui.pushButton_selectPvs, ui.pushButton_applySelectedPvLibrary):
+        ui.verticalLayout_pvPresetLibrary.setContentsMargins(8, 5, 8, 5)
+        ui.verticalLayout_pvPresetLibrary.setSpacing(7)
+        ui.label_pvLibrarySummary.setVisible(True)
+        ui.label_pvLibrarySummary.setProperty("role", "mappingStatus")
+        ui.label_pvLibrarySummary.setMinimumHeight(18)
+        ui.label_pvLibrarySummary.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        ui.frame_pvPresetLibrary.setMaximumHeight(70)
+        for button in (
+            ui.pushButton_selectPvs,
+            ui.pushButton_applySelectedPvLibrary,
+            ui.pushButton_undoMappingSync,
+        ):
             button.setProperty("inlineAction", True)
             button.setFixedHeight(24)
             button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
@@ -144,7 +163,6 @@ class MachineController:
             ui.pushButton_pickConstraintsFromLibrary,
             ui.pushButton_clearSelectedConstraints,
             ui.label_pvLibrarySource,
-            ui.label_pvLibrarySummary,
             ui.frame_selectedLibrarySummary,
         ):
             widget.setVisible(False)
@@ -170,8 +188,8 @@ class MachineController:
         advanced_tabs.setDocumentMode(True)
         advanced_layout.addWidget(advanced_tabs)
 
-        safeguards_page = QWidget(advanced_tabs)
-        safeguards_page.setObjectName("tab_safeguardsAdvanced")
+        safeguards_page = QWidget(main_tabs)
+        safeguards_page.setObjectName("tab_runSafeguards")
         safeguards_layout = QVBoxLayout(safeguards_page)
         safeguards_layout.setContentsMargins(10, 12, 10, 10)
         safeguards_layout.setSpacing(0)
@@ -184,13 +202,14 @@ class MachineController:
         safeguards_layout.addStretch(1)
         ui.groupBox_guard.show()
 
-        advanced_tabs.addTab(safeguards_page, "Safeguards")
-        advanced_tabs.addTab(ui.tab_writePolicy, "Write Links")
+        advanced_tabs.addTab(ui.tab_writePolicy, "Write Policy")
         advanced_tabs.addTab(ui.tab_objectivePolicy, "Objective Policy")
         advanced_tabs.addTab(ui.tab_constraintPolicy, "Constraint Policy")
-        main_tabs.addTab(advanced_page, "Advanced")
+        main_tabs.addTab(safeguards_page, "Run Safeguards")
+        main_tabs.addTab(advanced_page, "Specific Policies")
         main_tabs.setCurrentWidget(ui.tab_mapping)
 
+        ui.tab_runSafeguards = safeguards_page
         ui.tab_advancedMachine = advanced_page
         ui.tabWidget_machineAdvanced = advanced_tabs
         ui.tab_safeguardsAdvanced = safeguards_page
@@ -202,6 +221,67 @@ class MachineController:
     def is_online_task(self, task: dict | None = None) -> bool:
         current = task if task is not None else self.view.current_task()
         return str(current.get("mode", "")).strip().lower() == "online epics"
+
+    @staticmethod
+    def machine_check_identity(task: dict) -> dict:
+        machine = task.get("machine", {}) or {}
+
+        def enabled_names(field: str) -> list[str]:
+            return [
+                str(row.get("Name", "")).strip()
+                for row in TaskService._enabled_rows(task.get(field, []))
+            ]
+
+        mapping = [
+            {
+                "role": str(row.get("Role", "")).strip().lower(),
+                "name": str(row.get("Name", "")).strip(),
+                "pv": str(row.get("PV Name", "")).strip(),
+                "readback": str(row.get("Readback", "")).strip(),
+            }
+            for row in machine.get("mapping", []) or []
+            if any(str(value).strip() for value in row.values())
+        ]
+        mapping.sort(key=lambda row: (row["role"], row["name"], row["pv"], row["readback"]))
+        write_links = [
+            {
+                "source": str(row.get("Source Index", "")).strip(),
+                "target": str(row.get("Target PV", "")).strip(),
+            }
+            for row in machine.get("write_links", []) or []
+            if not str(row.get("Enabled", "")).strip()
+            or TaskService._is_enabled(row.get("Enabled", ""))
+        ]
+        write_links.sort(key=lambda row: (row["source"], row["target"]))
+        return {
+            "mode": str(task.get("mode", "")).strip(),
+            "algorithm": str(task.get("algorithm", "")).strip(),
+            "variables": enabled_names("variables"),
+            "objectives": enabled_names("objectives"),
+            "constraints": enabled_names("constraints"),
+            "mapping": mapping,
+            "write_links": write_links,
+            "write_policy": str(machine.get("write_policy", "none")).strip().lower(),
+            "readback_check": bool(machine.get("readback_check", False)),
+            "ca_address": str(machine.get("ca_address", "")).strip(),
+        }
+
+    def invalidate_machine_check_if_stale(self, task: dict | None = None) -> bool:
+        saved_identity = self.window.state.machine_check_identity
+        if not saved_identity:
+            return False
+        current = task if task is not None else self.view.current_task()
+        if saved_identity == self.machine_check_identity(current):
+            return False
+
+        self.window.state.machine_check_identity.clear()
+        self.window.state.last_test_read_status = "Stale"
+        self.window.state.last_test_read_detail = (
+            "PV configuration changed after the most recent check. Run PV Check again."
+        )
+        self.window.machine_ui.label_statusValue.setText("Stale")
+        self.window.ui.label_statusConnectionValue.setText("Stale")
+        return True
 
     def _enabled_task_rows(self, task: dict | None = None) -> tuple[list[dict], list[dict]]:
         current = task if task is not None else self.view.current_task()
@@ -265,40 +345,95 @@ class MachineController:
             )
         return items
 
+    def _mapping_records(self) -> list[dict[str, str]]:
+        rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_mapping)
+        return [
+            row
+            for row in rows
+            if any(str(value).strip() for value in row.values())
+        ]
+
+    def _mapping_sync_errors(self) -> list[str]:
+        errors: list[str] = []
+        seen_keys: set[tuple[str, str]] = set()
+        names_to_roles: dict[str, str] = {}
+        knob_pvs: dict[str, str] = {}
+
+        for index, row in enumerate(self._mapping_records(), start=1):
+            role = self._normalize_mapping_role(self._mapping_row_value(row, "Role"))
+            name = self._mapping_row_value(row, "Name")
+            pv_name = self._mapping_row_value(row, "PV Name")
+            if role not in {"knob", "objective", "constraint"}:
+                errors.append(f"Mapping row {index} has an invalid Role.")
+                continue
+            if not name:
+                errors.append(f"Mapping row {index} has no Name.")
+                continue
+            if not pv_name:
+                errors.append(f"Mapping row {index} ({name}) has no PV Name.")
+
+            key = (role, name)
+            if key in seen_keys:
+                errors.append(f"Duplicate mapping for {role} {name!r}.")
+            seen_keys.add(key)
+
+            previous_role = names_to_roles.get(name)
+            if previous_role is not None and previous_role != role:
+                errors.append(
+                    f"Mapping name {name!r} is used as both {previous_role} and {role}."
+                )
+            names_to_roles[name] = role
+
+            if role == "knob" and pv_name:
+                previous_name = knob_pvs.get(pv_name)
+                if previous_name is not None and previous_name != name:
+                    errors.append(
+                        f"Knobs {previous_name!r} and {name!r} share Setpoint PV {pv_name!r}."
+                    )
+                knob_pvs[pv_name] = name
+
+        return list(dict.fromkeys(errors))
+
+    def _enabled_task_names(self, role: str) -> list[str]:
+        task = self.view.current_task()
+        field = {
+            "knob": "variables",
+            "objective": "objectives",
+            "constraint": "constraints",
+        }[role]
+        return [
+            str(row.get("Name", "")).strip()
+            for row in TaskService._enabled_rows(task.get(field, []))
+            if str(row.get("Name", "")).strip()
+        ]
+
+    def _mapping_names(self, role: str) -> list[str]:
+        return [entry.name for entry in self._mapping_items_for_role(role) if entry.name]
+
     def _mapping_matches_task_builder(self) -> bool:
         task = self.view.current_task()
         if not self.is_online_task(task):
             return False
-
-        variables, objectives = self._enabled_task_rows(task)
-        constraints = TaskService._enabled_rows(task.get("constraints", []))
-        mapped_knobs = self._mapping_items_for_role("knob")
-        mapped_objectives = self._mapping_items_for_role("objective")
-        mapped_constraints = self._mapping_items_for_role("constraint")
-
-        if len(variables) != len(mapped_knobs):
+        if self._mapping_sync_errors():
             return False
-        if len(objectives) != len(mapped_objectives):
-            return False
-        if len(constraints) != len(mapped_constraints):
-            return False
+        return all(
+            set(self._enabled_task_names(role)) == set(self._mapping_names(role))
+            for role in ("knob", "objective", "constraint")
+        )
 
-        for index, entry in enumerate(mapped_knobs):
-            variable_name = str(variables[index].get("Name", "")).strip()
-            if variable_name != entry.name:
-                return False
-
-        for index, entry in enumerate(mapped_objectives):
-            objective_name = str(objectives[index].get("Name", "")).strip()
-            if objective_name != entry.name:
-                return False
-
-        for index, entry in enumerate(mapped_constraints):
-            constraint_name = str(constraints[index].get("Name", "")).strip()
-            if constraint_name != entry.name:
-                return False
-
-        return True
+    def _task_rows_needing_setup(self) -> int:
+        count = 0
+        for row in TaskService._enabled_rows(self.view.current_task().get("variables", [])):
+            try:
+                lower = float(row.get("Lower", ""))
+                upper = float(row.get("Upper", ""))
+                initial = float(row.get("Initial", ""))
+            except (TypeError, ValueError):
+                count += 1
+                continue
+            if lower >= upper or not lower <= initial <= upper:
+                count += 1
+        return count
 
     @staticmethod
     def _entry_summary(entries: list[PVLibraryItem], *, empty_label: str) -> str:
@@ -341,34 +476,57 @@ class MachineController:
         if source_label is None or summary_label is None:
             return
 
-        variables, objectives = self._enabled_task_rows()
-        constraints = TaskService._enabled_rows(self.view.current_task().get("constraints", []))
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
         mapped_constraints = self._mapping_items_for_role("constraint")
-        sync_state = "Synced" if self._mapping_matches_task_builder() else "Not synced"
+        active_run = self.window.state.run.phase in {
+            "Running",
+            "Stopping",
+            "Abort Requested",
+            "Restoring",
+        }
+        undo_button = getattr(self.window.machine_ui, "pushButton_undoMappingSync", None)
+        if undo_button is not None:
+            undo_button.setEnabled(self._last_sync_snapshot is not None and not active_run)
+        errors = self._mapping_sync_errors()
+        if errors:
+            sync_state = f"Conflict: {len(errors)}"
+        elif self._mapping_matches_task_builder():
+            needs_setup = self._task_rows_needing_setup()
+            sync_state = "Synced" if not needs_setup else f"Synced · {needs_setup} needs setup"
+        else:
+            sync_state = "Pending changes"
 
         if self._loaded_pv_library is None:
             source_label.setText("Library: none")
             summary_label.setText(
-                f"Mapping: {len(mapped_knobs)} knob, {len(mapped_objectives)} objective, {len(mapped_constraints)} constraint"
-                f" | Task: {len(variables)} knob, {len(objectives)} objective, {len(constraints)} constraint"
-                f" | {sync_state}"
+                f"Mapping {len(mapped_knobs)} knob · {len(mapped_objectives)} objective · "
+                f"{len(mapped_constraints)} constraint | {sync_state}"
             )
+            summary_label.setToolTip("No PV library is currently loaded.")
             if apply_button is not None:
-                apply_button.setEnabled(bool(mapped_knobs or mapped_objectives or mapped_constraints))
+                apply_button.setEnabled(
+                    bool(mapped_knobs or mapped_objectives or mapped_constraints)
+                    and not active_run
+                )
             return
 
         source_label.setText(f"Library: {self._loaded_pv_library.source}")
         summary_label.setText(
-            f"{self._loaded_pv_library.machine}"
-            f" | Library: {len(self._loaded_pv_library.knobs)} knob, {len(self._loaded_pv_library.objectives)} objective"
-            f" | Mapping: {len(mapped_knobs)} knob, {len(mapped_objectives)} objective, {len(mapped_constraints)} constraint"
-            f" | Task: {len(variables)} knob, {len(objectives)} objective, {len(constraints)} constraint"
+            f"{self._loaded_pv_library.machine} · "
+            f"Mapping {len(mapped_knobs)} knob · {len(mapped_objectives)} objective · {len(mapped_constraints)} constraint"
             f" | {sync_state}"
         )
+        summary_label.setToolTip(
+            f"Library: {self._loaded_pv_library.source}\n"
+            f"Available: {len(self._loaded_pv_library.knobs)} knob, "
+            f"{len(self._loaded_pv_library.objectives)} objective"
+        )
         if apply_button is not None:
-            apply_button.setEnabled(bool(mapped_knobs or mapped_objectives or mapped_constraints))
+            apply_button.setEnabled(
+                bool(mapped_knobs or mapped_objectives or mapped_constraints)
+                and not active_run
+            )
 
     def load_external_pv_library(self) -> bool:
         path, _ = QFileDialog.getOpenFileName(
@@ -621,70 +779,161 @@ class MachineController:
         mapped_knobs: list[PVLibraryItem],
         mapped_objectives: list[PVLibraryItem],
         mapped_constraints: list[PVLibraryItem],
-    ) -> None:
-        task_builder = self.window.task_builder_controller
-        variable_table = self.window.task_ui.tableWidget_variables
-        objective_table = self.window.task_ui.tableWidget_objectives
-        constraint_table = self.window.task_ui.tableWidget_constraints
-
-        existing_variable_rows = self._table_records(variable_table)
-        variable_records: list[dict[str, str]] = []
-        for index, entry in enumerate(mapped_knobs):
-            existing = existing_variable_rows[index] if index < len(existing_variable_rows) else {}
-            variable_records.append(
+    ) -> tuple[dict[str, list[dict[str, str]]], dict[str, int]]:
+        table_specs = {
+            "variables": (
+                self.window.task_ui.tableWidget_variables,
+                mapped_knobs,
                 {
                     "Enable": "Y",
-                    "Name": str(entry.name).strip() or f"x{index}",
-                    "Lower": self._coalesce(str(existing.get("Lower", "")), default="-1.0"),
-                    "Upper": self._coalesce(str(existing.get("Upper", "")), default="1.0"),
-                    "Initial": self._coalesce(str(existing.get("Initial", "")), default="0.0"),
-                    "Group": self._coalesce(entry.group, str(existing.get("Group", "")), default="main"),
-                }
-            )
-        task_builder.fill_table_from_records(variable_table, variable_records)
-
-        existing_objective_rows = self._table_records(objective_table)
-        objective_records: list[dict[str, str]] = []
-        for index, entry in enumerate(mapped_objectives):
-            existing = existing_objective_rows[index] if index < len(existing_objective_rows) else {}
-            objective_records.append(
+                    "Name": "",
+                    "Lower": "",
+                    "Upper": "",
+                    "Initial": "",
+                    "Group": "main",
+                },
+            ),
+            "objectives": (
+                self.window.task_ui.tableWidget_objectives,
+                mapped_objectives,
                 {
                     "Enable": "Y",
-                    "Name": str(entry.name).strip() or f"obj{index}",
-                    "Direction": self._coalesce(str(existing.get("Direction", "")), default="maximize"),
-                    "Weight": self._coalesce(str(existing.get("Weight", "")), default="1.0"),
-                    "Samples": self._coalesce(str(existing.get("Samples", "")), default="1"),
-                    "Math": self._coalesce(str(existing.get("Math", "")), default="mean"),
-                }
-            )
-        task_builder.fill_table_from_records(objective_table, objective_records)
-
-        existing_constraint_rows = self._table_records(constraint_table)
-        existing_constraints_by_name = {
-            str(row.get("Name", "")).strip(): row
-            for row in existing_constraint_rows
-            if str(row.get("Name", "")).strip()
+                    "Name": "",
+                    "Direction": "maximize",
+                    "Weight": "1.0",
+                    "Samples": "1",
+                    "Math": "mean",
+                },
+            ),
+            "constraints": (
+                self.window.task_ui.tableWidget_constraints,
+                mapped_constraints,
+                {
+                    "Enable": "Y",
+                    "Name": "",
+                    "Lower": "",
+                    "Upper": "",
+                    "Math": "mean",
+                },
+            ),
         }
-        constraint_records: list[dict[str, str]] = []
-        for index, entry in enumerate(mapped_constraints):
-            name = str(entry.name).strip() or f"cons{index}"
-            existing = existing_constraints_by_name.get(name, {})
-            constraint_records.append(
-                {
-                    "Enable": "Y",
-                    "Name": name,
-                    "Lower": self._coalesce(str(existing.get("Lower", "")), default=""),
-                    "Upper": self._coalesce(str(existing.get("Upper", "")), default=""),
-                    "Math": self._coalesce(str(existing.get("Math", "")), default="mean"),
-                }
-            )
-        task_builder.fill_table_from_records(constraint_table, constraint_records)
+        merged: dict[str, list[dict[str, str]]] = {}
+        counts = {"added": 0, "preserved": 0, "removed": 0}
 
-        self.view.log_console(
-            f"Synced Task Builder from PV Mapping: {len(mapped_knobs)} knob(s), "
-            f"{len(mapped_objectives)} objective(s), {len(mapped_constraints)} constraint(s)."
+        for field, (table, entries, defaults) in table_specs.items():
+            existing_rows = self._table_records(table)
+            existing_by_name: dict[str, dict[str, str]] = {}
+            for row in existing_rows:
+                name = str(row.get("Name", "")).strip()
+                if not name:
+                    continue
+                if name in existing_by_name:
+                    raise ValueError(f"Task Builder contains duplicate {field} name {name!r}.")
+                existing_by_name[name] = row
+
+            selected_names: set[str] = set()
+            desired_rows: list[dict[str, str]] = []
+            for entry in entries:
+                name = str(entry.name).strip()
+                if not name:
+                    raise ValueError(f"A mapped {field} row has no name.")
+                selected_names.add(name)
+                existing = existing_by_name.get(name)
+                if existing is None:
+                    record = copy.deepcopy(defaults)
+                    counts["added"] += 1
+                else:
+                    record = copy.deepcopy(existing)
+                    counts["preserved"] += 1
+                record["Enable"] = "Y"
+                record["Name"] = name
+                if field == "variables" and not str(record.get("Group", "")).strip():
+                    record["Group"] = entry.group or "main"
+                desired_rows.append(record)
+
+            for row in existing_rows:
+                name = str(row.get("Name", "")).strip()
+                if not name or name in selected_names:
+                    continue
+                counts["removed"] += 1
+            merged[field] = desired_rows
+
+        return merged, counts
+
+    def _first_task_setup_target(self) -> tuple[int, object, int] | None:
+        task = self.view.current_task()
+        variable_rows = TaskService.table_to_records(self.window.task_ui.tableWidget_variables)
+        for row_index, row in enumerate(variable_rows):
+            if not TaskService._is_enabled(row.get("Enable", "")):
+                continue
+            try:
+                lower = float(row.get("Lower", ""))
+                upper = float(row.get("Upper", ""))
+                initial = float(row.get("Initial", ""))
+            except (TypeError, ValueError):
+                return 0, self.window.task_ui.tableWidget_variables, row_index
+            if lower >= upper or not lower <= initial <= upper:
+                return 0, self.window.task_ui.tableWidget_variables, row_index
+
+        objective_rows = TaskService.table_to_records(self.window.task_ui.tableWidget_objectives)
+        for row_index, row in enumerate(objective_rows):
+            if not TaskService._is_enabled(row.get("Enable", "")):
+                continue
+            try:
+                weight = float(row.get("Weight", ""))
+                samples = int(float(row.get("Samples", "")))
+            except (TypeError, ValueError):
+                return 1, self.window.task_ui.tableWidget_objectives, row_index
+            direction = str(row.get("Direction", "")).strip().lower()
+            math_op = str(row.get("Math", "")).strip().lower()
+            if direction not in {"maximize", "minimize"} or samples < 1 or not np.isfinite(weight):
+                return 1, self.window.task_ui.tableWidget_objectives, row_index
+            if math_op not in {"mean", "std"}:
+                return 1, self.window.task_ui.tableWidget_objectives, row_index
+
+        algorithm = TaskService._optimizer_name_from_gui(task.get("algorithm", "BO"))
+        if algorithm in {"consbo", "consmobo", "consmggpo", "consmggpo_so"}:
+            constraint_rows = TaskService.table_to_records(self.window.task_ui.tableWidget_constraints)
+            for row_index, row in enumerate(constraint_rows):
+                if not TaskService._is_enabled(row.get("Enable", "")):
+                    continue
+                try:
+                    TaskService._constraint_bounds_from_rows([row])
+                except Exception:
+                    return 2, self.window.task_ui.tableWidget_constraints, row_index
+        return None
+
+    def _first_added_task_target(
+        self,
+        snapshot: dict[str, list[dict[str, str]]],
+    ) -> tuple[int, object, int] | None:
+        specs = (
+            ("variables", self.window.task_ui.tableWidget_variables),
+            ("objectives", self.window.task_ui.tableWidget_objectives),
+            ("constraints", self.window.task_ui.tableWidget_constraints),
         )
-        self.view.refresh_task_preview()
+        for tab_index, (field, table) in enumerate(specs):
+            previous_names = {
+                str(row.get("Name", "")).strip()
+                for row in snapshot[field]
+                if str(row.get("Name", "")).strip()
+            }
+            for row_index, row in enumerate(TaskService.table_to_records(table)):
+                name = str(row.get("Name", "")).strip()
+                if name and name not in previous_names:
+                    return tab_index, table, row_index
+        return None
+
+    def _focus_task_builder_target(self, target: tuple[int, object, int]) -> None:
+        tab_index, table, row_index = target
+        self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
+        self.window.task_ui.tabWidget_tables.setCurrentIndex(tab_index)
+        table.selectRow(row_index)
+        table.setCurrentCell(row_index, 1)
+        name_item = table.item(row_index, 1)
+        if name_item is not None:
+            table.scrollToItem(name_item)
+        table.setFocus()
 
     def apply_selected_pv_library_entries(self) -> None:
         task = self.view.current_task()
@@ -698,6 +947,11 @@ class MachineController:
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
         mapped_constraints = self._mapping_items_for_role("constraint")
+        errors = self._mapping_sync_errors()
+        if errors:
+            QMessageBox.warning(self.window, "Sync PV Mapping To Task", "\n".join(errors))
+            self.view.log_warning("PV Mapping sync blocked: " + "; ".join(errors))
+            return
         if not mapped_knobs and not mapped_objectives and not mapped_constraints:
             QMessageBox.information(
                 self.window,
@@ -706,19 +960,75 @@ class MachineController:
             )
             return
 
-        self._align_task_builder_rows_to_mapping(
-            mapped_knobs,
-            mapped_objectives,
-            mapped_constraints,
+        tables = {
+            "variables": self.window.task_ui.tableWidget_variables,
+            "objectives": self.window.task_ui.tableWidget_objectives,
+            "constraints": self.window.task_ui.tableWidget_constraints,
+        }
+        snapshot = {
+            field: copy.deepcopy(self._table_records(table))
+            for field, table in tables.items()
+        }
+        try:
+            merged, counts = self._align_task_builder_rows_to_mapping(
+                mapped_knobs,
+                mapped_objectives,
+                mapped_constraints,
+            )
+            for field, table in tables.items():
+                self.window.task_builder_controller.fill_table_from_records(
+                    table,
+                    merged[field],
+                )
+        except Exception as exc:
+            for field, table in tables.items():
+                self.window.task_builder_controller.fill_table_from_records(
+                    table,
+                    snapshot[field],
+                )
+            QMessageBox.critical(self.window, "Sync PV Mapping To Task", str(exc))
+            self.view.log_warning(f"PV Mapping sync failed: {exc}")
+            return
+
+        self._last_sync_snapshot = snapshot
+        self.window.machine_ui.pushButton_undoMappingSync.setEnabled(True)
+        summary = (
+            f"Mapping synchronized: {counts['added']} added, "
+            f"{counts['preserved']} preserved, {counts['removed']} removed."
         )
+        self.view.log_console(summary)
+        self.view.refresh_task_preview()
         self.view.append_overview_activity(
             "Machine",
-            status=(
-                f"Synced {len(mapped_knobs)} knob, {len(mapped_objectives)} objective, "
-                f"and {len(mapped_constraints)} constraint mapping row(s) to Task Builder."
-            ),
+            status=summary,
         )
         self.refresh_selected_library_tables()
+        target = self._first_task_setup_target()
+        if target is None and counts["added"]:
+            target = self._first_added_task_target(snapshot)
+        if target is not None:
+            self._focus_task_builder_target(target)
+        self.view.status_message(summary, 5000)
+
+    def undo_last_mapping_sync(self) -> None:
+        if self._last_sync_snapshot is None:
+            return
+        tables = {
+            "variables": self.window.task_ui.tableWidget_variables,
+            "objectives": self.window.task_ui.tableWidget_objectives,
+            "constraints": self.window.task_ui.tableWidget_constraints,
+        }
+        snapshot = self._last_sync_snapshot
+        for field, table in tables.items():
+            self.window.task_builder_controller.fill_table_from_records(
+                table,
+                copy.deepcopy(snapshot[field]),
+            )
+        self._last_sync_snapshot = None
+        self.window.machine_ui.pushButton_undoMappingSync.setEnabled(False)
+        self.view.refresh_task_preview()
+        self.view.log_console("Undid the most recent PV Mapping sync.")
+        self.view.status_message("PV Mapping sync undone.", 4000)
 
     def set_machine_status(self, text: str) -> None:
         self.window.machine_ui.label_statusValue.setText(text)
@@ -782,7 +1092,11 @@ class MachineController:
         if not self.is_online_task(task):
             return True
         status = self.window.machine_ui.label_statusValue.text().strip().lower()
-        if status in {"ready", "connected"}:
+        current_identity = self.machine_check_identity(task)
+        if (
+            status == "pv check passed"
+            and self.window.state.machine_check_identity == current_identity
+        ):
             return True
         if self.window.machine_ui.checkBox_autoConnect.isChecked():
             return self.check_machine_pv(show_dialog=False)
@@ -840,16 +1154,34 @@ class MachineController:
 
         try:
             caget = self._prepare_epics_caget()
-            pvname = self.resolve_epics_read_pv(task)
+            task_cfg = TaskService.build_task_config(task)
+            kwargs = task_cfg.backend.kwargs
+            pvnames: list[str] = []
+            for field in (
+                "knobs_pvnames",
+                "knob_readback_pvnames",
+                "obj_pvnames",
+                "constraint_pvnames",
+            ):
+                pvnames.extend(str(value).strip() for value in kwargs.get(field, []) if str(value).strip())
+            for _source, target in kwargs.get("write_policy_kwargs", {}).get("pvlinks", []):
+                target_text = str(target).strip()
+                if target_text:
+                    pvnames.append(target_text)
+            pvnames = list(dict.fromkeys(pvnames))
+            if not pvnames:
+                raise ValueError("No EPICS PV is configured for the current task.")
             self.set_machine_status("Checking")
-            value = caget(
-                pvname,
-                timeout=float(self.window.machine_ui.doubleSpinBox_timeout.value()),
-            )
-            if value is None:
-                raise RuntimeError(f"{pvname} returned None")
+            checked_values: list[tuple[str, object]] = []
+            timeout = float(self.window.machine_ui.doubleSpinBox_timeout.value())
+            for pvname in pvnames:
+                value = caget(pvname, timeout=timeout)
+                if value is None:
+                    raise RuntimeError(f"{pvname} returned None")
+                checked_values.append((pvname, value))
         except Exception as exc:
             self.set_machine_status("Failed")
+            self.window.state.machine_check_identity.clear()
             self.window.state.last_test_read_status = "Failed"
             self.window.state.last_test_read_detail = f"Last PV check failed: {exc}"
             self.view.refresh_overview_readiness()
@@ -859,15 +1191,28 @@ class MachineController:
                 QMessageBox.critical(self.window, "PV Check Failed", str(exc))
             return False
 
-        self.set_machine_status("Connected")
+        self.window.state.machine_check_identity = self.machine_check_identity(task)
+        self.set_machine_status("PV Check Passed")
         self.window.state.last_test_read_status = "Passed"
-        self.window.state.last_test_read_detail = f"{pvname} = {value}"
+        preview = ", ".join(f"{pv} = {value}" for pv, value in checked_values[:3])
+        if len(checked_values) > 3:
+            preview += f", ... (+{len(checked_values) - 3} more)"
+        self.window.state.last_test_read_detail = (
+            f"Checked {len(checked_values)} required PV(s): {preview}"
+        )
         self.view.refresh_overview_readiness()
-        self.view.append_overview_activity("Machine", status=f"PV check passed for {pvname}.")
-        self.view.log_pv(f"PV check: {pvname} -> {value}")
+        self.view.append_overview_activity(
+            "Machine", status=f"PV check passed for {len(checked_values)} required PV(s)."
+        )
+        for pvname, value in checked_values:
+            self.view.log_pv(f"PV check: {pvname} -> {value}")
         self.view.log_console("EPICS PV check completed.")
         if show_dialog:
-            QMessageBox.information(self.window, "Check PV", f"PV read succeeded:\n{pvname} = {value}")
+            QMessageBox.information(
+                self.window,
+                "Check PV",
+                f"PV read succeeded for {len(checked_values)} required PV(s).",
+            )
         return True
 
     def read_current_knob_values(self, task: dict, variables: list[dict]) -> list[float]:
