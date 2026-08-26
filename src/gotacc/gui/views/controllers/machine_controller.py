@@ -344,12 +344,20 @@ class MachineController:
         ui.horizontalLayout_pvLibraryControls.setContentsMargins(0, 0, 0, 0)
         ui.horizontalLayout_pvLibraryControls.setSpacing(6)
         ui.verticalLayout_pvPresetLibrary.setContentsMargins(8, 5, 8, 5)
-        ui.verticalLayout_pvPresetLibrary.setSpacing(7)
+        ui.verticalLayout_pvPresetLibrary.setSpacing(0)
+        ui.verticalLayout_pvPresetLibrary.removeWidget(ui.label_pvLibrarySummary)
         ui.label_pvLibrarySummary.setVisible(True)
         ui.label_pvLibrarySummary.setProperty("role", "mappingStatus")
-        ui.label_pvLibrarySummary.setMinimumHeight(18)
-        ui.label_pvLibrarySummary.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        ui.frame_pvPresetLibrary.setMaximumHeight(70)
+        ui.label_pvLibrarySummary.setWordWrap(False)
+        ui.label_pvLibrarySummary.setMinimumHeight(24)
+        ui.label_pvLibrarySummary.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.Fixed
+        )
+        ui.label_pvLibrarySummary.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        ui.horizontalLayout_pvLibraryControls.addWidget(
+            ui.label_pvLibrarySummary, 0, Qt.AlignRight | Qt.AlignVCenter
+        )
+        ui.frame_pvPresetLibrary.setMaximumHeight(40)
         for button in (
             ui.pushButton_selectPvs,
             ui.pushButton_applySelectedPvLibrary,

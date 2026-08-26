@@ -315,11 +315,24 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.groupBox_connection.maximumHeight() == 82
         assert window.machine_ui.pushButton_test.property("inlineAction") is True
         assert window.machine_ui.label_statusValue.property("role") == "statusPill"
-        assert window.machine_ui.frame_pvPresetLibrary.maximumHeight() == 70
+        assert window.machine_ui.frame_pvPresetLibrary.maximumHeight() == 40
         assert window.machine_ui.pushButton_selectPvs.text() == "Select PVs"
         assert window.machine_ui.pushButton_applySelectedPvLibrary.text() == "Sync To Task"
         assert window.machine_ui.pushButton_undoMappingSync.text() == "Undo Sync"
         assert not window.machine_ui.label_pvLibrarySummary.isHidden()
+        assert not window.machine_ui.label_pvLibrarySummary.wordWrap()
+        assert (
+            window.machine_ui.horizontalLayout_pvLibraryControls.indexOf(
+                window.machine_ui.label_pvLibrarySummary
+            )
+            >= 0
+        )
+        assert (
+            window.machine_ui.verticalLayout_pvPresetLibrary.indexOf(
+                window.machine_ui.label_pvLibrarySummary
+            )
+            == -1
+        )
         assert window.machine_ui.pushButton_selectPvs.property("inlineAction") is True
         assert window.machine_ui.pushButton_applySelectedPvLibrary.property("inlineAction") is True
         assert (
