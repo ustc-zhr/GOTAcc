@@ -596,6 +596,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         policy_name: str = "sample_guard",
         kwargs: dict | None = None,
         preset_name: str | None = None,
+        custom_presets: list[dict] | None = None,
         locked_target: str | None = None,
         parent=None,
     ) -> None:
@@ -605,6 +606,11 @@ class SampleGuardRuleEditorDialog(QDialog):
         self.kind = kind
         self.target_names = [str(name).strip() for name in target_names if str(name).strip()]
         self.locked_target = str(locked_target or "").strip()
+        self.custom_presets = {
+            str(preset.get("id", "")).strip().lower(): preset
+            for preset in custom_presets or []
+            if preset.get("kind") == kind and str(preset.get("id", "")).strip()
+        }
         if self.locked_target and self.locked_target not in self.target_names:
             self.target_names.append(self.locked_target)
         self._loading = False
@@ -625,6 +631,10 @@ class SampleGuardRuleEditorDialog(QDialog):
         for name in POLICY_REGISTRY.preset_names(kind, gui_only=True):
             preset = POLICY_REGISTRY.resolve_preset(kind, name)
             self.comboBox_preset.addItem(preset.display_name, preset.name)
+        if self.custom_presets:
+            self.comboBox_preset.insertSeparator(self.comboBox_preset.count())
+            for preset_id, preset in self.custom_presets.items():
+                self.comboBox_preset.addItem(str(preset.get("name", preset_id)), preset_id)
         form.addRow("Preset", self.comboBox_preset)
 
         self.comboBox_target = QComboBox(self)
@@ -780,7 +790,13 @@ class SampleGuardRuleEditorDialog(QDialog):
         if self._loading:
             return
         name = str(self.comboBox_preset.currentData() or "")
-        if name:
+        if name in self.custom_presets:
+            policy = self.custom_presets[name].get("policy", {}) or {}
+            self._load_rule(
+                dict(policy.get("kwargs", {}) or {}),
+                preset_name=name,
+            )
+        elif name:
             self._load_rule(POLICY_REGISTRY.expand_preset(self.kind, name)["kwargs"], preset_name=name)
 
     def _on_rule_changed(self, *_args) -> None:
@@ -901,7 +917,7 @@ class MappingPolicyManagerDialog(QDialog):
         super().__init__(parent)
         self._request: tuple[str, int | None] | None = None
         self.setWindowTitle(f"Policies for {target}")
-        self.resize(620, 360)
+        self.resize(760, 380)
 
         root = QVBoxLayout(self)
         heading = QLabel(f"{target} — {pv_name or 'PV not assigned'}", self)
@@ -940,11 +956,13 @@ class MappingPolicyManagerDialog(QDialog):
         self.pushButton_edit = QPushButton("Edit Selected", self)
         self.pushButton_remove = QPushButton("Remove Selected", self)
         self.pushButton_toggle = QPushButton("Enable / Disable", self)
+        self.pushButton_savePreset = QPushButton("Save as Preset", self)
         close_button = QPushButton("Close", self)
         actions.addWidget(self.pushButton_add)
         actions.addWidget(self.pushButton_edit)
         actions.addWidget(self.pushButton_remove)
         actions.addWidget(self.pushButton_toggle)
+        actions.addWidget(self.pushButton_savePreset)
         actions.addStretch(1)
         actions.addWidget(close_button)
         root.addLayout(actions)
@@ -953,10 +971,12 @@ class MappingPolicyManagerDialog(QDialog):
         self.pushButton_edit.setEnabled(has_policies)
         self.pushButton_remove.setEnabled(has_policies)
         self.pushButton_toggle.setEnabled(has_policies)
+        self.pushButton_savePreset.setEnabled(has_policies)
         self.pushButton_add.clicked.connect(lambda: self._finish("add"))
         self.pushButton_edit.clicked.connect(lambda: self._finish("edit"))
         self.pushButton_remove.clicked.connect(lambda: self._finish("remove"))
         self.pushButton_toggle.clicked.connect(lambda: self._finish("toggle"))
+        self.pushButton_savePreset.clicked.connect(lambda: self._finish("save_preset"))
         self.tableWidget_policies.doubleClicked.connect(lambda *_: self._finish("edit"))
         close_button.clicked.connect(self.reject)
 

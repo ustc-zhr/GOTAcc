@@ -60,6 +60,9 @@
   `machine.policy_bindings`, including legacy project migration, stable target
   compilation through current PV Mapping order, and a registry-backed Rule
   Presets browser
+- Added machine-scoped custom policy presets that can be saved from a binding,
+  reused from the structured Rule Editor, renamed through stable IDs, and
+  deleted without removing or changing existing bound rule behavior
 
 ## 1.2.0 - 2026-06-27
 

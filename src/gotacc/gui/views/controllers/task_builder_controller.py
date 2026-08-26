@@ -1822,6 +1822,7 @@ class TaskBuilderController:
                 self.window.machine_ui.tableWidget_writeLinks,
                 machine.get("write_links", []),
             )
+            self.window._load_policy_presets(machine)
             self.window._load_policy_bindings(machine)
         finally:
             self.window._suppress_autofill = False

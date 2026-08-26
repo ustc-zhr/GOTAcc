@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -1240,6 +1242,7 @@ class MainWindow(QMainWindow):
         self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 2)
         self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
         self.machine_ui.policy_bindings = []
+        self.machine_ui.policy_presets = []
         self.machine_ui.tableWidget_writeLinks.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         self._set_table_row(self.machine_ui.tableWidget_mapping, 0, ["knob", "x0", "", "", "main", ""])
@@ -1581,12 +1584,16 @@ class MainWindow(QMainWindow):
             if preset_name == "custom":
                 preset_label = "Custom Rule"
             else:
-                try:
-                    preset_label = POLICY_REGISTRY.resolve_preset(
-                        kind, preset_name
-                    ).display_name
-                except ValueError:
-                    preset_label = preset_name
+                custom_preset = self._custom_policy_preset(kind, preset_name)
+                if custom_preset is not None:
+                    preset_label = str(custom_preset.get("name", preset_name))
+                else:
+                    try:
+                        preset_label = POLICY_REGISTRY.resolve_preset(
+                            kind, preset_name
+                        ).display_name
+                    except ValueError:
+                        preset_label = preset_name
             results.append(
                 {
                     "row": index,
@@ -1645,7 +1652,15 @@ class MainWindow(QMainWindow):
                     else TaskService._is_enabled(enabled_value)
                 )
                 preset = str(raw.get("preset", "custom") or "custom").strip().lower()
-                if preset not in POLICY_REGISTRY.preset_names(kind):
+                custom_ids = {
+                    str(item.get("id", ""))
+                    for item in self.machine_ui.policy_presets
+                    if item.get("kind") == kind
+                }
+                if (
+                    preset not in POLICY_REGISTRY.preset_names(kind)
+                    and preset not in custom_ids
+                ):
                     preset = "custom"
                 bindings.append(
                     {
@@ -1725,6 +1740,62 @@ class MainWindow(QMainWindow):
         self.machine_ui.policy_bindings = bindings
         self._refresh_mapping_policy_widgets()
 
+    def _load_policy_presets(self, machine: dict) -> None:
+        presets: list[dict] = []
+        seen_ids: set[str] = set()
+        for raw in machine.get("policy_presets", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            kind = str(raw.get("kind", "")).strip().lower()
+            preset_id = str(raw.get("id", "")).strip().lower()
+            display_name = str(raw.get("name", "")).strip()
+            policy = raw.get("policy", {}) or {}
+            kwargs = (policy.get("kwargs", {}) or {}) if isinstance(policy, dict) else {}
+            if (
+                kind not in {"objective", "constraint"}
+                or not preset_id
+                or preset_id == "custom"
+                or preset_id in seen_ids
+                or preset_id in POLICY_REGISTRY.preset_names(kind)
+                or not display_name
+                or not isinstance(policy, dict)
+                or not isinstance(kwargs, dict)
+            ):
+                continue
+            policy_name = str(policy.get("name", "sample_guard")).strip().lower()
+            try:
+                policy_name = POLICY_REGISTRY.resolve(kind, policy_name).name
+                template_kwargs = copy.deepcopy(kwargs)
+                template_kwargs["target"] = None
+                template_kwargs["target_col"] = 0
+                POLICY_REGISTRY.validate(kind, policy_name, template_kwargs)
+            except (TypeError, ValueError):
+                continue
+            presets.append(
+                {
+                    "id": preset_id,
+                    "name": display_name,
+                    "kind": kind,
+                    "description": str(raw.get("description", "")).strip(),
+                    "policy": {"name": policy_name, "kwargs": template_kwargs},
+                }
+            )
+            seen_ids.add(preset_id)
+        self.machine_ui.policy_presets = presets
+        if hasattr(self, "machine_controller"):
+            self.machine_controller.refresh_policy_preset_browser()
+
+    def _custom_policy_preset(self, kind: str, preset_id: str) -> dict | None:
+        normalized = str(preset_id or "").strip().lower()
+        return next(
+            (
+                preset
+                for preset in self.machine_ui.policy_presets
+                if preset.get("kind") == kind and preset.get("id") == normalized
+            ),
+            None,
+        )
+
     def _refresh_mapping_policy_widgets(self) -> None:
         if not hasattr(self.machine_ui, "tableWidget_mapping"):
             return
@@ -1791,6 +1862,7 @@ class MainWindow(QMainWindow):
             policy_name=str(policy.get("name", "sample_guard")),
             kwargs=copy.deepcopy(policy.get("kwargs", {}) or {}),
             preset_name=None if preset_name == "custom" else preset_name,
+            custom_presets=copy.deepcopy(self.machine_ui.policy_presets),
             locked_target=locked_target or str(binding.get("target", "")),
             parent=self,
         )
@@ -1803,6 +1875,130 @@ class MainWindow(QMainWindow):
         self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
         return True
+
+    @staticmethod
+    def _policy_preset_id(display_name: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "_", display_name.strip().lower()).strip("_")
+        return f"custom_{normalized or 'rule'}"
+
+    def _save_policy_binding_as_preset(self, kind: str, binding_index: int) -> None:
+        if binding_index < 0 or binding_index >= len(self.machine_ui.policy_bindings):
+            return
+        binding = self.machine_ui.policy_bindings[binding_index]
+        if binding.get("kind") != kind:
+            return
+        display_name, accepted = QInputDialog.getText(
+            self,
+            "Save Custom Preset",
+            "Preset name:",
+        )
+        display_name = display_name.strip()
+        if not accepted or not display_name:
+            return
+        built_in_names = {
+            POLICY_REGISTRY.resolve_preset(kind, preset_name).display_name.casefold()
+            for preset_name in POLICY_REGISTRY.preset_names(kind)
+        }
+        if display_name.casefold() in built_in_names or any(
+            str(preset.get("name", "")).strip().casefold() == display_name.casefold()
+            and preset.get("kind") == kind
+            for preset in self.machine_ui.policy_presets
+        ):
+            QMessageBox.warning(
+                self,
+                "Save Custom Preset",
+                f"A {kind} preset named {display_name!r} already exists.",
+            )
+            return
+        preset_id = self._policy_preset_id(display_name)
+        used_ids = {str(preset.get("id", "")) for preset in self.machine_ui.policy_presets}
+        base_id = preset_id
+        suffix = 2
+        while preset_id in used_ids or preset_id in POLICY_REGISTRY.preset_names(kind):
+            preset_id = f"{base_id}_{suffix}"
+            suffix += 1
+        policy = copy.deepcopy(binding.get("policy", {}) or {})
+        kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
+        kwargs["target"] = None
+        kwargs["target_col"] = 0
+        preset = {
+            "id": preset_id,
+            "name": display_name,
+            "kind": kind,
+            "description": self._policy_rule_summary(kwargs),
+            "policy": {
+                "name": str(policy.get("name", "sample_guard")),
+                "kwargs": kwargs,
+            },
+        }
+        self.machine_ui.policy_presets.append(preset)
+        binding["preset"] = preset_id
+        self.machine_controller.refresh_policy_preset_browser()
+        self._refresh_mapping_policy_widgets()
+        self._refresh_task_preview()
+
+    def _rename_custom_policy_preset(self, preset_id: str) -> None:
+        preset = next(
+            (
+                item
+                for item in self.machine_ui.policy_presets
+                if item.get("id") == preset_id
+            ),
+            None,
+        )
+        if preset is None:
+            return
+        display_name, accepted = QInputDialog.getText(
+            self,
+            "Rename Custom Preset",
+            "Preset name:",
+            text=str(preset.get("name", "")),
+        )
+        display_name = display_name.strip()
+        if not accepted or not display_name:
+            return
+        kind = str(preset.get("kind", ""))
+        built_in_names = {
+            POLICY_REGISTRY.resolve_preset(kind, preset_name).display_name.casefold()
+            for preset_name in POLICY_REGISTRY.preset_names(kind)
+        }
+        if display_name.casefold() in built_in_names or any(
+            item is not preset
+            and item.get("kind") == kind
+            and str(item.get("name", "")).strip().casefold() == display_name.casefold()
+            for item in self.machine_ui.policy_presets
+        ):
+            QMessageBox.warning(self, "Rename Custom Preset", "That preset name is already in use.")
+            return
+        preset["name"] = display_name
+        self.machine_controller.refresh_policy_preset_browser()
+        self._refresh_mapping_policy_widgets()
+        self._refresh_task_preview()
+
+    def _delete_custom_policy_preset(self, preset_id: str) -> None:
+        preset = next(
+            (item for item in self.machine_ui.policy_presets if item.get("id") == preset_id),
+            None,
+        )
+        if preset is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete Custom Preset",
+            f"Delete preset {preset.get('name', preset_id)!r}? Existing policy "
+            "bindings will keep their rule as Custom Rule.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        self.machine_ui.policy_presets.remove(preset)
+        for binding in self.machine_ui.policy_bindings:
+            if binding.get("preset") == preset_id:
+                binding["preset"] = "custom"
+        self.machine_controller.refresh_policy_preset_browser()
+        self._refresh_mapping_policy_widgets()
+        self._refresh_task_preview()
 
     def _add_policy_for_mapping(self, kind: str, target: str) -> None:
         default_preset = "fel_energy_guard" if kind == "objective" else "bpm_guard"
@@ -1877,6 +2073,11 @@ class MainWindow(QMainWindow):
                 )
                 self._refresh_mapping_policy_widgets()
                 self._refresh_task_preview()
+            elif selected is not None and selected < len(bound) and action == "save_preset":
+                self._save_policy_binding_as_preset(
+                    kind,
+                    int(bound[selected]["row"]),
+                )
 
     def _qobj_alive(self, obj) -> bool:
         return obj is not None and not sip.isdeleted(obj)

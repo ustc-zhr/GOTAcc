@@ -94,6 +94,50 @@ def test_mapping_bound_rule_editor_locks_and_persists_target(monkeypatch):
         app.processEvents()
 
 
+def test_structured_rule_editor_applies_machine_custom_preset(monkeypatch):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication
+    from gotacc.gui.views.tool_dialogs import SampleGuardRuleEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    custom_preset = {
+        "id": "custom_stable_signal",
+        "name": "Stable Signal",
+        "kind": "objective",
+        "policy": {
+            "name": "sample_guard",
+            "kwargs": {
+                "target": None,
+                "target_col": 0,
+                "conditions": [{"metric": "std", "operator": "lt", "value": 0.01}],
+                "match": "all",
+                "action": {"type": "replace", "value": -1.0},
+            },
+        },
+    }
+    dialog = SampleGuardRuleEditorDialog(
+        kind="objective",
+        target_names=["energy", "charge"],
+        custom_presets=[custom_preset],
+        locked_target="charge",
+    )
+    try:
+        dialog.comboBox_preset.setCurrentIndex(
+            dialog.comboBox_preset.findData("custom_stable_signal")
+        )
+        state = dialog.rule_state()
+        assert state["preset"] == "custom_stable_signal"
+        assert state["kwargs"]["target"] == "charge"
+        assert state["kwargs"]["target_col"] == 1
+        assert state["kwargs"]["conditions"] == [
+            {"metric": "std", "operator": "lt", "value": 0.01}
+        ]
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_mapping_policy_manager_exposes_row_management_actions(monkeypatch):
     pytest.importorskip("PyQt5")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")

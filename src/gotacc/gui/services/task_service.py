@@ -666,6 +666,9 @@ class TaskService:
                 "policy_bindings": copy.deepcopy(
                     getattr(machine_ui, "policy_bindings", [])
                 ),
+                "policy_presets": copy.deepcopy(
+                    getattr(machine_ui, "policy_presets", [])
+                ),
                 "mapping": mapping_rows,
                 "write_links": TaskService.table_to_records(machine_ui.tableWidget_writeLinks),
             },

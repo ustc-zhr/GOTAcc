@@ -211,6 +211,13 @@ policy rows, and backend configs that name `fel_energy_guard`,
 `zero_guard`, or `bpm_guard` directly remain supported. For example, an
 objective binding can target the stable Task Builder objective name:
 
+Machine-specific custom presets can be created from any existing binding with
+`Save as Preset`. They are stored in `machine.policy_presets`, appear alongside
+built-in presets in the Rule Editor, and can be reused by other compatible PV
+Mapping rows. Renaming preserves references through a stable preset ID. Deleting
+a custom preset preserves each assigned rule and converts those bindings to
+standalone `Custom Rule` entries.
+
 ```python
 "policy_bindings": [
     {

@@ -522,8 +522,8 @@ class MachineController:
         )
         intro.setWordWrap(True)
         preset_layout.addWidget(intro)
-        preset_table = QTableWidget(0, 3, preset_page)
-        preset_table.setHorizontalHeaderLabels(["Kind", "Preset", "Description"])
+        preset_table = QTableWidget(0, 4, preset_page)
+        preset_table.setHorizontalHeaderLabels(["Kind", "Preset", "Source", "Description"])
         preset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         preset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         preset_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -531,16 +531,22 @@ class MachineController:
         preset_table.verticalHeader().setVisible(False)
         preset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         preset_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        preset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        for kind in ("objective", "constraint"):
-            for preset_name in POLICY_REGISTRY.preset_names(kind, gui_only=True):
-                preset = POLICY_REGISTRY.resolve_preset(kind, preset_name)
-                row = preset_table.rowCount()
-                preset_table.insertRow(row)
-                values = (kind.title(), preset.display_name, preset.description)
-                for column, value in enumerate(values):
-                    preset_table.setItem(row, column, QTableWidgetItem(value))
+        preset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        preset_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         preset_layout.addWidget(preset_table, 1)
+        preset_actions = QHBoxLayout()
+        preset_hint = QLabel(
+            "To create one, open a PV Mapping policy and choose Save as Preset.",
+            preset_page,
+        )
+        rename_button = QPushButton("Rename", preset_page)
+        delete_button = QPushButton("Delete", preset_page)
+        rename_button.setEnabled(False)
+        delete_button.setEnabled(False)
+        preset_actions.addWidget(preset_hint, 1)
+        preset_actions.addWidget(rename_button)
+        preset_actions.addWidget(delete_button)
+        preset_layout.addLayout(preset_actions)
         advanced_tabs.addTab(preset_page, "Rule Presets")
         main_tabs.addTab(safeguards_page, "Run Safeguards")
         main_tabs.addTab(advanced_page, "Policy Presets")
@@ -551,7 +557,69 @@ class MachineController:
         ui.tabWidget_machineAdvanced = advanced_tabs
         ui.tab_policyPresetBrowser = preset_page
         ui.tableWidget_policyPresets = preset_table
+        ui.pushButton_renamePolicyPreset = rename_button
+        ui.pushButton_deletePolicyPreset = delete_button
         ui.tab_safeguardsAdvanced = safeguards_page
+        preset_table.itemSelectionChanged.connect(self._update_policy_preset_actions)
+        rename_button.clicked.connect(self._rename_selected_policy_preset)
+        delete_button.clicked.connect(self._delete_selected_policy_preset)
+        self.refresh_policy_preset_browser()
+
+    def refresh_policy_preset_browser(self) -> None:
+        ui = self.window.machine_ui
+        if not hasattr(ui, "tableWidget_policyPresets"):
+            return
+        table = ui.tableWidget_policyPresets
+        table.setRowCount(0)
+        rows: list[tuple[str, str, str, str, str]] = []
+        for kind in ("objective", "constraint"):
+            for preset_name in POLICY_REGISTRY.preset_names(kind, gui_only=True):
+                preset = POLICY_REGISTRY.resolve_preset(kind, preset_name)
+                rows.append(
+                    (kind.title(), preset.display_name, "Built-in", preset.description, "")
+                )
+        for preset in getattr(ui, "policy_presets", []):
+            rows.append(
+                (
+                    str(preset.get("kind", "")).title(),
+                    str(preset.get("name", "")),
+                    "Machine",
+                    str(preset.get("description", "")),
+                    str(preset.get("id", "")),
+                )
+            )
+        for values in rows:
+            row = table.rowCount()
+            table.insertRow(row)
+            for column, value in enumerate(values[:4]):
+                item = QTableWidgetItem(value)
+                if column == 1:
+                    item.setData(Qt.UserRole, values[4])
+                table.setItem(row, column, item)
+        self._update_policy_preset_actions()
+
+    def _selected_custom_policy_preset_id(self) -> str:
+        table = self.window.machine_ui.tableWidget_policyPresets
+        row = table.currentRow()
+        if row < 0:
+            return ""
+        item = table.item(row, 1)
+        return str(item.data(Qt.UserRole) or "") if item is not None else ""
+
+    def _update_policy_preset_actions(self) -> None:
+        preset_id = self._selected_custom_policy_preset_id()
+        self.window.machine_ui.pushButton_renamePolicyPreset.setEnabled(bool(preset_id))
+        self.window.machine_ui.pushButton_deletePolicyPreset.setEnabled(bool(preset_id))
+
+    def _rename_selected_policy_preset(self) -> None:
+        preset_id = self._selected_custom_policy_preset_id()
+        if preset_id:
+            self.window._rename_custom_policy_preset(preset_id)
+
+    def _delete_selected_policy_preset(self) -> None:
+        preset_id = self._selected_custom_policy_preset_id()
+        if preset_id:
+            self.window._delete_custom_policy_preset(preset_id)
 
     @staticmethod
     def _mapping_row_value(row: dict, key: str, default: str = "") -> str:

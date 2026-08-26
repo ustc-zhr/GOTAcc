@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QApplication
 from gotacc.gui.services.task_service import TaskService
 from gotacc.gui.views.main_window import MainWindow
 from gotacc.gui.views.tool_dialogs import BoundsToolsDialog
+from gotacc.interfaces.policies import POLICY_REGISTRY
 
 
 def _online_task(tmp_path):
@@ -226,6 +227,68 @@ def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, wind
     assert serialized_machine["policy_bindings"] == window.machine_ui.policy_bindings
     assert "objective_policies" not in serialized_machine
     assert "constraint_policies" not in serialized_machine
+
+
+def test_machine_custom_policy_preset_can_be_saved_renamed_and_deleted(
+    tmp_path, window, monkeypatch
+):
+    import gotacc.gui.views.main_window as main_window_module
+
+    task = _online_task(tmp_path)
+    spec = POLICY_REGISTRY.expand_preset("objective", "fel_energy_guard")
+    spec["kwargs"]["target"] = "Transmission"
+    task["machine"]["policy_bindings"] = [
+        {
+            "kind": "objective",
+            "target": "Transmission",
+            "enabled": True,
+            "preset": "custom",
+            "policy": spec,
+        }
+    ]
+    window._apply_task_payload(task, goto_builder=False)
+    monkeypatch.setattr(
+        main_window_module.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: ("Transmission Quality", True),
+    )
+
+    window._save_policy_binding_as_preset("objective", 0)
+
+    assert len(window.machine_ui.policy_presets) == 1
+    preset = window.machine_ui.policy_presets[0]
+    assert preset["id"] == "custom_transmission_quality"
+    assert preset["policy"]["kwargs"]["target"] is None
+    assert window.machine_ui.policy_bindings[0]["preset"] == preset["id"]
+    assert window.machine_ui.tableWidget_policyPresets.rowCount() == 4
+    assert window.machine_ui.tableWidget_policyPresets.item(3, 2).text() == "Machine"
+
+    serialized_machine = window._current_task()["machine"]
+    assert serialized_machine["policy_presets"] == [preset]
+    assert serialized_machine["policy_bindings"][0]["preset"] == preset["id"]
+    saved_task = window._current_task()
+    window._apply_task_payload(saved_task, goto_builder=False)
+    assert window.machine_ui.policy_presets[0]["id"] == preset["id"]
+    assert window.machine_ui.policy_bindings[0]["preset"] == preset["id"]
+    preset = window.machine_ui.policy_presets[0]
+
+    monkeypatch.setattr(
+        main_window_module.QInputDialog,
+        "getText",
+        lambda *_args, **_kwargs: ("Transmission Stable", True),
+    )
+    window._rename_custom_policy_preset(preset["id"])
+    assert preset["name"] == "Transmission Stable"
+    assert window.machine_ui.policy_bindings[0]["preset"] == preset["id"]
+
+    monkeypatch.setattr(
+        main_window_module.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: main_window_module.QMessageBox.Yes,
+    )
+    window._delete_custom_policy_preset(preset["id"])
+    assert window.machine_ui.policy_presets == []
+    assert window.machine_ui.policy_bindings[0]["preset"] == "custom"
 
 
 def test_bounds_tool_previews_exact_plan_before_apply(tmp_path, window, monkeypatch):
