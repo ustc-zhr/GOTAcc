@@ -1759,8 +1759,6 @@ class TaskBuilderController:
             table.blockSignals(old_state)
         self._install_objective_math_widgets(table)
         self.refresh_write_link_editors()
-        self.refresh_objective_policy_editors()
-        self.refresh_constraint_policy_editors()
 
     def apply_task_payload(
         self,
@@ -1824,15 +1822,7 @@ class TaskBuilderController:
                 self.window.machine_ui.tableWidget_writeLinks,
                 machine.get("write_links", []),
             )
-            self.fill_table_from_records(
-                self.window.machine_ui.tableWidget_objectivePolicies,
-                machine.get("objective_policies", []),
-            )
-            self.fill_table_from_records(
-                self.window.machine_ui.tableWidget_constraintPolicies,
-                machine.get("constraint_policies", []),
-            )
-            self.window._refresh_mapping_policy_widgets()
+            self.window._load_policy_bindings(machine)
         finally:
             self.window._suppress_autofill = False
 
@@ -1886,8 +1876,6 @@ class TaskBuilderController:
             "The task changed after its most recent validation.",
         )
         self.refresh_write_link_editors()
-        self.refresh_objective_policy_editors()
-        self.refresh_constraint_policy_editors()
         self._update_test_function_control(task)
         self.update_bounds_tool_controls()
         self.update_algorithm_guidance(task)

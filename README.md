@@ -197,28 +197,38 @@ constraint policies. The page uses a compact machine-signal list with a selected
 signal detail panel. Readback, group, note, and policy management stay in the
 detail panel instead of expanding the main table. The structured Rule Editor
 locks the target to that mapping row and edits its conditions, match mode, and
-action without requiring JSON. Machine Setup -> Policy Presets retains the
-compatibility binding summaries. The declarative
+action without requiring JSON. Machine Setup -> Policy Presets shows the
+registry-backed catalog of reusable rules. Machine projects store assignments
+in the canonical `machine.policy_bindings` model; when a task is built, the GUI
+compiles each stable target name to the backend's objective/constraint policy
+list and current `target_col`. The declarative
 `sample_guard` policy lets online tasks describe common signal-quality rules
 without executing user-provided code.
 Reusable presets provide the former FEL energy, zero-objective, and BPM
-zero-signal behavior; saved task definitions expand those presets to the common
-`sample_guard` policy. Existing configs that name `fel_energy_guard`,
+zero-signal behavior; bindings expand those presets to the common
+`sample_guard` policy. Existing GUI projects with legacy objective/constraint
+policy rows, and backend configs that name `fel_energy_guard`,
 `zero_guard`, or `bpm_guard` directly remain supported. For example, an
-objective policy can target the stable Task Builder objective name:
+objective binding can target the stable Task Builder objective name:
 
 ```python
-"objective_policies": [
+"policy_bindings": [
     {
-        "name": "sample_guard",
-        "kwargs": {
-            "target": "fel_energy",
-            "conditions": [
-                {"metric": "mean_abs", "operator": "gt", "value": 1.0e6},
-                {"metric": "peak_to_peak", "operator": "lt", "value": 1.0e-6},
-            ],
-            "match": "any",
-            "action": {"type": "replace", "value": 0.0},
+        "kind": "objective",
+        "target": "fel_energy",
+        "enabled": True,
+        "preset": "fel_energy_guard",
+        "policy": {
+            "name": "sample_guard",
+            "kwargs": {
+                "target": "fel_energy",
+                "conditions": [
+                    {"metric": "mean_abs", "operator": "gt", "value": 1.0e6},
+                    {"metric": "peak_to_peak", "operator": "lt", "value": 1.0e-6},
+                ],
+                "match": "any",
+                "action": {"type": "replace", "value": 0.0},
+            },
         },
     }
 ]

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -66,6 +65,84 @@ def test_gui_export_creates_runtime_directory(tmp_path):
 
     assert (tmp_path / "exports" / "task.yaml").is_file()
     assert (tmp_path / "save").is_dir()
+
+
+def test_canonical_policy_bindings_compile_targets_from_mapping_order():
+    task = {
+        "machine": {
+            "mapping": [
+                {"Role": "objective", "Name": "charge", "PV Name": "TEST:CHARGE"},
+                {"Role": "objective", "Name": "fel_energy", "PV Name": "TEST:FEL"},
+                {"Role": "constraint", "Name": "orbit_x", "PV Name": "TEST:BPM:X"},
+            ],
+            "policy_bindings": [
+                {
+                    "kind": "objective",
+                    "target": "fel_energy",
+                    "enabled": True,
+                    "preset": "fel_energy_guard",
+                    "policy": {
+                        "name": "sample_guard",
+                        "kwargs": {
+                            "target": "stale_name",
+                            "target_col": 99,
+                            "conditions": [
+                                {"metric": "mean_abs", "operator": "gt", "value": 1e6}
+                            ],
+                            "match": "all",
+                            "action": {"type": "replace", "value": 0.0},
+                        },
+                    },
+                },
+                {
+                    "kind": "constraint",
+                    "target": "orbit_x",
+                    "enabled": True,
+                    "preset": "bpm_guard",
+                    "policy": {
+                        "name": "sample_guard",
+                        "kwargs": {
+                            "conditions": [
+                                {"metric": "max_abs", "operator": "le", "value": 1e-9}
+                            ],
+                            "match": "all",
+                            "action": {
+                                "type": "violate_bound",
+                                "delta_ratio": 0.1,
+                                "delta_min": 1e-6,
+                                "scale_floor": 1.0,
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+    }
+
+    objective = TaskService._build_objective_policy_specs(task)
+    constraint = TaskService._build_constraint_policy_specs(task)
+
+    assert objective[0]["kwargs"]["target"] == "fel_energy"
+    assert objective[0]["kwargs"]["target_col"] == 1
+    assert constraint[0]["kwargs"]["target"] == "orbit_x"
+    assert constraint[0]["kwargs"]["target_col"] == 0
+
+
+def test_empty_canonical_bindings_override_legacy_policy_rows():
+    task = {
+        "machine": {
+            "policy_bindings": [],
+            "objective_policies": [
+                {
+                    "Enabled": "True",
+                    "Policy Name": "fel_energy_guard",
+                    "Kwargs JSON": "{}",
+                }
+            ],
+        }
+    }
+
+    assert TaskService._build_objective_policy_specs(task) == []
 
 
 def test_gui_main_window_offscreen_smoke(monkeypatch):
@@ -262,15 +339,19 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert [
             window.machine_ui.tabWidget_machineAdvanced.tabText(index)
             for index in range(window.machine_ui.tabWidget_machineAdvanced.count())
-        ] == ["Write Policy", "Objective Bindings", "Constraint Bindings"]
+        ] == ["Write Policy", "Rule Presets"]
+        assert window.machine_ui.tableWidget_policyPresets.rowCount() == 3
+        assert {
+            window.machine_ui.tableWidget_policyPresets.item(row, 1).text()
+            for row in range(window.machine_ui.tableWidget_policyPresets.rowCount())
+        } == {"FEL Energy Guard", "Zero Objective Guard", "BPM Zero Guard"}
         assert window.machine_ui.splitter_pvMapping.count() == 2
         assert window.machine_ui.tableWidget_mapping.rowCount() == 2
         assert [
             window.machine_ui.tableWidget_mapping.isColumnHidden(column)
             for column in range(window.machine_ui.tableWidget_mapping.columnCount())
         ] == [False, False, False, True, True, True, False, True]
-        assert window.machine_ui.tableWidget_objectivePolicies.rowCount() == 0
-        assert window.machine_ui.tableWidget_constraintPolicies.rowCount() == 0
+        assert window.machine_ui.policy_bindings == []
         assert window.machine_ui.tableWidget_mapping.item(1, 6).text() == "No policies"
         assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7) is None
         window.machine_ui.tableWidget_mapping.setCurrentCell(1, 1)
@@ -285,19 +366,13 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
                 lambda _dialog: QDialog.Accepted,
             )
             window._add_policy_for_mapping("objective", "obj0")
-        policy_row = 0
-        objective_rule_button = window.machine_ui.tableWidget_objectivePolicies.cellWidget(
-            policy_row, 3
-        )
-        assert objective_rule_button.text() == "Open Mapping…"
-        assert window.machine_ui.tableWidget_objectivePolicies.item(0, 1).text() == "obj0"
-        assert window.machine_ui.tableWidget_objectivePolicies.item(0, 2).text() == "FEL Energy Guard"
-        assert window.machine_ui.tableWidget_objectivePolicies.isColumnHidden(4)
-        assert window.machine_ui.tableWidget_objectivePolicies.isColumnHidden(5)
-        assert window.machine_ui.tableWidget_objectivePolicies.item(0, 4).text() == "sample_guard"
-        stored_rule = json.loads(
-            window.machine_ui.tableWidget_objectivePolicies.item(0, 5).text()
-        )
+        assert len(window.machine_ui.policy_bindings) == 1
+        binding = window.machine_ui.policy_bindings[0]
+        assert binding["kind"] == "objective"
+        assert binding["target"] == "obj0"
+        assert binding["preset"] == "fel_energy_guard"
+        assert binding["policy"]["name"] == "sample_guard"
+        stored_rule = binding["policy"]["kwargs"]
         assert stored_rule["target"] == "obj0"
         assert stored_rule["conditions"][0]["metric"] == "mean_abs"
         mapping_headers = [
@@ -312,10 +387,9 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert not window.machine_ui.comboBox_mappingDetailRole.isEnabled()
         window.machine_ui.lineEdit_mappingDetailName.setText("fel_energy")
         window.machine_ui.lineEdit_mappingDetailName.editingFinished.emit()
-        retargeted_rule = json.loads(
-            window.machine_ui.tableWidget_objectivePolicies.item(0, 5).text()
-        )
+        retargeted_rule = window.machine_ui.policy_bindings[0]["policy"]["kwargs"]
         assert retargeted_rule["target"] == "fel_energy"
+        assert window.machine_ui.policy_bindings[0]["target"] == "fel_energy"
         assert window.machine_ui.tableWidget_mapping.item(1, 1).text() == "fel_energy"
         assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · fel_energy"
         assert not window.machine_ui.pushButton_reviewMappingIssues.isHidden()
@@ -325,6 +399,10 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         serialized_mapping = window._current_task()["machine"]["mapping"]
         assert len(serialized_mapping) == 2
         assert all("Policies" not in row and "Policy Action" not in row for row in serialized_mapping)
+        serialized_machine = window._current_task()["machine"]
+        assert serialized_machine["policy_bindings"][0]["target"] == "fel_energy"
+        assert "objective_policies" not in serialized_machine
+        assert "constraint_policies" not in serialized_machine
         assert (
             window.machine_ui.tabWidget_machine.indexOf(window.machine_ui.tab_runSafeguards)
             == 1

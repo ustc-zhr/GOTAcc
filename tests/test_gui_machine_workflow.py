@@ -198,6 +198,36 @@ def test_online_validation_rejects_mapping_ambiguity(tmp_path):
     assert any("share Setpoint PV" in error for error in errors)
 
 
+def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, window):
+    task = _online_task(tmp_path)
+    task["machine"]["objective_policies"] = [
+        {
+            "Enabled": "True",
+            "Policy Name": "fel_energy_guard",
+            "Kwargs JSON": (
+                '{"target_col": 0, "large_threshold": 2500.0, '
+                '"change_threshold": 0.0002}'
+            ),
+        }
+    ]
+
+    window._apply_task_payload(task, goto_builder=False)
+
+    assert len(window.machine_ui.policy_bindings) == 1
+    binding = window.machine_ui.policy_bindings[0]
+    assert binding["kind"] == "objective"
+    assert binding["target"] == "Transmission"
+    assert binding["preset"] == "fel_energy_guard"
+    assert binding["policy"]["name"] == "sample_guard"
+    assert binding["policy"]["kwargs"]["conditions"][0]["value"] == 2500.0
+    assert binding["policy"]["kwargs"]["conditions"][1]["value"] == 0.0002
+
+    serialized_machine = window._current_task()["machine"]
+    assert serialized_machine["policy_bindings"] == window.machine_ui.policy_bindings
+    assert "objective_policies" not in serialized_machine
+    assert "constraint_policies" not in serialized_machine
+
+
 def test_bounds_tool_previews_exact_plan_before_apply(tmp_path, window, monkeypatch):
     window._apply_task_payload(_online_task(tmp_path), goto_builder=False)
     controller = window.task_builder_controller

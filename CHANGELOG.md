@@ -56,6 +56,10 @@
 - Redesigned PV Mapping as a compact signal list with a scrollable selected-row
   detail panel, policy-first actions, editable signal metadata, and a dedicated
   mapping-issue review action
+- Replaced hidden objective/constraint policy tables with canonical
+  `machine.policy_bindings`, including legacy project migration, stable target
+  compilation through current PV Mapping order, and a registry-backed Rule
+  Presets browser
 
 ## 1.2.0 - 2026-06-27
 

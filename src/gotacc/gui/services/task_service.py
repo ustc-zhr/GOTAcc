@@ -663,8 +663,9 @@ class TaskService:
                 "sample_interval": machine_ui.doubleSpinBox_sampleInterval.value(),
                 "write_timeout": machine_ui.doubleSpinBox_timeout.value(),
                 "write_policy": machine_ui.comboBox_policy.currentText(),
-                "objective_policies": TaskService.table_to_records(machine_ui.tableWidget_objectivePolicies),
-                "constraint_policies": TaskService.table_to_records(machine_ui.tableWidget_constraintPolicies),
+                "policy_bindings": copy.deepcopy(
+                    getattr(machine_ui, "policy_bindings", [])
+                ),
                 "mapping": mapping_rows,
                 "write_links": TaskService.table_to_records(machine_ui.tableWidget_writeLinks),
             },
@@ -796,6 +797,9 @@ class TaskService:
     @staticmethod
     def _build_objective_policy_specs(task: Dict[str, Any]) -> List[Dict[str, Any]]:
         machine = task.get("machine", {}) or {}
+        binding_specs = TaskService._build_policy_binding_specs(task, "objective")
+        if binding_specs is not None:
+            return binding_specs
         rows = machine.get("objective_policies", []) or []
         specs: List[Dict[str, Any]] = []
         supported = set(POLICY_REGISTRY.names("objective", include_aliases=True))
@@ -832,6 +836,9 @@ class TaskService:
     @staticmethod
     def _build_constraint_policy_specs(task: Dict[str, Any]) -> List[Dict[str, Any]]:
         machine = task.get("machine", {}) or {}
+        binding_specs = TaskService._build_policy_binding_specs(task, "constraint")
+        if binding_specs is not None:
+            return binding_specs
         rows = machine.get("constraint_policies", []) or []
         specs: List[Dict[str, Any]] = []
         supported = set(POLICY_REGISTRY.names("constraint", include_aliases=True))
@@ -878,6 +885,70 @@ class TaskService:
                     )
 
             POLICY_REGISTRY.validate("constraint", name, kwargs)
+            specs.append({"name": name, "kwargs": kwargs})
+        return specs
+
+    @staticmethod
+    def _build_policy_binding_specs(
+        task: Dict[str, Any],
+        kind: str,
+    ) -> List[Dict[str, Any]] | None:
+        """Compile canonical machine policy bindings for the backend.
+
+        ``None`` means the canonical field is absent, so callers may still load
+        the legacy table-shaped fields. An explicitly empty binding list is
+        authoritative and therefore compiles to no policies.
+        """
+        machine = task.get("machine", {}) or {}
+        if "policy_bindings" not in machine:
+            return None
+        raw_bindings = machine.get("policy_bindings", []) or []
+        if not isinstance(raw_bindings, list):
+            raise ValueError("machine.policy_bindings must be a list.")
+
+        mapping_names = [
+            str(row.get("Name", "")).strip()
+            for row in machine.get("mapping", []) or []
+            if isinstance(row, Mapping)
+            and str(row.get("Role", "")).strip().lower() == kind
+            and str(row.get("Name", "")).strip()
+        ]
+        supported = set(POLICY_REGISTRY.names(kind, include_aliases=True))
+        specs: List[Dict[str, Any]] = []
+        for index, binding in enumerate(raw_bindings, start=1):
+            if not isinstance(binding, Mapping):
+                raise ValueError(f"Policy binding {index} must be a mapping.")
+            if str(binding.get("kind", "")).strip().lower() != kind:
+                continue
+            enabled = binding.get("enabled", True)
+            if not (enabled if isinstance(enabled, bool) else TaskService._is_enabled(enabled)):
+                continue
+
+            policy = binding.get("policy", {}) or {}
+            if not isinstance(policy, Mapping):
+                raise ValueError(f"Policy binding {index} has an invalid policy definition.")
+            name = str(policy.get("name", "")).strip().lower()
+            if name not in supported:
+                raise ValueError(
+                    f"Unsupported {kind} policy in binding {index}: {name!r}. "
+                    f"Use one of: {', '.join(sorted(supported))}."
+                )
+            name = POLICY_REGISTRY.resolve(kind, name).name
+            kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
+            if not isinstance(kwargs, dict):
+                raise ValueError(f"Policy binding {index} kwargs must be a mapping.")
+
+            target = str(binding.get("target") or kwargs.get("target") or "").strip()
+            if not target:
+                raise ValueError(f"Policy binding {index} must identify a target.")
+            if target not in mapping_names:
+                raise ValueError(
+                    f"Policy binding {index} targets {target!r}, but no "
+                    f"{kind} PV Mapping row has that name."
+                )
+            kwargs["target"] = target
+            kwargs["target_col"] = mapping_names.index(target)
+            POLICY_REGISTRY.validate(kind, name, kwargs)
             specs.append({"name": name, "kwargs": kwargs})
         return specs
 

@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QSplitter,
     QTableWidgetItem,
     QTabWidget,
+    QTableWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -509,8 +510,38 @@ class MachineController:
         ui.groupBox_guard.show()
 
         advanced_tabs.addTab(ui.tab_writePolicy, "Write Policy")
-        advanced_tabs.addTab(ui.tab_objectivePolicy, "Objective Bindings")
-        advanced_tabs.addTab(ui.tab_constraintPolicy, "Constraint Bindings")
+        preset_page = QWidget(advanced_tabs)
+        preset_layout = QVBoxLayout(preset_page)
+        preset_layout.setContentsMargins(12, 12, 12, 12)
+        preset_layout.setSpacing(10)
+        intro = QLabel(
+            "Reusable starting points for common machine-specific behavior. "
+            "Apply and customize them from a matching objective or constraint "
+            "row in PV Mapping.",
+            preset_page,
+        )
+        intro.setWordWrap(True)
+        preset_layout.addWidget(intro)
+        preset_table = QTableWidget(0, 3, preset_page)
+        preset_table.setHorizontalHeaderLabels(["Kind", "Preset", "Description"])
+        preset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        preset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        preset_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        preset_table.setShowGrid(False)
+        preset_table.verticalHeader().setVisible(False)
+        preset_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        preset_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        preset_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        for kind in ("objective", "constraint"):
+            for preset_name in POLICY_REGISTRY.preset_names(kind, gui_only=True):
+                preset = POLICY_REGISTRY.resolve_preset(kind, preset_name)
+                row = preset_table.rowCount()
+                preset_table.insertRow(row)
+                values = (kind.title(), preset.display_name, preset.description)
+                for column, value in enumerate(values):
+                    preset_table.setItem(row, column, QTableWidgetItem(value))
+        preset_layout.addWidget(preset_table, 1)
+        advanced_tabs.addTab(preset_page, "Rule Presets")
         main_tabs.addTab(safeguards_page, "Run Safeguards")
         main_tabs.addTab(advanced_page, "Policy Presets")
         main_tabs.setCurrentWidget(ui.tab_mapping)
@@ -518,6 +549,8 @@ class MachineController:
         ui.tab_runSafeguards = safeguards_page
         ui.tab_advancedMachine = advanced_page
         ui.tabWidget_machineAdvanced = advanced_tabs
+        ui.tab_policyPresetBrowser = preset_page
+        ui.tableWidget_policyPresets = preset_table
         ui.tab_safeguardsAdvanced = safeguards_page
 
     @staticmethod
@@ -1356,19 +1389,18 @@ class MachineController:
         if not hasattr(self.window.machine_ui, "label_machineSummary"):
             return
         write_policy = self.window.machine_ui.comboBox_policy.currentText().strip()
-        objective_policy_rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_objectivePolicies)
-        constraint_policy_rows = TaskService.table_to_records(self.window.machine_ui.tableWidget_constraintPolicies)
+        bindings = getattr(self.window.machine_ui, "policy_bindings", [])
         enabled_objective_policies = [
-            row
-            for row in objective_policy_rows
-            if TaskService._is_enabled(row.get("Enabled", ""))
-            and str(row.get("Policy Name", "")).strip()
+            binding
+            for binding in bindings
+            if binding.get("kind") == "objective"
+            and bool(binding.get("enabled", True))
         ]
         enabled_constraint_policies = [
-            row
-            for row in constraint_policy_rows
-            if TaskService._is_enabled(row.get("Enabled", ""))
-            and str(row.get("Policy Name", "")).strip()
+            binding
+            for binding in bindings
+            if binding.get("kind") == "constraint"
+            and bool(binding.get("enabled", True))
         ]
         objective_policy_summary = (
             f"{len(enabled_objective_policies)} enabled"
