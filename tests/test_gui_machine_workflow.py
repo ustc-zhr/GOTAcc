@@ -83,6 +83,30 @@ def window(monkeypatch):
     app.processEvents()
 
 
+def test_mapping_master_detail_edits_selected_signal(tmp_path, window):
+    task = _online_task(tmp_path)
+    window._apply_task_payload(task, goto_builder=False)
+    table = window.machine_ui.tableWidget_mapping
+    table.setCurrentCell(2, 1)
+
+    assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · Transmission"
+    assert window.machine_ui.lineEdit_mappingDetailPv.text() == "TEST:TRANS"
+    assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Add Policy"
+
+    window.machine_ui.lineEdit_mappingDetailReadback.setText("TEST:TRANS:RB")
+    window.machine_ui.lineEdit_mappingDetailReadback.editingFinished.emit()
+    window.machine_ui.lineEdit_mappingDetailNote.setText("Primary transmission monitor")
+    window.machine_ui.lineEdit_mappingDetailNote.editingFinished.emit()
+
+    headers = window.task_builder_controller.table_headers(table)
+    assert table.item(2, headers.index("Readback")).text() == "TEST:TRANS:RB"
+    assert table.item(2, headers.index("Note")).text() == "Primary transmission monitor"
+    serialized = window._current_task()["machine"]["mapping"][2]
+    assert serialized["Readback"] == "TEST:TRANS:RB"
+    assert serialized["Note"] == "Primary transmission monitor"
+    assert "Policies" not in serialized
+
+
 def test_mapping_sync_preserves_parameters_by_name_and_can_undo(tmp_path, window):
     task = _online_task(tmp_path)
     task["variables"].append(

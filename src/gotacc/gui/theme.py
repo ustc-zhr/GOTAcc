@@ -73,6 +73,27 @@ QFrame#summaryPanel QWidget {
     background: transparent;
 }
 
+QFrame#mappingDetailPanel {
+    background: $panel_bg;
+    border: 1px solid $panel_border;
+    border-radius: 10px;
+}
+
+QFrame#mappingDetailPanel QGroupBox {
+    background: transparent;
+}
+
+QLabel#mappingDetailTitle {
+    color: $hero_text;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+QLabel#mappingDetailSubtitle {
+    color: $card_title;
+    font-size: 11px;
+}
+
 QWidget#statusStrip,
 QFrame#statusStrip {
     background: transparent;

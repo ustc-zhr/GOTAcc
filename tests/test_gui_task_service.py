@@ -258,15 +258,26 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert [
             window.machine_ui.tabWidget_machine.tabText(index)
             for index in range(window.machine_ui.tabWidget_machine.count())
-        ] == ["PV Mapping", "Run Safeguards", "Specific Policies"]
+        ] == ["PV Mapping", "Run Safeguards", "Policy Presets"]
         assert [
             window.machine_ui.tabWidget_machineAdvanced.tabText(index)
             for index in range(window.machine_ui.tabWidget_machineAdvanced.count())
-        ] == ["Write Policy", "Objective Policy", "Constraint Policy"]
+        ] == ["Write Policy", "Objective Bindings", "Constraint Bindings"]
+        assert window.machine_ui.splitter_pvMapping.count() == 2
+        assert window.machine_ui.tableWidget_mapping.rowCount() == 2
+        assert [
+            window.machine_ui.tableWidget_mapping.isColumnHidden(column)
+            for column in range(window.machine_ui.tableWidget_mapping.columnCount())
+        ] == [False, False, False, True, True, True, False, True]
         assert window.machine_ui.tableWidget_objectivePolicies.rowCount() == 0
         assert window.machine_ui.tableWidget_constraintPolicies.rowCount() == 0
-        assert window.machine_ui.tableWidget_mapping.item(1, 6).text() == "None"
-        assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7).text() == "Add Policy"
+        assert window.machine_ui.tableWidget_mapping.item(1, 6).text() == "No policies"
+        assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7) is None
+        window.machine_ui.tableWidget_mapping.setCurrentCell(1, 1)
+        app.processEvents()
+        assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · obj0"
+        assert window.machine_ui.label_mappingPolicySummary.text() == "No policies assigned."
+        assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Add Policy"
         with monkeypatch.context() as policy_patch:
             policy_patch.setattr(
                 main_window_module.SampleGuardRuleEditorDialog,
@@ -295,7 +306,20 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         ]
         assert mapping_headers[-2:] == ["Policies", "Policy Action"]
         assert window.machine_ui.tableWidget_mapping.item(1, 6).text().startswith("FEL Energy Guard")
-        assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7).text() == "Manage (1)"
+        assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7) is None
+        assert "FEL Energy Guard" in window.machine_ui.label_mappingPolicySummary.text()
+        assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Manage 1 Policy"
+        assert not window.machine_ui.comboBox_mappingDetailRole.isEnabled()
+        window.machine_ui.lineEdit_mappingDetailName.setText("fel_energy")
+        window.machine_ui.lineEdit_mappingDetailName.editingFinished.emit()
+        retargeted_rule = json.loads(
+            window.machine_ui.tableWidget_objectivePolicies.item(0, 5).text()
+        )
+        assert retargeted_rule["target"] == "fel_energy"
+        assert window.machine_ui.tableWidget_mapping.item(1, 1).text() == "fel_energy"
+        assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · fel_energy"
+        assert not window.machine_ui.pushButton_reviewMappingIssues.isHidden()
+        assert window.machine_ui.pushButton_reviewMappingIssues.text() == "Review 2 Issues"
         assert not window.machine_ui.pushButton_addObjectivePolicy.isVisible()
         assert not window.machine_ui.pushButton_removeConstraintPolicy.isVisible()
         serialized_mapping = window._current_task()["machine"]["mapping"]

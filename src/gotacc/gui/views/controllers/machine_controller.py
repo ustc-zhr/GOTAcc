@@ -9,11 +9,22 @@ from typing import TYPE_CHECKING
 import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
     QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHeaderView,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
+    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -45,6 +56,7 @@ class MachineController:
         self.view = window.view_adapter
         self._loaded_pv_library: PVLibraryDocument | None = None
         self._last_sync_snapshot: dict[str, list[dict[str, str]]] | None = None
+        self._mapping_detail_loading = False
 
     @staticmethod
     def _default_config_directory() -> Path:
@@ -63,6 +75,7 @@ class MachineController:
 
         self._configure_simple_connection_panel()
         self._configure_pv_mapping_actions()
+        self._configure_pv_mapping_master_detail()
         self._configure_policy_options()
         self._move_advanced_machine_controls()
 
@@ -144,6 +157,13 @@ class MachineController:
         undo_button.clicked.connect(self.undo_last_mapping_sync)
         ui.horizontalLayout_pvLibraryControls.insertWidget(2, undo_button)
         ui.pushButton_undoMappingSync = undo_button
+        issues_button = QPushButton("Review Issues", ui.frame_pvPresetLibrary)
+        issues_button.setObjectName("mappingIssuesButton")
+        issues_button.setProperty("danger", True)
+        issues_button.setVisible(False)
+        issues_button.clicked.connect(self.review_mapping_issues)
+        ui.horizontalLayout_pvLibraryControls.insertWidget(3, issues_button)
+        ui.pushButton_reviewMappingIssues = issues_button
         ui.horizontalLayout_pvLibraryControls.setContentsMargins(0, 0, 0, 0)
         ui.horizontalLayout_pvLibraryControls.setSpacing(6)
         ui.verticalLayout_pvPresetLibrary.setContentsMargins(8, 5, 8, 5)
@@ -157,6 +177,7 @@ class MachineController:
             ui.pushButton_selectPvs,
             ui.pushButton_applySelectedPvLibrary,
             ui.pushButton_undoMappingSync,
+            ui.pushButton_reviewMappingIssues,
         ):
             button.setProperty("inlineAction", True)
             button.setFixedHeight(24)
@@ -177,6 +198,280 @@ class MachineController:
             ui.frame_selectedLibrarySummary,
         ):
             widget.setVisible(False)
+
+    def _configure_pv_mapping_master_detail(self) -> None:
+        ui = self.window.machine_ui
+        table = ui.tableWidget_mapping
+        layout = ui.verticalLayout_mapping
+        layout.removeWidget(table)
+
+        splitter = QSplitter(Qt.Horizontal, ui.tab_mapping)
+        splitter.setObjectName("splitter_pvMapping")
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+        table.setParent(splitter)
+        splitter.addWidget(table)
+
+        detail_scroll = QScrollArea(splitter)
+        detail_scroll.setObjectName("scrollArea_mappingDetail")
+        detail_scroll.setWidgetResizable(True)
+        detail_scroll.setFrameShape(QFrame.NoFrame)
+        detail_scroll.setMinimumWidth(300)
+        detail_scroll.setMaximumWidth(420)
+        detail = QFrame()
+        detail.setObjectName("mappingDetailPanel")
+        detail.setMinimumWidth(280)
+        detail_layout = QVBoxLayout(detail)
+        detail_layout.setContentsMargins(16, 14, 16, 14)
+        detail_layout.setSpacing(12)
+
+        header = QLabel("Select a machine signal", detail)
+        header.setObjectName("mappingDetailTitle")
+        header.setWordWrap(True)
+        detail_layout.addWidget(header)
+        subtitle = QLabel(
+            "Signal details and policies are managed here. Sync To Task preserves task-side settings.",
+            detail,
+        )
+        subtitle.setObjectName("mappingDetailSubtitle")
+        subtitle.setWordWrap(True)
+        detail_layout.addWidget(subtitle)
+
+        signal_group = QGroupBox("Signal", detail)
+        signal_group.setMinimumHeight(245)
+        signal_form = QFormLayout(signal_group)
+        signal_form.setContentsMargins(10, 12, 10, 10)
+        signal_form.setHorizontalSpacing(10)
+        signal_form.setVerticalSpacing(8)
+        role_combo = QComboBox(signal_group)
+        role_combo.addItems(["knob", "objective", "constraint"])
+        name_edit = QLineEdit(signal_group)
+        pv_edit = QLineEdit(signal_group)
+        readback_edit = QLineEdit(signal_group)
+        group_edit = QLineEdit(signal_group)
+        note_edit = QLineEdit(signal_group)
+        signal_form.addRow("Role", role_combo)
+        signal_form.addRow("Name", name_edit)
+        signal_form.addRow("PV Name", pv_edit)
+        signal_form.addRow("Readback", readback_edit)
+        signal_form.addRow("Group", group_edit)
+        signal_form.addRow("Note", note_edit)
+        policy_group = QGroupBox("Policies", detail)
+        policy_group.setMinimumHeight(105)
+        policy_layout = QVBoxLayout(policy_group)
+        policy_summary = QLabel("Select an objective or constraint signal.", policy_group)
+        policy_summary.setWordWrap(True)
+        policy_layout.addWidget(policy_summary)
+        manage_button = QPushButton("Add Policy", policy_group)
+        manage_button.setProperty("inlineAction", True)
+        manage_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        policy_layout.addWidget(manage_button, 0, Qt.AlignLeft)
+        detail_layout.addWidget(policy_group)
+        detail_layout.addWidget(signal_group)
+        detail_layout.addStretch(1)
+
+        detail_scroll.setWidget(detail)
+        splitter.addWidget(detail_scroll)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([850, 340])
+        layout.addWidget(splitter, 1)
+
+        ui.splitter_pvMapping = splitter
+        ui.scrollArea_mappingDetail = detail_scroll
+        ui.frame_mappingDetail = detail
+        ui.label_mappingDetailTitle = header
+        ui.label_mappingDetailSubtitle = subtitle
+        ui.groupBox_mappingSignal = signal_group
+        ui.comboBox_mappingDetailRole = role_combo
+        ui.lineEdit_mappingDetailName = name_edit
+        ui.lineEdit_mappingDetailPv = pv_edit
+        ui.lineEdit_mappingDetailReadback = readback_edit
+        ui.lineEdit_mappingDetailGroup = group_edit
+        ui.lineEdit_mappingDetailNote = note_edit
+        ui.groupBox_mappingPolicies = policy_group
+        ui.label_mappingPolicySummary = policy_summary
+        ui.pushButton_manageMappingPolicies = manage_button
+
+        headers = self.window.task_builder_controller.table_headers(table)
+        for field in ("Readback", "Group", "Note", "Policy Action"):
+            table.setColumnHidden(headers.index(field), True)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setAlternatingRowColors(False)
+        table.setShowGrid(False)
+        table.verticalHeader().setDefaultSectionSize(36)
+        header_view = table.horizontalHeader()
+        role_col = headers.index("Role")
+        name_col = headers.index("Name")
+        pv_col = headers.index("PV Name")
+        policy_col = headers.index("Policies")
+        header_view.setSectionResizeMode(role_col, QHeaderView.Fixed)
+        header_view.setSectionResizeMode(name_col, QHeaderView.Fixed)
+        header_view.setSectionResizeMode(pv_col, QHeaderView.Stretch)
+        header_view.setSectionResizeMode(policy_col, QHeaderView.Fixed)
+        table.setColumnWidth(role_col, 96)
+        table.setColumnWidth(name_col, 160)
+        table.setColumnWidth(policy_col, 230)
+
+        table.currentCellChanged.connect(
+            lambda current_row, _current_col, _previous_row, _previous_col: (
+                self.refresh_mapping_detail(current_row)
+            )
+        )
+        role_combo.currentTextChanged.connect(
+            lambda value: self._write_mapping_detail("Role", value)
+        )
+        for field, editor in (
+            ("Name", name_edit),
+            ("PV Name", pv_edit),
+            ("Readback", readback_edit),
+            ("Group", group_edit),
+            ("Note", note_edit),
+        ):
+            editor.editingFinished.connect(
+                lambda field_name=field, widget=editor: self._write_mapping_detail(
+                    field_name, widget.text()
+                )
+            )
+        manage_button.clicked.connect(self._manage_selected_mapping_policies)
+
+        if table.rowCount():
+            table.setCurrentCell(0, name_col)
+        else:
+            self.refresh_mapping_detail(-1)
+
+    def _set_mapping_detail_enabled(self, enabled: bool) -> None:
+        ui = self.window.machine_ui
+        for widget in (
+            ui.comboBox_mappingDetailRole,
+            ui.lineEdit_mappingDetailName,
+            ui.lineEdit_mappingDetailPv,
+            ui.lineEdit_mappingDetailReadback,
+            ui.lineEdit_mappingDetailGroup,
+            ui.lineEdit_mappingDetailNote,
+        ):
+            widget.setEnabled(enabled)
+
+    def refresh_mapping_detail(self, row: int | None = None) -> None:
+        ui = self.window.machine_ui
+        if not hasattr(ui, "frame_mappingDetail"):
+            return
+        table = ui.tableWidget_mapping
+        current_row = table.currentRow() if row is None else row
+        headers = self.window.task_builder_controller.table_headers(table)
+        if current_row < 0 or current_row >= table.rowCount():
+            self._set_mapping_detail_enabled(False)
+            ui.label_mappingDetailTitle.setText("Select a machine signal")
+            ui.label_mappingPolicySummary.setText(
+                "Select an objective or constraint signal."
+            )
+            ui.pushButton_manageMappingPolicies.setEnabled(False)
+            return
+
+        def value(field: str) -> str:
+            item = table.item(current_row, headers.index(field))
+            return item.text().strip() if item is not None else ""
+
+        role = value("Role").lower()
+        name = value("Name")
+        self._mapping_detail_loading = True
+        try:
+            self._set_mapping_detail_enabled(True)
+            ui.comboBox_mappingDetailRole.setCurrentText(role or "objective")
+            ui.lineEdit_mappingDetailName.setText(name)
+            ui.lineEdit_mappingDetailPv.setText(value("PV Name"))
+            ui.lineEdit_mappingDetailReadback.setText(value("Readback"))
+            ui.lineEdit_mappingDetailGroup.setText(value("Group"))
+            ui.lineEdit_mappingDetailNote.setText(value("Note"))
+        finally:
+            self._mapping_detail_loading = False
+
+        role_label = role.title() if role else "Unassigned"
+        ui.label_mappingDetailTitle.setText(f"{role_label} · {name or 'Unnamed signal'}")
+        policy_enabled = role in {"objective", "constraint"} and bool(name)
+        ui.groupBox_mappingPolicies.setVisible(role in {"objective", "constraint"})
+        ui.pushButton_manageMappingPolicies.setEnabled(policy_enabled)
+        if not policy_enabled:
+            ui.label_mappingPolicySummary.setText("Policies do not apply to knob rows.")
+            return
+        bound = self.window._bound_policy_rows(role, name)
+        if not bound:
+            ui.comboBox_mappingDetailRole.setEnabled(True)
+            ui.comboBox_mappingDetailRole.setToolTip("")
+            ui.label_mappingPolicySummary.setText("No policies assigned.")
+            ui.pushButton_manageMappingPolicies.setText("Add Policy")
+        else:
+            ui.comboBox_mappingDetailRole.setEnabled(False)
+            ui.comboBox_mappingDetailRole.setToolTip(
+                "Remove bound policies before changing this signal's role."
+            )
+            enabled = sum(bool(policy["enabled"]) for policy in bound)
+            lines = [f"• {policy['preset']} — {policy['summary']}" for policy in bound]
+            ui.label_mappingPolicySummary.setText("\n".join(lines))
+            ui.pushButton_manageMappingPolicies.setText(
+                f"Manage {len(bound)} " + ("Policy" if len(bound) == 1 else "Policies")
+            )
+            ui.pushButton_manageMappingPolicies.setToolTip(
+                f"{enabled} of {len(bound)} policies enabled."
+            )
+
+    def _write_mapping_detail(self, field: str, value: str) -> None:
+        if self._mapping_detail_loading:
+            return
+        table = self.window.machine_ui.tableWidget_mapping
+        row = table.currentRow()
+        if row < 0:
+            return
+        headers = self.window.task_builder_controller.table_headers(table)
+        column = headers.index(field)
+        item = table.item(row, column)
+        if item is None:
+            item = QTableWidgetItem()
+            table.setItem(row, column, item)
+        normalized = str(value).strip()
+        if item.text() == normalized:
+            return
+        old_value = item.text().strip()
+        role_item = table.item(row, headers.index("Role"))
+        role = role_item.text().strip().lower() if role_item is not None else ""
+        bindings = (
+            self.window._bound_policy_rows(role, old_value)
+            if field == "Name" and role in {"objective", "constraint"}
+            else []
+        )
+        item.setText(normalized)
+        item.setToolTip(normalized)
+        if bindings:
+            self.window._retarget_mapping_policy_rows(role, bindings, normalized)
+        self.window._refresh_mapping_policy_widgets()
+        self.refresh_mapping_detail(row)
+
+    def _manage_selected_mapping_policies(self) -> None:
+        row = self.window.machine_ui.tableWidget_mapping.currentRow()
+        if row >= 0:
+            self.window._manage_mapping_policies(row)
+
+    def review_mapping_issues(self) -> None:
+        errors = self._mapping_sync_errors()
+        if not errors:
+            QMessageBox.information(self.window, "PV Mapping", "No mapping issues found.")
+            return
+        QMessageBox.warning(self.window, "PV Mapping Issues", "\n".join(errors))
+        table = self.window.machine_ui.tableWidget_mapping
+        fields = self.window.task_builder_controller.table_headers(table)
+        for row in range(table.rowCount()):
+            role_item = table.item(row, fields.index("Role"))
+            name_item = table.item(row, fields.index("Name"))
+            pv_item = table.item(row, fields.index("PV Name"))
+            role = role_item.text().strip().lower() if role_item is not None else ""
+            name = name_item.text().strip() if name_item is not None else ""
+            pv_name = pv_item.text().strip() if pv_item is not None else ""
+            if role not in {"knob", "objective", "constraint"} or not name or not pv_name:
+                table.selectRow(row)
+                table.setCurrentCell(row, fields.index("Name" if not name else "PV Name"))
+                self.refresh_mapping_detail(row)
+                break
 
     def _move_advanced_machine_controls(self) -> None:
         ui = self.window.machine_ui
@@ -214,10 +509,10 @@ class MachineController:
         ui.groupBox_guard.show()
 
         advanced_tabs.addTab(ui.tab_writePolicy, "Write Policy")
-        advanced_tabs.addTab(ui.tab_objectivePolicy, "Objective Policy")
-        advanced_tabs.addTab(ui.tab_constraintPolicy, "Constraint Policy")
+        advanced_tabs.addTab(ui.tab_objectivePolicy, "Objective Bindings")
+        advanced_tabs.addTab(ui.tab_constraintPolicy, "Constraint Bindings")
         main_tabs.addTab(safeguards_page, "Run Safeguards")
-        main_tabs.addTab(advanced_page, "Specific Policies")
+        main_tabs.addTab(advanced_page, "Policy Presets")
         main_tabs.setCurrentWidget(ui.tab_mapping)
 
         ui.tab_runSafeguards = safeguards_page
@@ -501,8 +796,17 @@ class MachineController:
         if undo_button is not None:
             undo_button.setEnabled(self._last_sync_snapshot is not None and not active_run)
         errors = self._mapping_sync_errors()
+        issues_button = getattr(
+            self.window.machine_ui, "pushButton_reviewMappingIssues", None
+        )
+        if issues_button is not None:
+            issues_button.setVisible(bool(errors))
+            issues_button.setText(
+                f"Review {len(errors)} Issue" + ("" if len(errors) == 1 else "s")
+            )
+            issues_button.setToolTip("\n".join(errors))
         if errors:
-            sync_state = f"Conflict: {len(errors)}"
+            sync_state = "Attention required"
         elif self._mapping_matches_task_builder():
             needs_setup = self._task_rows_needing_setup()
             sync_state = "Synced" if not needs_setup else f"Synced · {needs_setup} needs setup"

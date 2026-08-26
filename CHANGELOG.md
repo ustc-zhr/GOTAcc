@@ -52,7 +52,10 @@
   compatibility
 - Integrated objective and constraint policy assignment into individual PV
   Mapping rows, with stable-name target binding, multi-policy management, and a
-  read-only Specific Policies summary view
+  read-only Policy Presets compatibility summary
+- Redesigned PV Mapping as a compact signal list with a scrollable selected-row
+  detail panel, policy-first actions, editable signal metadata, and a dedicated
+  mapping-issue review action
 
 ## 1.2.0 - 2026-06-27
 

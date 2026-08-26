@@ -193,11 +193,12 @@ sentinel value derived from the configured constraint bounds.
 ## Specific Policies
 
 Machine Setup -> PV Mapping is the primary assignment point for objective and
-constraint policies. Each mapped signal shows its bound policies and provides
-an `Add Policy` / `Manage` action. The structured Rule Editor locks the target
-to that mapping row and edits its conditions, match mode, and action without
-requiring JSON. Machine Setup -> Specific Policies remains a compatibility and
-summary view that links back to the corresponding mapping row. The declarative
+constraint policies. The page uses a compact machine-signal list with a selected
+signal detail panel. Readback, group, note, and policy management stay in the
+detail panel instead of expanding the main table. The structured Rule Editor
+locks the target to that mapping row and edits its conditions, match mode, and
+action without requiring JSON. Machine Setup -> Policy Presets retains the
+compatibility binding summaries. The declarative
 `sample_guard` policy lets online tasks describe common signal-quality rules
 without executing user-provided code.
 Reusable presets provide the former FEL energy, zero-objective, and BPM

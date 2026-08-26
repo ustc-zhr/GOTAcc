@@ -23,7 +23,6 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QPushButton,
     QSizePolicy,
     QTableWidgetItem,
     QTabWidget,
@@ -1247,7 +1246,7 @@ class MainWindow(QMainWindow):
         ]
         constraint_policy_headers = list(objective_policy_headers)
 
-        self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 3)
+        self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 2)
         self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
         self._setup_table(self.machine_ui.tableWidget_objectivePolicies, objective_policy_headers, 0)
         self._setup_table(self.machine_ui.tableWidget_constraintPolicies, constraint_policy_headers, 0)
@@ -1280,7 +1279,6 @@ class MainWindow(QMainWindow):
 
         self._set_table_row(self.machine_ui.tableWidget_mapping, 0, ["knob", "x0", "", "", "main", ""])
         self._set_table_row(self.machine_ui.tableWidget_mapping, 1, ["objective", "obj0", "", "", "metric", ""])
-        self._set_table_row(self.machine_ui.tableWidget_mapping, 2, ["", "", "", "", "", ""])
         self._set_table_row(self.machine_ui.tableWidget_writeLinks, 0, ["x0", "TEST:K1:LINK", "False"])
         self.task_builder_controller.refresh_write_link_editors()
         self.task_builder_controller.refresh_objective_policy_editors()
@@ -1662,6 +1660,37 @@ class MainWindow(QMainWindow):
             )
         return results
 
+    def _retarget_mapping_policy_rows(
+        self,
+        kind: str,
+        bindings: list[dict],
+        target: str,
+    ) -> None:
+        if not bindings or not target:
+            return
+        table = (
+            self.machine_ui.tableWidget_objectivePolicies
+            if kind == "objective"
+            else self.machine_ui.tableWidget_constraintPolicies
+        )
+        headers = self.task_builder_controller.table_headers(table)
+        kwargs_col = headers.index("Kwargs JSON")
+        names = self._policy_target_names(kind)
+        target_col = names.index(target) if target in names else 0
+        for binding in bindings:
+            kwargs = dict(binding["kwargs"])
+            kwargs["target"] = target
+            kwargs["target_col"] = target_col
+            table.setItem(
+                int(binding["row"]),
+                kwargs_col,
+                QTableWidgetItem(json.dumps(kwargs, ensure_ascii=False)),
+            )
+        if kind == "objective":
+            self.task_builder_controller.refresh_objective_policy_editors()
+        else:
+            self.task_builder_controller.refresh_constraint_policy_editors()
+
     def _refresh_mapping_policy_widgets(self) -> None:
         if not hasattr(self.machine_ui, "tableWidget_mapping"):
             return
@@ -1688,26 +1717,24 @@ class MainWindow(QMainWindow):
                 bound = self._bound_policy_rows(role, target)
                 enabled_count = sum(bool(policy["enabled"]) for policy in bound)
                 if not bound:
-                    summary = "None"
-                    button_text = "Add Policy"
+                    summary = "No policies"
                 else:
                     labels = [str(policy["preset"]) for policy in bound]
                     summary = ", ".join(labels)
                     if enabled_count != len(bound):
                         summary += f" ({enabled_count}/{len(bound)} enabled)"
-                    button_text = f"Manage ({len(bound)})"
                 summary_item = QTableWidgetItem(summary)
                 summary_item.setToolTip(summary)
                 summary_item.setFlags(summary_item.flags() & ~Qt.ItemIsEditable)
                 table.setItem(row, policy_col, summary_item)
                 table.setItem(row, action_col, QTableWidgetItem(""))
-                button = QPushButton(button_text, table)
-                button.clicked.connect(
-                    lambda _checked=False, row_idx=row: self._manage_mapping_policies(row_idx)
-                )
-                table.setCellWidget(row, action_col, button)
+                table.removeCellWidget(row, action_col)
         finally:
             table.blockSignals(old_state)
+        if table.currentRow() < 0 and table.rowCount():
+            table.setCurrentCell(0, headers.index("Name"))
+        if hasattr(self, "machine_controller"):
+            self.machine_controller.refresh_mapping_detail()
 
     def _edit_policy_rule_row(
         self,
