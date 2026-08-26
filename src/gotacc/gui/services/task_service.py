@@ -663,6 +663,9 @@ class TaskService:
                 "sample_interval": machine_ui.doubleSpinBox_sampleInterval.value(),
                 "write_timeout": machine_ui.doubleSpinBox_timeout.value(),
                 "write_policy": machine_ui.comboBox_policy.currentText(),
+                "profile": copy.deepcopy(
+                    getattr(machine_ui, "machine_profile", {})
+                ),
                 "policy_bindings": copy.deepcopy(
                     getattr(machine_ui, "policy_bindings", [])
                 ),

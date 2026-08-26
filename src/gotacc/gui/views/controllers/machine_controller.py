@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -37,6 +38,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
 
 try:
+    from ...services.machine_profile import (
+        MACHINE_PROFILE_VERSION,
+        MachineProfile,
+        load_machine_profile,
+        save_machine_profile,
+    )
     from ...services.pv_library import PVLibraryDocument, PVLibraryItem, load_pv_library_file
     from ...services.task_service import TaskService
     from ..tool_dialogs import PVLibrarySelectorDialog, PVMappingSelectorDialog
@@ -46,6 +53,12 @@ except ImportError:  # pragma: no cover - local script fallback
     for path in (GUI_ROOT, GUI_ROOT / "services", GUI_ROOT / "views"):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
+    from machine_profile import (
+        MACHINE_PROFILE_VERSION,
+        MachineProfile,
+        load_machine_profile,
+        save_machine_profile,
+    )
     from pv_library import PVLibraryDocument, PVLibraryItem, load_pv_library_file
     from task_service import TaskService
     from tool_dialogs import PVLibrarySelectorDialog, PVMappingSelectorDialog
@@ -74,11 +87,174 @@ class MachineController:
         if hasattr(ui, "tab_advancedMachine"):
             return
 
+        self._configure_machine_profile_bar()
         self._configure_simple_connection_panel()
         self._configure_pv_mapping_actions()
         self._configure_pv_mapping_master_detail()
         self._configure_policy_options()
         self._move_advanced_machine_controls()
+
+    @staticmethod
+    def _machine_profile_directory() -> Path:
+        return Path(__file__).resolve().parents[5] / "config" / "machine_profiles"
+
+    def _configure_machine_profile_bar(self) -> None:
+        ui = self.window.machine_ui
+        frame = QFrame(self.window.machine_page)
+        frame.setObjectName("machineProfileBar")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(8)
+        title = QLabel("Machine Profile", frame)
+        combo = QComboBox(frame)
+        combo.setMinimumWidth(240)
+        status = QLabel(frame)
+        status.setObjectName("machineProfileStatus")
+        open_button = QPushButton("Open…", frame)
+        save_button = QPushButton("Save As…", frame)
+        layout.addWidget(title)
+        layout.addWidget(combo)
+        layout.addWidget(status, 1)
+        layout.addWidget(open_button)
+        layout.addWidget(save_button)
+        ui.verticalLayout_main.insertWidget(1, frame)
+        ui.frame_machineProfile = frame
+        ui.comboBox_machineProfile = combo
+        ui.label_machineProfileStatus = status
+        ui.pushButton_openMachineProfile = open_button
+        ui.pushButton_saveMachineProfile = save_button
+        open_button.clicked.connect(self.open_machine_profile)
+        save_button.clicked.connect(self.save_machine_profile_as)
+        self.refresh_machine_profile_bar()
+
+    def refresh_machine_profile_bar(self) -> None:
+        ui = self.window.machine_ui
+        if not hasattr(ui, "comboBox_machineProfile"):
+            return
+        profile_dir = self._machine_profile_directory()
+        paths = sorted(profile_dir.glob("*.json")) if profile_dir.exists() else []
+        current = getattr(ui, "machine_profile", {}) or {}
+        current_source = str(current.get("source", ""))
+        combo = ui.comboBox_machineProfile
+        old_state = combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem("Embedded / unsaved", "")
+            for path in paths:
+                try:
+                    profile = load_machine_profile(path)
+                    label = profile.name
+                except Exception:
+                    label = f"Invalid: {path.stem}"
+                combo.addItem(label, str(path))
+            if current_source:
+                index = combo.findData(current_source)
+                if index < 0:
+                    combo.addItem(str(current.get("name", Path(current_source).stem)), current_source)
+                    index = combo.count() - 1
+                combo.setCurrentIndex(index)
+            else:
+                combo.setCurrentIndex(0)
+        finally:
+            combo.blockSignals(old_state)
+        name = str(current.get("name", "Embedded Machine"))
+        profile_id = str(current.get("profile_id", "embedded"))
+        version = int(current.get("version", MACHINE_PROFILE_VERSION) or MACHINE_PROFILE_VERSION)
+        ui.label_machineProfileStatus.setText(f"{name} · {profile_id} · v{version}")
+
+    def _selected_machine_profile_path(self) -> str:
+        ui = self.window.machine_ui
+        selected = str(ui.comboBox_machineProfile.currentData() or "")
+        if selected:
+            return selected
+        path, _ = QFileDialog.getOpenFileName(
+            self.window,
+            "Open Machine Profile",
+            str(self._machine_profile_directory()),
+            "GOTAcc Machine Profile (*.json);;All Files (*)",
+        )
+        return path
+
+    def open_machine_profile(self) -> None:
+        path = self._selected_machine_profile_path()
+        if not path:
+            return
+        try:
+            profile = load_machine_profile(path)
+            machine = copy.deepcopy(profile.machine)
+            machine["profile"] = {
+                "profile_id": profile.profile_id,
+                "name": profile.name,
+                "version": profile.version,
+                "source": str(Path(path).resolve()),
+            }
+            old_suppress = self.window._suppress_autofill
+            self.window._suppress_autofill = True
+            try:
+                self.window.task_builder_controller.apply_machine_payload(
+                    machine,
+                    refresh=False,
+                )
+            finally:
+                self.window._suppress_autofill = old_suppress
+        except Exception as exc:
+            QMessageBox.critical(self.window, "Open Machine Profile Failed", str(exc))
+            return
+        self.refresh_selected_library_tables()
+        self.view.refresh_task_preview()
+        self.view.log_console(
+            f"Loaded Machine Profile {profile.name!r}; Task Builder remains unchanged until Sync To Task."
+        )
+        self.view.status_message(f"Machine Profile loaded: {profile.name}", 5000)
+
+    def save_machine_profile_as(self) -> None:
+        current = getattr(self.window.machine_ui, "machine_profile", {}) or {}
+        default_name = str(current.get("name", "")).strip()
+        if not default_name or current.get("profile_id") == "embedded":
+            default_name = "New Machine"
+        name, accepted = QInputDialog.getText(
+            self.window,
+            "Save Machine Profile",
+            "Profile name:",
+            text=default_name,
+        )
+        name = name.strip()
+        if not accepted or not name:
+            return
+        machine = copy.deepcopy(self.view.current_task().get("machine", {}) or {})
+        machine.pop("profile", None)
+        try:
+            profile = MachineProfile.create(name, machine)
+        except ValueError as exc:
+            QMessageBox.warning(self.window, "Save Machine Profile", str(exc))
+            return
+        profile_dir = self._machine_profile_directory()
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        path, _ = QFileDialog.getSaveFileName(
+            self.window,
+            "Save Machine Profile",
+            str(profile_dir / f"{profile.profile_id}.json"),
+            "GOTAcc Machine Profile (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path = f"{path}.json"
+        try:
+            save_machine_profile(profile, path)
+        except Exception as exc:
+            QMessageBox.critical(self.window, "Save Machine Profile Failed", str(exc))
+            return
+        self.window.machine_ui.machine_profile = {
+            "profile_id": profile.profile_id,
+            "name": profile.name,
+            "version": profile.version,
+            "source": str(Path(path).resolve()),
+        }
+        self.refresh_machine_profile_bar()
+        self.view.refresh_task_preview()
+        self.view.log_console(f"Machine Profile saved to: {path}")
+        self.view.status_message(f"Machine Profile saved: {Path(path).name}", 5000)
 
     def _configure_policy_options(self) -> None:
         combo = self.window.machine_ui.comboBox_policy
@@ -478,7 +654,7 @@ class MachineController:
         ui = self.window.machine_ui
         main_tabs = ui.tabWidget_machine
 
-        for page in (ui.tab_writePolicy, ui.tab_objectivePolicy, ui.tab_constraintPolicy):
+        for page in (ui.tab_writePolicy,):
             index = main_tabs.indexOf(page)
             if index >= 0:
                 main_tabs.removeTab(index)
@@ -1352,6 +1528,53 @@ class MachineController:
             table.scrollToItem(name_item)
         table.setFocus()
 
+    @staticmethod
+    def _mapping_sync_preview(
+        snapshot: dict[str, list[dict[str, str]]],
+        merged: dict[str, list[dict[str, str]]],
+        counts: dict[str, int],
+    ) -> str:
+        labels = {
+            "variables": "Knobs",
+            "objectives": "Objectives",
+            "constraints": "Constraints",
+        }
+        lines = [
+            "Review the Task Builder changes before applying:",
+            "",
+            f"{counts['added']} added · {counts['preserved']} preserved · "
+            f"{counts['removed']} removed",
+        ]
+        for field in ("variables", "objectives", "constraints"):
+            before = [
+                str(row.get("Name", "")).strip()
+                for row in snapshot[field]
+                if str(row.get("Name", "")).strip()
+            ]
+            after = [
+                str(row.get("Name", "")).strip()
+                for row in merged[field]
+                if str(row.get("Name", "")).strip()
+            ]
+            added = [name for name in after if name not in before]
+            removed = [name for name in before if name not in after]
+            details = []
+            if added:
+                details.append("add " + ", ".join(added))
+            if removed:
+                details.append("remove " + ", ".join(removed))
+            if not details:
+                details.append("no name changes")
+            lines.append(f"{labels[field]}: {'; '.join(details)}")
+        lines.extend(
+            [
+                "",
+                "Existing bounds, initial values, directions, sampling and math "
+                "settings are preserved for matching names.",
+            ]
+        )
+        return "\n".join(lines)
+
     def apply_selected_pv_library_entries(self) -> None:
         task = self.view.current_task()
         if not self.is_online_task(task):
@@ -1392,6 +1615,17 @@ class MachineController:
                 mapped_objectives,
                 mapped_constraints,
             )
+            preview = self._mapping_sync_preview(snapshot, merged, counts)
+            answer = QMessageBox.question(
+                self.window,
+                "Confirm Sync To Task",
+                preview,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                self.view.status_message("Sync To Task cancelled.", 3000)
+                return
             for field, table in tables.items():
                 self.window.task_builder_controller.fill_table_from_records(
                     table,

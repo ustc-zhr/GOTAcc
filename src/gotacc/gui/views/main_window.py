@@ -1243,6 +1243,12 @@ class MainWindow(QMainWindow):
         self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
         self.machine_ui.policy_bindings = []
         self.machine_ui.policy_presets = []
+        self.machine_ui.machine_profile = {
+            "profile_id": "embedded",
+            "name": "Embedded Machine",
+            "version": 1,
+            "source": "",
+        }
         self.machine_ui.tableWidget_writeLinks.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         self._set_table_row(self.machine_ui.tableWidget_mapping, 0, ["knob", "x0", "", "", "main", ""])

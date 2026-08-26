@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import sys
 from pathlib import Path
@@ -26,8 +27,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from gotacc.interfaces.policies import POLICY_REGISTRY
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
@@ -1110,281 +1109,6 @@ class TaskBuilderController:
         self._install_write_link_source_widgets(table)
         self._install_write_link_enabled_widgets(table)
 
-    @staticmethod
-    def _normalize_policy_enabled_value(value: str) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return "True"
-        return "True" if TaskService._is_enabled(text) else "False"
-
-    @staticmethod
-    def _normalize_objective_policy_name(value: str) -> str:
-        text = str(value or "").strip().lower()
-        try:
-            definition = POLICY_REGISTRY.resolve("objective", text)
-            if definition.gui_visible:
-                return definition.name
-        except ValueError:
-            pass
-        return POLICY_REGISTRY.default_name("objective", gui_only=True)
-
-    @staticmethod
-    def _normalize_constraint_policy_name(value: str) -> str:
-        text = str(value or "").strip().lower()
-        try:
-            definition = POLICY_REGISTRY.resolve("constraint", text)
-            if definition.gui_visible:
-                return definition.name
-        except ValueError:
-            pass
-        return POLICY_REGISTRY.default_name("constraint", gui_only=True)
-
-    @staticmethod
-    def objective_policy_default_row(name: str | None = None, enabled: str = "True") -> list[str]:
-        preset_name = name if name in POLICY_REGISTRY.preset_names("objective") else "fel_energy_guard"
-        preset = POLICY_REGISTRY.resolve_preset("objective", preset_name)
-        spec = POLICY_REGISTRY.expand_preset("objective", preset_name)
-        return [
-            enabled,
-            "",
-            preset.display_name,
-            "Edit structured rule…",
-            spec["name"],
-            json.dumps(spec["kwargs"], ensure_ascii=False),
-        ]
-
-    @staticmethod
-    def constraint_policy_default_row(name: str | None = None, enabled: str = "True") -> list[str]:
-        preset_name = name if name in POLICY_REGISTRY.preset_names("constraint") else "bpm_guard"
-        preset = POLICY_REGISTRY.resolve_preset("constraint", preset_name)
-        spec = POLICY_REGISTRY.expand_preset("constraint", preset_name)
-        return [
-            enabled,
-            "",
-            preset.display_name,
-            "Edit structured rule…",
-            spec["name"],
-            json.dumps(spec["kwargs"], ensure_ascii=False),
-        ]
-
-    def _ensure_policy_row_defaults(
-        self,
-        table,
-        row: int,
-        policy_name: str,
-        normalize_name,
-        default_row_factory,
-        *,
-        force: bool = False,
-    ) -> None:
-        headers = self.table_headers(table)
-        if "Kwargs JSON" not in headers:
-            return
-        kwargs_col = headers.index("Kwargs JSON")
-        normalized_name = normalize_name(policy_name)
-        defaults = default_row_factory(normalized_name)
-        default_kwargs = defaults[-1]
-
-        kwargs_item = table.item(row, kwargs_col)
-        kwargs_text = kwargs_item.text().strip() if kwargs_item is not None else ""
-        if force or kwargs_text in {"", "{}"}:
-            if kwargs_item is None:
-                kwargs_item = QTableWidgetItem(default_kwargs)
-                table.setItem(row, kwargs_col, kwargs_item)
-            else:
-                kwargs_item.setText(default_kwargs)
-
-    def _on_policy_name_changed(self, table, row: int, value: str, normalize_name, default_row_factory) -> None:
-        if row < 0 or row >= table.rowCount():
-            return
-        old_state = table.blockSignals(True)
-        try:
-            self._ensure_policy_row_defaults(
-                table,
-                row,
-                value,
-                normalize_name,
-                default_row_factory,
-                force=True,
-            )
-        finally:
-            table.blockSignals(old_state)
-        self.refresh_task_preview()
-
-    def _on_objective_policy_name_changed(self, row: int, value: str) -> None:
-        self._on_policy_name_changed(
-            self.window.machine_ui.tableWidget_objectivePolicies,
-            row,
-            value,
-            self._normalize_objective_policy_name,
-            self.objective_policy_default_row,
-        )
-
-    def _on_constraint_policy_name_changed(self, row: int, value: str) -> None:
-        self._on_policy_name_changed(
-            self.window.machine_ui.tableWidget_constraintPolicies,
-            row,
-            value,
-            self._normalize_constraint_policy_name,
-            self.constraint_policy_default_row,
-        )
-
-    def _install_policy_widgets(
-        self,
-        table,
-        *,
-        allowed_names: list[str],
-        normalize_name,
-        default_row_factory,
-        name_change_handler,
-    ) -> None:
-        headers = self.table_headers(table)
-        if "Enabled" not in headers or "Policy Name" not in headers:
-            return
-        enabled_col = headers.index("Enabled")
-        name_col = headers.index("Policy Name")
-        preset_col = headers.index("Preset") if "Preset" in headers else None
-        target_col = headers.index("Target") if "Target" in headers else None
-        rule_col = headers.index("Rule") if "Rule" in headers else None
-        old_state = table.blockSignals(True)
-        try:
-            for row in range(table.rowCount()):
-                existing_enabled = table.cellWidget(row, enabled_col)
-                if existing_enabled is not None and hasattr(existing_enabled, "currentText"):
-                    enabled_value = str(existing_enabled.currentText()).strip()
-                else:
-                    current_item = table.item(row, enabled_col)
-                    enabled_value = current_item.text().strip() if current_item is not None else ""
-                enabled_value = self._normalize_policy_enabled_value(enabled_value)
-                enabled_combo = QComboBox(table)
-                enabled_combo.addItems(["True", "False"])
-                enabled_combo.setCurrentText(enabled_value)
-                enabled_combo.currentTextChanged.connect(lambda *_args: self.refresh_task_preview())
-                table.setCellWidget(row, enabled_col, enabled_combo)
-                item = table.item(row, enabled_col)
-                if item is None:
-                    item = QTableWidgetItem(enabled_combo.currentText())
-                    table.setItem(row, enabled_col, item)
-                else:
-                    item.setText(enabled_combo.currentText())
-
-                existing_name = table.cellWidget(row, name_col)
-                if existing_name is not None and hasattr(existing_name, "currentText"):
-                    name_value = str(existing_name.currentText()).strip()
-                else:
-                    current_item = table.item(row, name_col)
-                    name_value = current_item.text().strip() if current_item is not None else ""
-                legacy_name = name_value.lower()
-                kind = (
-                    "objective"
-                    if table is self.window.machine_ui.tableWidget_objectivePolicies
-                    else "constraint"
-                )
-                if legacy_name in POLICY_REGISTRY.preset_names(kind):
-                    preset = POLICY_REGISTRY.resolve_preset(kind, legacy_name)
-                    kwargs_item = table.item(row, headers.index("Kwargs JSON"))
-                    try:
-                        legacy_kwargs = TaskService._parse_json_text(
-                            kwargs_item.text() if kwargs_item is not None else ""
-                        )
-                    except ValueError:
-                        legacy_kwargs = None
-                    if legacy_kwargs is not None:
-                        spec = POLICY_REGISTRY.expand_preset(
-                            kind, legacy_name, legacy_kwargs=legacy_kwargs
-                        )
-                        name_value = spec["name"]
-                        table.setItem(
-                            row,
-                            headers.index("Kwargs JSON"),
-                            QTableWidgetItem(json.dumps(spec["kwargs"], ensure_ascii=False)),
-                        )
-                        if preset_col is not None:
-                            table.setItem(row, preset_col, QTableWidgetItem(preset.display_name))
-                name_value = normalize_name(name_value)
-                name_combo = QComboBox(table)
-                name_combo.addItems(allowed_names)
-                name_combo.setCurrentText(name_value)
-                name_combo.currentTextChanged.connect(
-                    lambda value, row_idx=row: name_change_handler(row_idx, value)
-                )
-                table.setCellWidget(row, name_col, name_combo)
-                item = table.item(row, name_col)
-                if item is None:
-                    item = QTableWidgetItem(name_combo.currentText())
-                    table.setItem(row, name_col, item)
-                else:
-                    item.setText(name_combo.currentText())
-                self._ensure_policy_row_defaults(
-                    table,
-                    row,
-                    name_value,
-                    normalize_name,
-                    default_row_factory,
-                )
-                if preset_col is not None:
-                    preset_item = table.item(row, preset_col)
-                    if preset_item is None or not preset_item.text().strip():
-                        table.setItem(row, preset_col, QTableWidgetItem("Custom Rule"))
-                if target_col is not None:
-                    kwargs_item = table.item(row, headers.index("Kwargs JSON"))
-                    try:
-                        kwargs = TaskService._parse_json_text(
-                            kwargs_item.text() if kwargs_item is not None else ""
-                        )
-                    except ValueError:
-                        target_name = "Invalid rule"
-                    else:
-                        target_name = self.window._mapping_target_for_policy(kind, kwargs)
-                    table.setItem(
-                        row,
-                        target_col,
-                        QTableWidgetItem(target_name or "Unbound"),
-                    )
-                    target_item = table.item(row, target_col)
-                    target_item.setFlags(target_item.flags() & ~Qt.ItemIsEditable)
-                if preset_col is not None:
-                    preset_item = table.item(row, preset_col)
-                    preset_item.setFlags(preset_item.flags() & ~Qt.ItemIsEditable)
-                if rule_col is not None:
-                    button = QPushButton("Open Mapping…", table)
-                    button.clicked.connect(
-                        lambda _checked=False, row_idx=row, policy_kind=kind: (
-                            self.window._open_policy_from_summary(policy_kind, row_idx)
-                        )
-                    )
-                    table.setCellWidget(row, rule_col, button)
-        finally:
-            table.blockSignals(old_state)
-
-    def _install_objective_policy_widgets(self, table) -> None:
-        if table is not self.window.machine_ui.tableWidget_objectivePolicies:
-            return
-        self._install_policy_widgets(
-            table,
-            allowed_names=list(POLICY_REGISTRY.names("objective", gui_only=True)),
-            normalize_name=self._normalize_objective_policy_name,
-            default_row_factory=self.objective_policy_default_row,
-            name_change_handler=self._on_objective_policy_name_changed,
-        )
-
-    def refresh_objective_policy_editors(self) -> None:
-        self._install_objective_policy_widgets(self.window.machine_ui.tableWidget_objectivePolicies)
-
-    def _install_constraint_policy_widgets(self, table) -> None:
-        if table is not self.window.machine_ui.tableWidget_constraintPolicies:
-            return
-        self._install_policy_widgets(
-            table,
-            allowed_names=list(POLICY_REGISTRY.names("constraint", gui_only=True)),
-            normalize_name=self._normalize_constraint_policy_name,
-            default_row_factory=self.constraint_policy_default_row,
-            name_change_handler=self._on_constraint_policy_name_changed,
-        )
-
-    def refresh_constraint_policy_editors(self) -> None:
-        self._install_constraint_policy_widgets(self.window.machine_ui.tableWidget_constraintPolicies)
-
     def init_bounds_tool(self) -> None:
         return
 
@@ -1804,26 +1528,7 @@ class TaskBuilderController:
                 legacy_task_batch_size=int(task.get("batch_size", 1) or 1),
             )
 
-            machine = task.get("machine", {}) or {}
-            self.window.machine_ui.lineEdit_caAddress.setText(str(machine.get("ca_address", "")))
-            self.window.machine_ui.checkBox_restore.setChecked(bool(machine.get("restore_on_abort", True)))
-            self.window.machine_ui.checkBox_readbackCheck.setChecked(bool(machine.get("readback_check", False)))
-            self.window.machine_ui.doubleSpinBox_readbackTol.setValue(
-                float(machine.get("readback_tol", 1e-6) or 0.0)
-            )
-            self.window.machine_ui.doubleSpinBox_setInterval.setValue(float(machine.get("set_interval", 1.0)))
-            self.window.machine_ui.doubleSpinBox_sampleInterval.setValue(float(machine.get("sample_interval", 0.2)))
-            self.window.machine_ui.doubleSpinBox_timeout.setValue(float(machine.get("write_timeout", 2.0)))
-            self.window.machine_ui.comboBox_policy.setCurrentText(
-                str(machine.get("write_policy", self.window.machine_ui.comboBox_policy.currentText()))
-            )
-            self.fill_table_from_records(self.window.machine_ui.tableWidget_mapping, machine.get("mapping", []))
-            self.fill_table_from_records(
-                self.window.machine_ui.tableWidget_writeLinks,
-                machine.get("write_links", []),
-            )
-            self.window._load_policy_presets(machine)
-            self.window._load_policy_bindings(machine)
+            self.apply_machine_payload(task.get("machine", {}) or {}, refresh=False)
         finally:
             self.window._suppress_autofill = False
 
@@ -1834,6 +1539,58 @@ class TaskBuilderController:
             self.view.append_overview_activity("Task Update", status=source_label)
         if goto_builder:
             self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
+
+    def apply_machine_payload(self, machine: dict, *, refresh: bool = True) -> None:
+        self.window.machine_ui.lineEdit_caAddress.setText(str(machine.get("ca_address", "")))
+        self.window.machine_ui.checkBox_restore.setChecked(
+            bool(machine.get("restore_on_abort", True))
+        )
+        self.window.machine_ui.checkBox_readbackCheck.setChecked(
+            bool(machine.get("readback_check", False))
+        )
+        self.window.machine_ui.doubleSpinBox_readbackTol.setValue(
+            float(machine.get("readback_tol", 1e-6) or 0.0)
+        )
+        self.window.machine_ui.doubleSpinBox_setInterval.setValue(
+            float(machine.get("set_interval", 1.0))
+        )
+        self.window.machine_ui.doubleSpinBox_sampleInterval.setValue(
+            float(machine.get("sample_interval", 0.2))
+        )
+        self.window.machine_ui.doubleSpinBox_timeout.setValue(
+            float(machine.get("write_timeout", 2.0))
+        )
+        self.window.machine_ui.comboBox_policy.setCurrentText(
+            str(
+                machine.get(
+                    "write_policy",
+                    self.window.machine_ui.comboBox_policy.currentText(),
+                )
+            )
+        )
+        self.fill_table_from_records(
+            self.window.machine_ui.tableWidget_mapping,
+            machine.get("mapping", []),
+        )
+        self.fill_table_from_records(
+            self.window.machine_ui.tableWidget_writeLinks,
+            machine.get("write_links", []),
+        )
+        self.window._load_policy_presets(machine)
+        self.window._load_policy_bindings(machine)
+        self.window.machine_ui.machine_profile = copy.deepcopy(
+            machine.get("profile", {})
+            or {
+                "profile_id": "embedded",
+                "name": "Embedded Machine",
+                "version": 1,
+                "source": "",
+            }
+        )
+        if hasattr(self.window, "machine_controller"):
+            self.window.machine_controller.refresh_machine_profile_bar()
+        if refresh:
+            self.refresh_task_preview()
 
     def create_new_offline_task(self) -> None:
         self.window.task_ui.lineEdit_taskName.setText("offline_task")

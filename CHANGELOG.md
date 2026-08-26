@@ -63,6 +63,12 @@
 - Added machine-scoped custom policy presets that can be saved from a binding,
   reused from the structured Rule Editor, renamed through stable IDs, and
   deleted without removing or changing existing bound rule behavior
+- Added independent versioned Machine Profile files for mapping, safeguards,
+  write links and policies; profile loading no longer changes Task Builder until
+  an operator confirms the displayed synchronization diff
+- Removed the retired hidden objective/constraint policy tabs and their legacy
+  table-editor controller paths now that canonical policy bindings own the GUI
+  workflow
 
 ## 1.2.0 - 2026-06-27
 

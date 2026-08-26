@@ -288,6 +288,11 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         stop_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_stopRun)
         assert window.ui.gridLayout_runActions.getItemPosition(stop_index) == (2, 1, 1, 1)
         assert window.machine_ui.groupBox_connection.title() == "EPICS"
+        assert window.machine_ui.label_machineProfileStatus.text().startswith(
+            "Embedded Machine · embedded · v1"
+        )
+        assert window.machine_ui.pushButton_openMachineProfile.text() == "Open…"
+        assert window.machine_ui.pushButton_saveMachineProfile.text() == "Save As…"
         assert not window.machine_ui.label_caAddress.isVisible()
         assert not window.machine_ui.lineEdit_caAddress.isVisible()
         assert not window.machine_ui.checkBox_autoConnect.isVisible()
@@ -394,8 +399,8 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · fel_energy"
         assert not window.machine_ui.pushButton_reviewMappingIssues.isHidden()
         assert window.machine_ui.pushButton_reviewMappingIssues.text() == "Review 2 Issues"
-        assert not window.machine_ui.pushButton_addObjectivePolicy.isVisible()
-        assert not window.machine_ui.pushButton_removeConstraintPolicy.isVisible()
+        assert not hasattr(window.machine_ui, "pushButton_addObjectivePolicy")
+        assert not hasattr(window.machine_ui, "tableWidget_constraintPolicies")
         serialized_mapping = window._current_task()["machine"]["mapping"]
         assert len(serialized_mapping) == 2
         assert all("Policies" not in row and "Policy Action" not in row for row in serialized_mapping)

@@ -4,9 +4,10 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from gotacc.gui.services.task_service import TaskService
+from gotacc.gui.services.machine_profile import MachineProfile, save_machine_profile
 from gotacc.gui.views.main_window import MainWindow
 from gotacc.gui.views.tool_dialogs import BoundsToolsDialog
 from gotacc.interfaces.policies import POLICY_REGISTRY
@@ -108,7 +109,9 @@ def test_mapping_master_detail_edits_selected_signal(tmp_path, window):
     assert "Policies" not in serialized
 
 
-def test_mapping_sync_preserves_parameters_by_name_and_can_undo(tmp_path, window):
+def test_mapping_sync_preserves_parameters_by_name_and_can_undo(
+    tmp_path, window, monkeypatch
+):
     task = _online_task(tmp_path)
     task["variables"].append(
         {
@@ -126,6 +129,7 @@ def test_mapping_sync_preserves_parameters_by_name_and_can_undo(tmp_path, window
     )
     window._apply_task_payload(task, goto_builder=False)
     window.go_to_page(window.PAGE_MACHINE)
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args, **_kwargs: QMessageBox.Yes)
 
     window.machine_controller.apply_selected_pv_library_entries()
 
@@ -152,10 +156,85 @@ def test_mapping_sync_preserves_parameters_by_name_and_can_undo(tmp_path, window
     assert not window.machine_ui.pushButton_undoMappingSync.isEnabled()
 
 
+def test_machine_profile_load_is_independent_until_confirmed_task_sync(
+    tmp_path, window, monkeypatch
+):
+    window._apply_task_payload(_online_task(tmp_path), goto_builder=False)
+    profile = MachineProfile.create(
+        "Alternate Beamline",
+        {
+            "mapping": [
+                {
+                    "Role": "knob",
+                    "Name": "Q3",
+                    "PV Name": "ALT:Q3:SET",
+                    "Readback": "ALT:Q3:RB",
+                },
+                {
+                    "Role": "objective",
+                    "Name": "Energy",
+                    "PV Name": "ALT:ENERGY",
+                },
+            ],
+            "write_links": [],
+            "policy_bindings": [],
+            "policy_presets": [],
+        },
+        profile_id="alternate-beamline",
+    )
+    path = save_machine_profile(profile, tmp_path / "alternate.json")
+    monkeypatch.setattr(
+        window.machine_controller,
+        "_selected_machine_profile_path",
+        lambda: str(path),
+    )
+
+    window.machine_controller.open_machine_profile()
+
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.machine_ui.tableWidget_mapping)
+    ] == ["Q3", "Energy"]
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.task_ui.tableWidget_variables)
+    ] == ["Q1", "Q2"]
+    assert window.machine_ui.machine_profile["profile_id"] == "alternate-beamline"
+    assert window._current_task()["machine"]["profile"]["name"] == "Alternate Beamline"
+
+    previews = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda _parent, _title, message, *_args, **_kwargs: (
+            previews.append(message) or QMessageBox.No
+        ),
+    )
+    window.machine_controller.apply_selected_pv_library_entries()
+    assert "Knobs: add Q3; remove Q1, Q2" in previews[0]
+    assert "Objectives: add Energy; remove Transmission" in previews[0]
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.task_ui.tableWidget_variables)
+    ] == ["Q1", "Q2"]
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args, **_kwargs: QMessageBox.Yes)
+    window.machine_controller.apply_selected_pv_library_entries()
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.task_ui.tableWidget_variables)
+    ] == ["Q3"]
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.task_ui.tableWidget_objectives)
+    ] == ["Energy"]
+
+
 def test_pv_check_covers_current_contract_and_becomes_stale(tmp_path, window, monkeypatch):
     task = _online_task(tmp_path)
     window._apply_task_payload(task, goto_builder=False)
     window.go_to_page(window.PAGE_MACHINE)
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args, **_kwargs: QMessageBox.Yes)
     window.machine_controller.apply_selected_pv_library_entries()
     assert window.ui.tabWidget_configure.currentIndex() == window.CONFIGURE_TAB_MACHINE
     reads = []
