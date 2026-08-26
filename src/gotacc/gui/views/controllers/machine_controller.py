@@ -592,7 +592,11 @@ class MachineController:
                 "Remove bound policies before changing this signal's role."
             )
             enabled = sum(bool(policy["enabled"]) for policy in bound)
-            lines = [f"• {policy['preset']} — {policy['summary']}" for policy in bound]
+            lines = [
+                f"• {policy['preset']} · {policy['status']} — "
+                f"{policy['issue'] or policy['summary']}"
+                for policy in bound
+            ]
             ui.label_mappingPolicySummary.setText("\n".join(lines))
             ui.pushButton_manageMappingPolicies.setText(
                 f"Manage {len(bound)} " + ("Policy" if len(bound) == 1 else "Policies")
@@ -630,6 +634,7 @@ class MachineController:
         if bindings:
             self.window._retarget_mapping_policy_rows(role, bindings, normalized)
         self.window._refresh_mapping_policy_widgets()
+        self.update_pv_library_summary()
         self.refresh_mapping_detail(row)
 
     def _manage_selected_mapping_policies(self) -> None:
@@ -645,6 +650,7 @@ class MachineController:
         QMessageBox.warning(self.window, "PV Mapping Issues", "\n".join(errors))
         table = self.window.machine_ui.tableWidget_mapping
         fields = self.window.task_builder_controller.table_headers(table)
+        focused = False
         for row in range(table.rowCount()):
             role_item = table.item(row, fields.index("Role"))
             name_item = table.item(row, fields.index("Name"))
@@ -655,6 +661,25 @@ class MachineController:
             if role not in {"knob", "objective", "constraint"} or not name or not pv_name:
                 table.selectRow(row)
                 table.setCurrentCell(row, fields.index("Name" if not name else "PV Name"))
+                self.refresh_mapping_detail(row)
+                focused = True
+                break
+        if focused:
+            return
+        policy_issues = TaskService.policy_binding_issues(self.view.current_task())
+        if not policy_issues:
+            return
+        first = policy_issues[0]
+        issue_kind = str(first.get("kind", ""))
+        issue_target = str(first.get("target", ""))
+        for row in range(table.rowCount()):
+            role_item = table.item(row, fields.index("Role"))
+            name_item = table.item(row, fields.index("Name"))
+            role = role_item.text().strip().lower() if role_item is not None else ""
+            name = name_item.text().strip() if name_item is not None else ""
+            if role == issue_kind and name == issue_target:
+                table.selectRow(row)
+                table.setCurrentCell(row, fields.index("Policies"))
                 self.refresh_mapping_detail(row)
                 break
 
@@ -984,6 +1009,10 @@ class MachineController:
                     )
                 knob_pvs[pv_name] = name
 
+        errors.extend(
+            issue["message"]
+            for issue in TaskService.policy_binding_issues(self.view.current_task())
+        )
         return list(dict.fromkeys(errors))
 
     def _enabled_task_names(self, role: str) -> list[str]:

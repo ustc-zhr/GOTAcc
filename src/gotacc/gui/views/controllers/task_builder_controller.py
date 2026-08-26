@@ -2047,6 +2047,7 @@ class TaskBuilderController:
         if not build_ok:
             ok = False
             errors.extend(build_errors)
+        errors = list(dict.fromkeys(errors))
         if not ok:
             self._set_validation_status("Validation failed", "danger", "\n".join(errors))
             self.view.log_warning("Validation failed.")
@@ -2066,6 +2067,7 @@ class TaskBuilderController:
         if not build_ok:
             ok = False
             errors.extend(build_errors)
+        errors = list(dict.fromkeys(errors))
         if not ok:
             self._set_validation_status("Validation failed", "danger", "\n".join(errors))
             self.view.log_warning("Silent validation failed.")

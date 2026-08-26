@@ -75,6 +75,9 @@
   constraint
 - Added explicit Task Builder row actions and non-serialized empty-state hints,
   while preserving all table data when users merely switch the task mode
+- Added shared, target-aware machine policy validation across Rule save,
+  PV Mapping sync, task validation, and run start, with compact Ready/Issue/
+  Disabled summaries and actionable constraint-bound diagnostics
 
 ## 1.2.0 - 2026-06-27
 

@@ -145,6 +145,74 @@ def test_empty_canonical_bindings_override_legacy_policy_rows():
     assert TaskService._build_objective_policy_specs(task) == []
 
 
+def test_policy_binding_issues_are_targeted_and_check_violate_bound_setup():
+    task = {
+        "constraints": [
+            {
+                "Enable": "Y",
+                "Name": "orbit_x",
+                "Lower": "",
+                "Upper": "",
+            }
+        ],
+        "machine": {
+            "mapping": [
+                {
+                    "Role": "constraint",
+                    "Name": "orbit_x",
+                    "PV Name": "TEST:BPM:X",
+                }
+            ],
+            "policy_bindings": [
+                {
+                    "kind": "constraint",
+                    "target": "orbit_x",
+                    "enabled": True,
+                    "preset": "bpm_guard",
+                    "policy": {
+                        "name": "sample_guard",
+                        "kwargs": {
+                            "target": "orbit_x",
+                            "conditions": [
+                                {
+                                    "metric": "max_abs",
+                                    "operator": "le",
+                                    "value": 1e-9,
+                                }
+                            ],
+                            "match": "all",
+                            "action": {"type": "violate_bound"},
+                        },
+                    },
+                }
+            ],
+        },
+    }
+
+    issues = TaskService.policy_binding_issues(task)
+
+    assert issues == [
+        {
+            "binding_index": 0,
+            "kind": "constraint",
+            "target": "orbit_x",
+            "message": (
+                "Constraint policy for 'orbit_x': Mark infeasible requires "
+                "Lower or Upper in Task Builder."
+            ),
+        }
+    ]
+
+    task["constraints"][0]["Upper"] = "1.0"
+    assert TaskService.policy_binding_issues(task) == []
+
+    task["machine"]["policy_bindings"][0]["target"] = "missing_bpm"
+    issues = TaskService.policy_binding_issues(task)
+    assert issues[0]["binding_index"] == 0
+    assert issues[0]["target"] == "missing_bpm"
+    assert "matching constraint PV Mapping row" in issues[0]["message"]
+
+
 def test_gui_main_window_offscreen_smoke(monkeypatch):
     pytest.importorskip("PyQt5")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
@@ -409,8 +477,9 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         ]
         assert mapping_headers[-2:] == ["Policies", "Policy Action"]
         assert window.machine_ui.tableWidget_mapping.item(1, 6).text().startswith("FEL Energy Guard")
+        assert window.machine_ui.tableWidget_mapping.item(1, 6).text().endswith("· Ready")
         assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7) is None
-        assert "FEL Energy Guard" in window.machine_ui.label_mappingPolicySummary.text()
+        assert "FEL Energy Guard · Ready" in window.machine_ui.label_mappingPolicySummary.text()
         assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Manage 1 Policy"
         assert not window.machine_ui.comboBox_mappingDetailRole.isEnabled()
         window.machine_ui.lineEdit_mappingDetailName.setText("fel_energy")

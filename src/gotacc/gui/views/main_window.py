@@ -1619,8 +1619,16 @@ class MainWindow(QMainWindow):
             return ""
         return names[target_col] if 0 <= target_col < len(names) else ""
 
+    def _policy_binding_issues_by_index(self) -> dict[int, dict]:
+        return {
+            int(issue["binding_index"]): issue
+            for issue in TaskService.policy_binding_issues(self._current_task())
+            if issue.get("binding_index") is not None
+        }
+
     def _bound_policy_rows(self, kind: str, target: str) -> list[dict]:
         results: list[dict] = []
+        issues_by_index = self._policy_binding_issues_by_index()
         for index, binding in enumerate(self.machine_ui.policy_bindings):
             if binding.get("kind") != kind or binding.get("target") != target:
                 continue
@@ -1640,12 +1648,17 @@ class MainWindow(QMainWindow):
                         ).display_name
                     except ValueError:
                         preset_label = preset_name
+            issue = issues_by_index.get(index)
+            enabled = bool(binding.get("enabled", True))
+            status = "Disabled" if not enabled else ("Issue" if issue else "Ready")
             results.append(
                 {
                     "row": index,
-                    "enabled": bool(binding.get("enabled", True)),
+                    "enabled": enabled,
                     "preset": preset_label,
                     "summary": self._policy_rule_summary(kwargs),
+                    "status": status,
+                    "issue": str(issue.get("message", "")) if issue else "",
                     "kwargs": kwargs,
                     "binding": binding,
                 }
@@ -1869,13 +1882,27 @@ class MainWindow(QMainWindow):
                 enabled_count = sum(bool(policy["enabled"]) for policy in bound)
                 if not bound:
                     summary = "No policies"
+                    tooltip = summary
                 else:
                     labels = [str(policy["preset"]) for policy in bound]
                     summary = ", ".join(labels)
+                    if any(policy["status"] == "Issue" for policy in bound):
+                        status = "Issue"
+                    elif enabled_count:
+                        status = "Ready"
+                    else:
+                        status = "Disabled"
+                    summary += f" · {status}"
                     if enabled_count != len(bound):
                         summary += f" ({enabled_count}/{len(bound)} enabled)"
+                    tooltip_lines = [
+                        policy["issue"]
+                        or f"{policy['preset']}: {policy['summary']} ({policy['status']})"
+                        for policy in bound
+                    ]
+                    tooltip = "\n".join(tooltip_lines)
                 summary_item = QTableWidgetItem(summary)
-                summary_item.setToolTip(summary)
+                summary_item.setToolTip(tooltip)
                 summary_item.setFlags(summary_item.flags() & ~Qt.ItemIsEditable)
                 table.setItem(row, policy_col, summary_item)
                 table.setItem(row, action_col, QTableWidgetItem(""))
@@ -1920,6 +1947,13 @@ class MainWindow(QMainWindow):
         binding["policy"] = {"name": state["name"], "kwargs": state["kwargs"]}
         self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
+        issue = self._policy_binding_issues_by_index().get(row)
+        if issue is not None:
+            QMessageBox.warning(
+                self,
+                "Policy Needs Setup",
+                str(issue["message"]),
+            )
         return True
 
     @staticmethod

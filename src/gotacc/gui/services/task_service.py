@@ -912,14 +912,6 @@ class TaskService:
         if not isinstance(raw_bindings, list):
             raise ValueError("machine.policy_bindings must be a list.")
 
-        mapping_names = [
-            str(row.get("Name", "")).strip()
-            for row in machine.get("mapping", []) or []
-            if isinstance(row, Mapping)
-            and str(row.get("Role", "")).strip().lower() == kind
-            and str(row.get("Name", "")).strip()
-        ]
-        supported = set(POLICY_REGISTRY.names(kind, include_aliases=True))
         specs: List[Dict[str, Any]] = []
         for index, binding in enumerate(raw_bindings, start=1):
             if not isinstance(binding, Mapping):
@@ -929,34 +921,142 @@ class TaskService:
             enabled = binding.get("enabled", True)
             if not (enabled if isinstance(enabled, bool) else TaskService._is_enabled(enabled)):
                 continue
-
-            policy = binding.get("policy", {}) or {}
-            if not isinstance(policy, Mapping):
-                raise ValueError(f"Policy binding {index} has an invalid policy definition.")
-            name = str(policy.get("name", "")).strip().lower()
-            if name not in supported:
-                raise ValueError(
-                    f"Unsupported {kind} policy in binding {index}: {name!r}. "
-                    f"Use one of: {', '.join(sorted(supported))}."
-                )
-            name = POLICY_REGISTRY.resolve(kind, name).name
-            kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
-            if not isinstance(kwargs, dict):
-                raise ValueError(f"Policy binding {index} kwargs must be a mapping.")
-
-            target = str(binding.get("target") or kwargs.get("target") or "").strip()
-            if not target:
-                raise ValueError(f"Policy binding {index} must identify a target.")
-            if target not in mapping_names:
-                raise ValueError(
-                    f"Policy binding {index} targets {target!r}, but no "
-                    f"{kind} PV Mapping row has that name."
-                )
-            kwargs["target"] = target
-            kwargs["target_col"] = mapping_names.index(target)
-            POLICY_REGISTRY.validate(kind, name, kwargs)
-            specs.append({"name": name, "kwargs": kwargs})
+            specs.append(
+                TaskService._compile_policy_binding(machine, binding, kind, index)
+            )
         return specs
+
+    @staticmethod
+    def _compile_policy_binding(
+        machine: Mapping[str, Any],
+        binding: Mapping[str, Any],
+        kind: str,
+        index: int,
+    ) -> Dict[str, Any]:
+        """Validate one canonical binding and compile its stable target name."""
+        policy = binding.get("policy", {}) or {}
+        target_hint = str(binding.get("target", "")).strip()
+        prefix = f"{kind.title()} policy"
+        if target_hint:
+            prefix += f" for {target_hint!r}"
+        if not isinstance(policy, Mapping):
+            raise ValueError(f"{prefix}: invalid policy definition.")
+
+        name = str(policy.get("name", "")).strip().lower()
+        supported = set(POLICY_REGISTRY.names(kind, include_aliases=True))
+        if name not in supported:
+            raise ValueError(
+                f"{prefix}: unsupported policy {name!r}; "
+                f"use one of: {', '.join(sorted(supported))}."
+            )
+        name = POLICY_REGISTRY.resolve(kind, name).name
+        kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
+        if not isinstance(kwargs, dict):
+            raise ValueError(f"{prefix}: kwargs must be a mapping.")
+
+        target = str(binding.get("target") or kwargs.get("target") or "").strip()
+        if not target:
+            raise ValueError(f"Policy binding {index}: choose a target signal.")
+        prefix = f"{kind.title()} policy for {target!r}"
+        mapping_names = [
+            str(row.get("Name", "")).strip()
+            for row in machine.get("mapping", []) or []
+            if isinstance(row, Mapping)
+            and str(row.get("Role", "")).strip().lower() == kind
+            and str(row.get("Name", "")).strip()
+        ]
+        if target not in mapping_names:
+            raise ValueError(
+                f"{prefix}: add or restore the matching {kind} PV Mapping row."
+            )
+        kwargs["target"] = target
+        kwargs["target_col"] = mapping_names.index(target)
+        try:
+            POLICY_REGISTRY.validate(kind, name, kwargs)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{prefix}: {exc}") from exc
+        return {"name": name, "kwargs": kwargs}
+
+    @staticmethod
+    def policy_binding_issues(task: Mapping[str, Any]) -> List[Dict[str, Any]]:
+        """Return actionable issues for enabled machine policy bindings.
+
+        This is intentionally side-effect free so Rule saving, Mapping sync and
+        run validation can share the same result without touching EPICS.
+        """
+        machine = task.get("machine", {}) or {}
+        raw_bindings = machine.get("policy_bindings", []) or []
+        if not isinstance(raw_bindings, list):
+            return [
+                {
+                    "binding_index": None,
+                    "kind": "",
+                    "target": "",
+                    "message": "Machine policies must be stored as a list.",
+                }
+            ]
+
+        constraint_rows = {
+            str(row.get("Name", "")).strip(): row
+            for row in TaskService._enabled_rows(task.get("constraints", []) or [])
+            if isinstance(row, Mapping) and str(row.get("Name", "")).strip()
+        }
+        issues: List[Dict[str, Any]] = []
+        for offset, binding in enumerate(raw_bindings):
+            if not isinstance(binding, Mapping):
+                issues.append(
+                    {
+                        "binding_index": offset,
+                        "kind": "",
+                        "target": "",
+                        "message": f"Policy binding {offset + 1} is invalid.",
+                    }
+                )
+                continue
+            enabled = binding.get("enabled", True)
+            if not (enabled if isinstance(enabled, bool) else TaskService._is_enabled(enabled)):
+                continue
+            kind = str(binding.get("kind", "")).strip().lower()
+            policy = binding.get("policy", {}) or {}
+            kwargs = policy.get("kwargs", {}) if isinstance(policy, Mapping) else {}
+            target = str(
+                binding.get("target")
+                or (kwargs.get("target") if isinstance(kwargs, Mapping) else "")
+                or ""
+            ).strip()
+            if kind not in {"objective", "constraint"}:
+                message = f"Policy binding {offset + 1}: choose objective or constraint."
+            else:
+                try:
+                    TaskService._compile_policy_binding(
+                        machine, binding, kind, offset + 1
+                    )
+                    message = ""
+                except (TypeError, ValueError) as exc:
+                    message = str(exc)
+
+            if not message and kind == "constraint" and target in constraint_rows:
+                action = kwargs.get("action", {}) if isinstance(kwargs, Mapping) else {}
+                if isinstance(action, Mapping) and action.get("type") == "violate_bound":
+                    try:
+                        TaskService._constraint_bounds_from_rows(
+                            [constraint_rows[target]]
+                        )
+                    except (TypeError, ValueError):
+                        message = (
+                            f"Constraint policy for {target!r}: Mark infeasible "
+                            "requires Lower or Upper in Task Builder."
+                        )
+            if message:
+                issues.append(
+                    {
+                        "binding_index": offset,
+                        "kind": kind,
+                        "target": target,
+                        "message": message,
+                    }
+                )
+        return issues
 
     @staticmethod
     def validate_task_data(task: Dict[str, Any]) -> Tuple[bool, List[str]]:
@@ -1158,15 +1258,24 @@ class TaskService:
                     f"Unsupported write policy for current GUI flow: {write_policy!r}"
                 )
 
-            try:
-                TaskService._build_objective_policy_specs(task)
-            except Exception as exc:
-                errors.append(str(exc))
-            if algorithm in constrained_algorithms:
+            machine = task.get("machine", {}) or {}
+            if "policy_bindings" in machine:
+                errors.extend(
+                    issue["message"]
+                    for issue in TaskService.policy_binding_issues(task)
+                )
+            else:
+                # Keep validation behavior for projects that are migrated from
+                # the former table-shaped policy fields on load.
                 try:
-                    TaskService._build_constraint_policy_specs(task)
+                    TaskService._build_objective_policy_specs(task)
                 except Exception as exc:
                     errors.append(str(exc))
+                if algorithm in constrained_algorithms:
+                    try:
+                        TaskService._build_constraint_policy_specs(task)
+                    except Exception as exc:
+                        errors.append(str(exc))
             for idx, row in enumerate(enabled_objectives, start=1):
                 math_op = str(row.get("Math", "mean")).strip().lower() or "mean"
                 if math_op not in {"mean", "std"}:

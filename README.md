@@ -246,6 +246,14 @@ Mapping rows. Renaming preserves references through a stable preset ID. Deleting
 a custom preset preserves each assigned rule and converts those bindings to
 standalone `Custom Rule` entries.
 
+Policy validation stays in the normal workflow instead of adding another
+always-visible editor panel. PV Mapping marks assigned policies as `Ready`,
+`Issue`, or `Disabled`; issue tooltips and the existing Review Issues action
+identify the affected signal and the required fix. Rule save, `Sync To Task`,
+task validation, and run start share the same side-effect-free checks. In
+particular, a constraint rule using `violate_bound` is not ready until its
+matching Task Builder constraint defines a lower or upper bound.
+
 ```python
 "policy_bindings": [
     {

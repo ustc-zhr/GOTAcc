@@ -336,6 +336,60 @@ def test_online_validation_rejects_mapping_ambiguity(tmp_path):
     assert any("share Setpoint PV" in error for error in errors)
 
 
+def test_mapping_policy_status_stays_compact_and_reports_task_setup(window):
+    window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
+    window.task_builder_controller.fill_table_from_records(
+        window.task_ui.tableWidget_constraints,
+        [
+            {
+                "Enable": "Y",
+                "Name": "orbit_x",
+                "Lower": "",
+                "Upper": "",
+                "Math": "mean",
+            }
+        ],
+    )
+    window.task_builder_controller.fill_table_from_records(
+        window.machine_ui.tableWidget_mapping,
+        [
+            {
+                "Role": "constraint",
+                "Name": "orbit_x",
+                "PV Name": "TEST:BPM:X",
+            }
+        ],
+    )
+    spec = POLICY_REGISTRY.expand_preset("constraint", "bpm_guard")
+    kwargs = spec["kwargs"]
+    kwargs["target"] = "orbit_x"
+    window.machine_ui.policy_bindings = [
+        {
+            "kind": "constraint",
+            "target": "orbit_x",
+            "enabled": True,
+            "preset": "bpm_guard",
+            "policy": {"name": spec["name"], "kwargs": kwargs},
+        }
+    ]
+
+    window._refresh_mapping_policy_widgets()
+    window.machine_ui.tableWidget_mapping.setCurrentCell(0, 1)
+    QApplication.processEvents()
+
+    policy_cell = window.machine_ui.tableWidget_mapping.item(0, 6)
+    assert policy_cell.text() == "BPM Zero Guard · Issue"
+    assert "requires Lower or Upper" in policy_cell.toolTip()
+    assert "BPM Zero Guard · Issue" in window.machine_ui.label_mappingPolicySummary.text()
+
+    window.task_ui.tableWidget_constraints.item(0, 3).setText("1.0")
+    window._refresh_mapping_policy_widgets()
+
+    assert window.machine_ui.tableWidget_mapping.item(0, 6).text() == (
+        "BPM Zero Guard · Ready"
+    )
+
+
 def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, window):
     task = _online_task(tmp_path)
     task["machine"]["objective_policies"] = [
