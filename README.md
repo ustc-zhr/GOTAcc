@@ -101,6 +101,15 @@ The left-side quick actions are project-oriented:
 - `New Task`: explicitly choose an Offline benchmark or Online EPICS task
 - `Open Project` / `Save Project`: load or save the editable GUI project state
 
+New-task defaults are mode-specific. A new Online EPICS task starts with empty
+Variables, Objectives, Constraints, PV Mapping, and write links; load a Machine
+Profile and use `Sync To Task` to create real signal rows. A new Offline task
+starts as a runnable two-variable Rosenbrock benchmark with no placeholder
+constraint. Switching the Mode field on an existing task never clears its rows.
+Each Task Builder table also provides explicit `Add Row` and
+`Remove Selected` actions, while empty-state guidance is displayed outside the
+serialized table data.
+
 The Configure footer opens `Preview Task` for the normalized runnable
 configuration. `Export TaskConfig` is available from that preview and writes a
 standard YAML file for the runner, while project files retain the GUI editing

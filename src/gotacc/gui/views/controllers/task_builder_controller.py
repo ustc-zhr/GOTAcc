@@ -1483,6 +1483,97 @@ class TaskBuilderController:
             table.blockSignals(old_state)
         self._install_objective_math_widgets(table)
         self.refresh_write_link_editors()
+        self.refresh_task_table_empty_states()
+
+    def _task_table(self, field: str):
+        tables = {
+            "variables": self.window.task_ui.tableWidget_variables,
+            "objectives": self.window.task_ui.tableWidget_objectives,
+            "constraints": self.window.task_ui.tableWidget_constraints,
+        }
+        try:
+            return tables[field]
+        except KeyError as exc:
+            raise ValueError(f"Unknown Task Builder field: {field!r}") from exc
+
+    def _next_task_row_name(self, field: str) -> str:
+        table = self._task_table(field)
+        existing = {
+            str(row.get("Name", "")).strip()
+            for row in TaskService.table_to_records(table)
+            if str(row.get("Name", "")).strip()
+        }
+        prefix = {
+            "variables": "variable",
+            "objectives": "objective",
+            "constraints": "constraint",
+        }[field]
+        index = 1
+        while f"{prefix}_{index}" in existing:
+            index += 1
+        return f"{prefix}_{index}"
+
+    def add_task_table_row(self, field: str) -> None:
+        table = self._task_table(field)
+        name = self._next_task_row_name(field)
+        defaults = {
+            "variables": ["Y", name, "", "", "", "main"],
+            "objectives": ["Y", name, "maximize", "1.0", "1", "mean"],
+            "constraints": ["Y", name, "", "", "mean"],
+        }[field]
+        row = table.rowCount()
+        table.insertRow(row)
+        for column, value in enumerate(defaults):
+            table.setItem(row, column, QTableWidgetItem(value))
+        self._install_objective_math_widgets(table)
+        table.selectRow(row)
+        table.setCurrentCell(row, 1)
+        self.refresh_task_table_empty_states()
+        self.refresh_task_preview()
+
+    def remove_selected_task_rows(self, field: str) -> None:
+        table = self._task_table(field)
+        rows = sorted(
+            {index.row() for index in table.selectionModel().selectedRows()},
+            reverse=True,
+        )
+        if not rows and table.currentRow() >= 0:
+            rows = [table.currentRow()]
+        if not rows:
+            QMessageBox.information(self.window, "Remove Rows", "Select one or more rows first.")
+            return
+        for row in rows:
+            table.removeRow(row)
+        self.refresh_task_table_empty_states()
+        self.refresh_task_preview()
+
+    def refresh_task_table_empty_states(self) -> None:
+        ui = self.window.task_ui
+        if not hasattr(ui, "label_variablesEmptyState"):
+            return
+        online = ui.comboBox_mode.currentText().strip() == "Online EPICS"
+        messages = {
+            "variables": (
+                "Load a Machine Profile, then Sync To Task, or add a knob row manually."
+                if online
+                else "Add at least one benchmark variable."
+            ),
+            "objectives": (
+                "Load a Machine Profile, then Sync To Task, or add an objective row manually."
+                if online
+                else "Add at least one benchmark objective."
+            ),
+            "constraints": (
+                "No constraints configured. Profile constraints appear after Sync To Task."
+                if online
+                else "No constraints configured. Add rows only for constrained benchmarks."
+            ),
+        }
+        for field, message in messages.items():
+            table = self._task_table(field)
+            label = getattr(ui, f"label_{field}EmptyState")
+            label.setText(message)
+            label.setVisible(table.rowCount() == 0)
 
     def apply_task_payload(
         self,
@@ -1593,28 +1684,109 @@ class TaskBuilderController:
             self.refresh_task_preview()
 
     def create_new_offline_task(self) -> None:
-        self.window.task_ui.lineEdit_taskName.setText("offline_task")
-        self.window.task_ui.comboBox_mode.setCurrentText("Offline")
-        self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
-        self.sync_algorithm_options_with_objective_type(preferred_algorithm="BO", update_params=False)
-        self.window.task_ui.comboBox_algorithm.setCurrentText("BO")
-        self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
+        old_suppress = self.window._suppress_autofill
+        self.window._suppress_autofill = True
+        try:
+            self.window.task_ui.lineEdit_taskName.setText("offline_task")
+            self.window.task_ui.comboBox_mode.setCurrentText("Offline")
+            self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
+            self.sync_algorithm_options_with_objective_type(
+                preferred_algorithm="BO", update_params=False
+            )
+            self.window.task_ui.comboBox_algorithm.setCurrentText("BO")
+            self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
+            self.window.task_ui.spinBox_seed.setValue(0)
+            self.window.task_ui.spinBox_maxEval.setValue(100)
+            self.fill_table_from_records(
+                self.window.task_ui.tableWidget_variables,
+                [
+                    {
+                        "Enable": "Y",
+                        "Name": name,
+                        "Lower": "-2.0",
+                        "Upper": "2.0",
+                        "Initial": "0.0",
+                        "Group": "main",
+                    }
+                    for name in ("x0", "x1")
+                ],
+            )
+            self.fill_table_from_records(
+                self.window.task_ui.tableWidget_objectives,
+                [
+                    {
+                        "Enable": "Y",
+                        "Name": "rosenbrock",
+                        "Direction": "maximize",
+                        "Weight": "1.0",
+                        "Samples": "1",
+                        "Math": "mean",
+                    }
+                ],
+            )
+            self.fill_table_from_records(self.window.task_ui.tableWidget_constraints, [])
+            self.apply_recommended_dynamic_params(
+                "BO", preserve_custom=False, log_change=False
+            )
+            self._reset_machine_for_new_task()
+        finally:
+            self.window._suppress_autofill = old_suppress
         self.refresh_task_preview()
         self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
         self.view.log_console("Created a new offline task.")
         self.view.append_overview_activity("Task", status="Created offline task.")
 
     def create_new_online_task(self) -> None:
-        self.window.task_ui.lineEdit_taskName.setText("online_task")
-        self.window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
-        self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
-        self.sync_algorithm_options_with_objective_type(preferred_algorithm="TuRBO", update_params=False)
-        self.window.task_ui.comboBox_algorithm.setCurrentText("TuRBO")
-        self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
+        old_suppress = self.window._suppress_autofill
+        self.window._suppress_autofill = True
+        try:
+            self.window.task_ui.lineEdit_taskName.setText("online_task")
+            self.window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
+            self.window.task_ui.comboBox_objectiveType.setCurrentText("Single Objective")
+            self.sync_algorithm_options_with_objective_type(
+                preferred_algorithm="TuRBO", update_params=False
+            )
+            self.window.task_ui.comboBox_algorithm.setCurrentText("TuRBO")
+            self.window.task_ui.comboBox_testFunction.setCurrentText("rosenbrock")
+            self.window.task_ui.spinBox_seed.setValue(0)
+            self.window.task_ui.spinBox_maxEval.setValue(100)
+            self.fill_table_from_records(self.window.task_ui.tableWidget_variables, [])
+            self.fill_table_from_records(self.window.task_ui.tableWidget_objectives, [])
+            self.fill_table_from_records(self.window.task_ui.tableWidget_constraints, [])
+            self.apply_recommended_dynamic_params(
+                "TuRBO", preserve_custom=False, log_change=False
+            )
+            self._reset_machine_for_new_task()
+        finally:
+            self.window._suppress_autofill = old_suppress
         self.refresh_task_preview()
         self.view.go_to_page(self.window.PAGE_TASK_BUILDER)
         self.view.log_console("Created a new online task.")
         self.view.append_overview_activity("Task", status="Created online task.")
+
+    def _reset_machine_for_new_task(self) -> None:
+        self.apply_machine_payload(
+            {
+                "restore_on_abort": True,
+                "readback_check": False,
+                "readback_tol": 1e-6,
+                "set_interval": 1.0,
+                "sample_interval": 0.2,
+                "write_timeout": 2.0,
+                "write_policy": "none",
+                "mapping": [],
+                "write_links": [],
+                "policy_bindings": [],
+                "policy_presets": [],
+                "profile": {
+                    "profile_id": "embedded",
+                    "name": "Embedded Machine",
+                    "version": 1,
+                    "source": "",
+                },
+            },
+            refresh=False,
+        )
 
     def browse_workdir(self) -> None:
         directory = QFileDialog.getExistingDirectory(
@@ -1626,6 +1798,7 @@ class TaskBuilderController:
             self.window.task_ui.lineEdit_workdir.setText(directory)
 
     def refresh_task_preview(self) -> None:
+        self.refresh_task_table_empty_states()
         task = self.view.current_task()
         self.window.machine_controller.invalidate_machine_check_if_stale(task)
         self._set_validation_status(

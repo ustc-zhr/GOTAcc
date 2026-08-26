@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
     QTableWidgetItem,
     QTabWidget,
@@ -1160,6 +1161,7 @@ class MainWindow(QMainWindow):
         self.task_ui.lineEdit_workdir.setToolTip(self.task_ui.lineEdit_workdir.text())
         self.task_ui.tabWidget_tables.setDocumentMode(True)
         self._configure_task_table_columns()
+        self._configure_task_table_row_actions()
 
     def _configure_task_table_columns(self) -> None:
         table_specs = (
@@ -1176,45 +1178,85 @@ class MainWindow(QMainWindow):
             for column in stretch_columns:
                 header.setSectionResizeMode(column, QHeaderView.Stretch)
 
+    def _configure_task_table_row_actions(self) -> None:
+        specs = (
+            (
+                "variables",
+                self.task_ui.tab_variables,
+                self.task_ui.verticalLayout_variables,
+                self.task_ui.tableWidget_variables,
+                self.task_ui.horizontalLayout_variablesToolbar,
+            ),
+            (
+                "objectives",
+                self.task_ui.tab_objectives,
+                self.task_ui.verticalLayout_objectives,
+                self.task_ui.tableWidget_objectives,
+                None,
+            ),
+            (
+                "constraints",
+                self.task_ui.tab_constraints,
+                self.task_ui.verticalLayout_constraints,
+                self.task_ui.tableWidget_constraints,
+                None,
+            ),
+        )
+        for field, tab, tab_layout, table, existing_layout in specs:
+            if existing_layout is None:
+                toolbar = QFrame(tab)
+                toolbar.setObjectName(f"frame_{field}Toolbar")
+                toolbar_layout = QHBoxLayout(toolbar)
+                toolbar_layout.setContentsMargins(10, 6, 10, 6)
+                toolbar_layout.setSpacing(6)
+                tab_layout.insertWidget(0, toolbar)
+            else:
+                toolbar = self.task_ui.frame_variablesToolbar
+                toolbar_layout = existing_layout
+            hint = QLabel(toolbar)
+            hint.setWordWrap(True)
+            add_button = QPushButton("Add Row", toolbar)
+            remove_button = QPushButton("Remove Selected", toolbar)
+            if field == "variables":
+                toolbar_layout.insertWidget(0, hint, 1)
+                toolbar_layout.addWidget(add_button)
+                toolbar_layout.addWidget(remove_button)
+            else:
+                toolbar_layout.addWidget(hint, 1)
+                toolbar_layout.addWidget(add_button)
+                toolbar_layout.addWidget(remove_button)
+            add_button.clicked.connect(
+                lambda _checked=False, target_field=field: (
+                    self.task_builder_controller.add_task_table_row(target_field)
+                )
+            )
+            remove_button.clicked.connect(
+                lambda _checked=False, target_field=field: (
+                    self.task_builder_controller.remove_selected_task_rows(target_field)
+                )
+            )
+            setattr(self.task_ui, f"label_{field}EmptyState", hint)
+            setattr(self.task_ui, f"pushButton_add{field.title()[:-1]}Row", add_button)
+            setattr(self.task_ui, f"pushButton_remove{field.title()[:-1]}Rows", remove_button)
+            table.setProperty("taskField", field)
+        self.task_builder_controller.refresh_task_table_empty_states()
+
     def _init_task_builder_tables(self) -> None:
         variables_headers = ["Enable", "Name", "Lower", "Upper", "Initial", "Group"]
         objectives_headers = ["Enable", "Name", "Direction", "Weight", "Samples", "Math"]
         constraints_headers = ["Enable", "Name", "Lower", "Upper", "Math"]
         dynamic_headers = ["Parameter", "Value", "Type", "Description"]
 
-        self._setup_table(self.task_ui.tableWidget_variables, variables_headers, 2)
-        self._setup_table(self.task_ui.tableWidget_objectives, objectives_headers, 1)
-        self._setup_table(self.task_ui.tableWidget_constraints, constraints_headers, 1)
+        self._setup_table(self.task_ui.tableWidget_variables, variables_headers, 0)
+        self._setup_table(self.task_ui.tableWidget_objectives, objectives_headers, 0)
+        self._setup_table(self.task_ui.tableWidget_constraints, constraints_headers, 0)
         self._setup_table(self.task_ui.tableWidget_dynamicParams, dynamic_headers, 4)
-        self.task_ui.tableWidget_variables.setSelectionMode(QAbstractItemView.ExtendedSelection)
-
-        self._set_table_row(self.task_ui.tableWidget_variables, 0, ["Y", "x0", "0.0", "1.0", "0.5", "main"])
-        self._set_table_row(self.task_ui.tableWidget_variables, 1, ["Y", "x1", "0.0", "1.0", "0.5", "main"])
-        self.task_builder_controller.fill_table_from_records(
+        for table in (
+            self.task_ui.tableWidget_variables,
             self.task_ui.tableWidget_objectives,
-            [
-                {
-                    "Enable": "Y",
-                    "Name": "obj0",
-                    "Direction": "maximize",
-                    "Weight": "1.0",
-                    "Samples": "1",
-                    "Math": "mean",
-                }
-            ],
-        )
-        self.task_builder_controller.fill_table_from_records(
             self.task_ui.tableWidget_constraints,
-            [
-                {
-                    "Enable": "N",
-                    "Name": "cons0",
-                    "Lower": "",
-                    "Upper": "1.0",
-                    "Math": "mean",
-                }
-            ],
-        )
+        ):
+            table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.task_builder_controller.sync_algorithm_options_with_objective_type(
             preferred_algorithm="BO",
             update_params=False,
@@ -1226,6 +1268,7 @@ class MainWindow(QMainWindow):
         )
         self.task_builder_controller.set_algorithm_overrides_expanded(False)
         self.task_builder_controller.init_bounds_tool()
+        self.task_builder_controller.refresh_task_table_empty_states()
 
     def _init_machine_tables(self) -> None:
         mapping_headers = [
@@ -1239,8 +1282,8 @@ class MainWindow(QMainWindow):
             "Policy Action",
         ]
         write_headers = ["Source Index", "Target PV", "Enabled"]
-        self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 2)
-        self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 1)
+        self._setup_table(self.machine_ui.tableWidget_mapping, mapping_headers, 0)
+        self._setup_table(self.machine_ui.tableWidget_writeLinks, write_headers, 0)
         self.machine_ui.policy_bindings = []
         self.machine_ui.policy_presets = []
         self.machine_ui.machine_profile = {
@@ -1251,9 +1294,6 @@ class MainWindow(QMainWindow):
         }
         self.machine_ui.tableWidget_writeLinks.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
-        self._set_table_row(self.machine_ui.tableWidget_mapping, 0, ["knob", "x0", "", "", "main", ""])
-        self._set_table_row(self.machine_ui.tableWidget_mapping, 1, ["objective", "obj0", "", "", "metric", ""])
-        self._set_table_row(self.machine_ui.tableWidget_writeLinks, 0, ["x0", "TEST:K1:LINK", "False"])
         self.task_builder_controller.refresh_write_link_editors()
         self._refresh_mapping_policy_widgets()
 

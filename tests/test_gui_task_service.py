@@ -189,7 +189,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.ui.label_cardCurrentTaskValue.property("tone") == "warning"
         assert window.ui.label_cardModeValue.property("tone") == "info"
         assert window.ui.label_cardAlgorithmValue.property("tone") == "warning"
-        assert "Vars 2" in window.ui.label_cardModeValue.text()
+        assert "Vars 0" in window.ui.label_cardModeValue.text()
         assert window.ui.label_cardStatusValue.text() == "No run yet"
         assert window.ui.tabWidget_configure.tabText(0) == "Task Builder"
         assert window.ui.tabWidget_configure.tabBar().elideMode() == Qt.ElideNone
@@ -351,12 +351,22 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
             for row in range(window.machine_ui.tableWidget_policyPresets.rowCount())
         } == {"FEL Energy Guard", "Zero Objective Guard", "BPM Zero Guard"}
         assert window.machine_ui.splitter_pvMapping.count() == 2
-        assert window.machine_ui.tableWidget_mapping.rowCount() == 2
+        assert window.machine_ui.tableWidget_mapping.rowCount() == 0
         assert [
             window.machine_ui.tableWidget_mapping.isColumnHidden(column)
             for column in range(window.machine_ui.tableWidget_mapping.columnCount())
         ] == [False, False, False, True, True, True, False, True]
         assert window.machine_ui.policy_bindings == []
+        assert window.machine_ui.label_mappingDetailTitle.text() == "Select a machine signal"
+        assert not window.machine_ui.pushButton_manageMappingPolicies.isEnabled()
+        window.task_builder_controller.fill_table_from_records(
+            window.machine_ui.tableWidget_mapping,
+            [
+                {"Role": "knob", "Name": "x0", "Group": "main"},
+                {"Role": "objective", "Name": "obj0", "Group": "metric"},
+            ],
+        )
+        window._refresh_mapping_policy_widgets()
         assert window.machine_ui.tableWidget_mapping.item(1, 6).text() == "No policies"
         assert window.machine_ui.tableWidget_mapping.cellWidget(1, 7) is None
         window.machine_ui.tableWidget_mapping.setCurrentCell(1, 1)

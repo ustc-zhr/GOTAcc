@@ -69,6 +69,12 @@
 - Removed the retired hidden objective/constraint policy tabs and their legacy
   table-editor controller paths now that canonical policy bindings own the GUI
   workflow
+- Replaced generic `x0`/`obj0`/`cons0` Online placeholders with mode-specific
+  new-task initialization: Online tasks start empty for Machine Profile sync,
+  while Offline tasks start as a runnable Rosenbrock benchmark without a fake
+  constraint
+- Added explicit Task Builder row actions and non-serialized empty-state hints,
+  while preserving all table data when users merely switch the task mode
 
 ## 1.2.0 - 2026-06-27
 

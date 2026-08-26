@@ -109,6 +109,64 @@ def test_mapping_master_detail_edits_selected_signal(tmp_path, window):
     assert "Policies" not in serialized
 
 
+def test_new_tasks_use_mode_specific_defaults_without_mode_switch_data_loss(window):
+    controller = window.task_builder_controller
+
+    controller.create_new_online_task()
+
+    assert window.task_ui.tableWidget_variables.rowCount() == 0
+    assert window.task_ui.tableWidget_objectives.rowCount() == 0
+    assert window.task_ui.tableWidget_constraints.rowCount() == 0
+    assert window.machine_ui.tableWidget_mapping.rowCount() == 0
+    assert window.machine_ui.tableWidget_writeLinks.rowCount() == 0
+    assert not window.task_ui.label_variablesEmptyState.isHidden()
+    assert "Machine Profile" in window.task_ui.label_variablesEmptyState.text()
+
+    controller.create_new_offline_task()
+
+    variables = TaskService.table_to_records(window.task_ui.tableWidget_variables)
+    objectives = TaskService.table_to_records(window.task_ui.tableWidget_objectives)
+    assert [row["Name"] for row in variables] == ["x0", "x1"]
+    assert all(row["Lower"] == "-2.0" and row["Upper"] == "2.0" for row in variables)
+    assert [row["Name"] for row in objectives] == ["rosenbrock"]
+    assert window.task_ui.tableWidget_constraints.rowCount() == 0
+    assert window.machine_ui.tableWidget_mapping.rowCount() == 0
+    assert "constrained benchmarks" in window.task_ui.label_constraintsEmptyState.text()
+    config = TaskService.build_task_config(window._current_task())
+    assert config.backend.type == "offline"
+
+    window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
+    QApplication.processEvents()
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.task_ui.tableWidget_variables)
+    ] == ["x0", "x1"]
+    assert [
+        row["Name"]
+        for row in TaskService.table_to_records(window.task_ui.tableWidget_objectives)
+    ] == ["rosenbrock"]
+
+
+def test_empty_task_tables_can_add_and_remove_real_rows(window):
+    controller = window.task_builder_controller
+    controller.create_new_online_task()
+
+    controller.add_task_table_row("constraints")
+    rows = TaskService.table_to_records(window.task_ui.tableWidget_constraints)
+    assert rows[0] == {
+        "Enable": "Y",
+        "Name": "constraint_1",
+        "Lower": "",
+        "Upper": "",
+        "Math": "mean",
+    }
+    assert window.task_ui.label_constraintsEmptyState.isHidden()
+
+    controller.remove_selected_task_rows("constraints")
+    assert window.task_ui.tableWidget_constraints.rowCount() == 0
+    assert not window.task_ui.label_constraintsEmptyState.isHidden()
+
+
 def test_mapping_sync_preserves_parameters_by_name_and_can_undo(
     tmp_path, window, monkeypatch
 ):
