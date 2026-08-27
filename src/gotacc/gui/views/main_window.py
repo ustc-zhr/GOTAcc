@@ -971,7 +971,6 @@ class MainWindow(QMainWindow):
             self._status_strip_item("OUTPUT", "--", self.frame_results_source),
         )
         for item, _label in source_items:
-            item.setProperty("accent", False)
             source_layout.addWidget(item)
         source_items[-1][0].setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         source_layout.addStretch(1)

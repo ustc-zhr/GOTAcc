@@ -628,7 +628,6 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
             QFrame, "statusItem"
         )
         assert len(result_status_items) == 3
-        assert all(item.property("accent") is False for item in result_status_items)
         assert window.frame_results_source.findChildren(QFrame, "statusSeparator") == []
         assert window.ui.treeWidget_runList.topLevelItem(0).text(0) == "No run results"
         window.state.latest_task_snapshot = {"task_name": "result_task"}
