@@ -92,6 +92,10 @@
 - Unified operator-facing terminology around Policy and Policy Template, and
   upgraded Policy Editor fields with readable labels, a live behavior summary,
   target/PV context, and inline validation while preserving registry/config keys
+- Added an explicit template customization flow: assigned templates open
+  read-only, `Customize Policy` creates a per-PV Custom Policy without mutating
+  the template, parameter guidance is available in the editor, and reusable
+  template saving is limited to Custom Policies under Advanced actions
 
 ## 1.2.0 - 2026-06-27
 

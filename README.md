@@ -240,7 +240,12 @@ locks the target to that mapping row and edits conditions, match mode, and
 action without requiring JSON. Its selectors use plain-language metric,
 comparison, and action labels, while the saved configuration keeps the stable
 registry vocabulary. A live behavior sentence and inline validation explain the
-result before it is saved. Machine Setup -> Policy Templates shows the
+result before it is saved. Assigned templates open in a read-only Policy view;
+`Customize Policy` explicitly creates an editable copy for that PV, and
+cancelling customization leaves the template binding unchanged. Custom Policy
+parameters include threshold, tolerance, and constraint-bound guidance. Saving
+a Custom Policy as a reusable template remains an Advanced action. Machine
+Setup -> Policy Templates shows the
 registry-backed catalog of reusable policies. Machine projects store assignments
 in the canonical `machine.policy_bindings` model; when a task is built, the GUI
 compiles each stable target name to the backend's objective/constraint policy

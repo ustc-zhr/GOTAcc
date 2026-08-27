@@ -1666,19 +1666,7 @@ class MainWindow(QMainWindow):
             policy = binding.get("policy", {}) or {}
             kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
             preset_name = str(binding.get("preset", "custom") or "custom")
-            if preset_name == "custom":
-                preset_label = "Custom Policy"
-            else:
-                custom_preset = self._custom_policy_preset(kind, preset_name)
-                if custom_preset is not None:
-                    preset_label = str(custom_preset.get("name", preset_name))
-                else:
-                    try:
-                        preset_label = POLICY_REGISTRY.resolve_preset(
-                            kind, preset_name
-                        ).display_name
-                    except ValueError:
-                        preset_label = preset_name
+            preset_label = self._policy_template_display_name(kind, preset_name)
             issue = issues_by_index.get(index)
             enabled = bool(binding.get("enabled", True))
             status = "Disabled" if not enabled else ("Issue" if issue else "Ready")
@@ -1687,6 +1675,7 @@ class MainWindow(QMainWindow):
                     "row": index,
                     "enabled": enabled,
                     "preset": preset_label,
+                    "is_template": preset_name != "custom",
                     "summary": self._policy_rule_summary(kwargs),
                     "status": status,
                     "issue": str(issue.get("message", "")) if issue else "",
@@ -1868,6 +1857,17 @@ class MainWindow(QMainWindow):
             None,
         )
 
+    def _policy_template_display_name(self, kind: str, preset_id: str) -> str:
+        if preset_id == "custom":
+            return "Custom Policy"
+        custom_preset = self._custom_policy_preset(kind, preset_id)
+        if custom_preset is not None:
+            return str(custom_preset.get("name", preset_id))
+        try:
+            return POLICY_REGISTRY.resolve_preset(kind, preset_id).display_name
+        except ValueError:
+            return preset_id
+
     def _refresh_mapping_policy_widgets(self) -> None:
         if not hasattr(self.machine_ui, "tableWidget_mapping"):
             return
@@ -1942,24 +1942,39 @@ class MainWindow(QMainWindow):
             return False
         policy = binding.get("policy", {}) or {}
         preset_name = str(binding.get("preset", "custom") or "custom")
-        dialog = SampleGuardRuleEditorDialog(
-            kind=kind,
-            target_names=self._policy_target_names(kind),
-            policy_name=str(policy.get("name", "sample_guard")),
-            kwargs=copy.deepcopy(policy.get("kwargs", {}) or {}),
-            preset_name=None if preset_name == "custom" else preset_name,
-            custom_presets=copy.deepcopy(self.machine_ui.policy_presets),
-            locked_target=locked_target or str(binding.get("target", "")),
-            pv_name=self._policy_target_pv(
-                kind, locked_target or str(binding.get("target", ""))
-            ),
-            parent=self,
+        target = locked_target or str(binding.get("target", ""))
+
+        def create_dialog(*, read_only: bool, selected_preset: str | None):
+            return SampleGuardRuleEditorDialog(
+                kind=kind,
+                target_names=self._policy_target_names(kind),
+                policy_name=str(policy.get("name", "sample_guard")),
+                kwargs=copy.deepcopy(policy.get("kwargs", {}) or {}),
+                preset_name=selected_preset,
+                custom_presets=copy.deepcopy(self.machine_ui.policy_presets),
+                locked_target=target,
+                pv_name=self._policy_target_pv(kind, target),
+                read_only=read_only,
+                template_display_name=self._policy_template_display_name(
+                    kind, preset_name
+                ),
+                parent=self,
+            )
+
+        template_binding = preset_name != "custom"
+        dialog = create_dialog(
+            read_only=template_binding,
+            selected_preset=preset_name if template_binding else None,
         )
         if dialog.exec_() != QDialog.Accepted:
             return False
+        if template_binding:
+            dialog = create_dialog(read_only=False, selected_preset=None)
+            if dialog.exec_() != QDialog.Accepted:
+                return False
         state = dialog.rule_state()
         binding["target"] = str(state["kwargs"].get("target") or locked_target or "")
-        binding["preset"] = state["preset"]
+        binding["preset"] = "custom" if template_binding else state["preset"]
         binding["policy"] = {"name": state["name"], "kwargs": state["kwargs"]}
         self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
@@ -1982,6 +1997,13 @@ class MainWindow(QMainWindow):
             return
         binding = self.machine_ui.policy_bindings[binding_index]
         if binding.get("kind") != kind:
+            return
+        if str(binding.get("preset", "custom") or "custom") != "custom":
+            QMessageBox.information(
+                self,
+                "Save Policy Template",
+                "Customize this policy first. Existing templates are already reusable.",
+            )
             return
         display_name, accepted = QInputDialog.getText(
             self,

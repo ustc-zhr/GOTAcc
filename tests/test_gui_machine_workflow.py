@@ -467,6 +467,55 @@ def test_quick_add_opens_advanced_editor_only_for_custom_rule(window, monkeypatc
     assert window.machine_ui.policy_bindings[0]["target"] == "beam_signal"
 
 
+def test_template_binding_requires_explicit_customize_before_edit(
+    tmp_path, window, monkeypatch
+):
+    import gotacc.gui.views.main_window as main_window_module
+
+    task = _online_task(tmp_path)
+    spec = POLICY_REGISTRY.expand_preset("objective", "fel_energy_guard")
+    spec["kwargs"]["target"] = "Transmission"
+    task["machine"]["policy_bindings"] = [
+        {
+            "kind": "objective",
+            "target": "Transmission",
+            "enabled": True,
+            "preset": "fel_energy_guard",
+            "policy": spec,
+        }
+    ]
+    window._apply_task_payload(task, goto_builder=False)
+
+    calls = []
+    responses = iter([QDialog.Accepted, QDialog.Rejected])
+
+    def inspect_then_cancel(dialog):
+        calls.append(dialog.read_only)
+        return next(responses)
+
+    monkeypatch.setattr(
+        main_window_module.SampleGuardRuleEditorDialog,
+        "exec_",
+        inspect_then_cancel,
+    )
+    assert not window._edit_policy_rule_row("objective", 0)
+    assert calls == [True, False]
+    assert window.machine_ui.policy_bindings[0]["preset"] == "fel_energy_guard"
+
+    calls.clear()
+    monkeypatch.setattr(
+        main_window_module.SampleGuardRuleEditorDialog,
+        "exec_",
+        lambda dialog: calls.append(dialog.read_only) or QDialog.Accepted,
+    )
+    assert window._edit_policy_rule_row("objective", 0)
+    assert calls == [True, False]
+    assert window.machine_ui.policy_bindings[0]["preset"] == "custom"
+    assert window.machine_ui.policy_bindings[0]["policy"]["kwargs"]["target"] == (
+        "Transmission"
+    )
+
+
 def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, window):
     task = _online_task(tmp_path)
     task["machine"]["objective_policies"] = [

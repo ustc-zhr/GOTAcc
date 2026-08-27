@@ -775,6 +775,8 @@ class SampleGuardRuleEditorDialog(QDialog):
         custom_presets: list[dict] | None = None,
         locked_target: str | None = None,
         pv_name: str = "",
+        read_only: bool = False,
+        template_display_name: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -784,6 +786,8 @@ class SampleGuardRuleEditorDialog(QDialog):
         self.target_names = [str(name).strip() for name in target_names if str(name).strip()]
         self.locked_target = str(locked_target or "").strip()
         self.pv_name = str(pv_name or "").strip()
+        self.read_only = bool(read_only)
+        self.template_display_name = str(template_display_name or "").strip()
         self.custom_presets = {
             str(preset.get("id", "")).strip().lower(): preset
             for preset in custom_presets or []
@@ -792,11 +796,12 @@ class SampleGuardRuleEditorDialog(QDialog):
         if self.locked_target and self.locked_target not in self.target_names:
             self.target_names.append(self.locked_target)
         self._loading = False
-        self.setWindowTitle(f"{kind.title()} Policy Editor")
-        self.resize(760, 590)
+        window_action = "View" if self.read_only else "Edit"
+        self.setWindowTitle(f"{window_action} {kind.title()} Policy")
+        self.resize(780, 680)
 
         root = QVBoxLayout(self)
-        heading_parts = [f"Edit {kind.title()} Policy"]
+        heading_parts = [f"{window_action} {kind.title()} Policy"]
         if self.locked_target:
             heading_parts.append(self.locked_target)
         if self.pv_name:
@@ -811,6 +816,10 @@ class SampleGuardRuleEditorDialog(QDialog):
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
+        self.label_mode = QLabel(self)
+        self.label_mode.setWordWrap(True)
+        self.label_mode.setProperty("tone", "info")
+        root.addWidget(self.label_mode)
 
         form = QFormLayout()
         self.comboBox_preset = QComboBox(self)
@@ -847,8 +856,21 @@ class SampleGuardRuleEditorDialog(QDialog):
         self.tableWidget_conditions.setHorizontalHeaderLabels(
             ["Metric", "Operator", "Value", "Tolerance"]
         )
+        self.tableWidget_conditions.horizontalHeaderItem(2).setToolTip(
+            "Threshold compared with the selected metric, using that signal's units."
+        )
+        self.tableWidget_conditions.horizontalHeaderItem(3).setToolTip(
+            "Absolute tolerance used only by Equal to and Not equal to comparisons."
+        )
         self.tableWidget_conditions.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tableWidget_conditions.setSelectionBehavior(QAbstractItemView.SelectRows)
+        condition_help = QLabel(
+            "Value is the trigger threshold. Tolerance is used only for equality comparisons.",
+            condition_group,
+        )
+        condition_help.setWordWrap(True)
+        condition_help.setProperty("tone", "subtle")
+        condition_layout.addWidget(condition_help)
         condition_layout.addWidget(self.tableWidget_conditions)
         condition_buttons = QHBoxLayout()
         self.pushButton_addCondition = QPushButton("Add Condition", condition_group)
@@ -871,13 +893,29 @@ class SampleGuardRuleEditorDialog(QDialog):
             self.comboBox_action.addItem(self.ACTION_LABELS[value], value)
         action_form.addRow("Policy action", self.comboBox_action)
         self.doubleSpinBox_actionValue = self._number_box(action_group)
+        self.doubleSpinBox_actionValue.setToolTip(
+            "Replacement value or offset, using the objective or constraint result units."
+        )
         action_form.addRow("Value", self.doubleSpinBox_actionValue)
         self.doubleSpinBox_deltaRatio = self._nonnegative_box(action_group, 0.1)
         self.doubleSpinBox_deltaMin = self._nonnegative_box(action_group, 1e-6)
         self.doubleSpinBox_scaleFloor = self._nonnegative_box(action_group, 1.0)
+        self.doubleSpinBox_deltaRatio.setToolTip(
+            "Fraction of the configured constraint span used to exceed its bound."
+        )
+        self.doubleSpinBox_deltaMin.setToolTip(
+            "Smallest distance placed beyond the configured constraint bound."
+        )
+        self.doubleSpinBox_scaleFloor.setToolTip(
+            "Minimum scale used when only one constraint bound is configured."
+        )
         action_form.addRow("Delta ratio", self.doubleSpinBox_deltaRatio)
         action_form.addRow("Minimum delta", self.doubleSpinBox_deltaMin)
         action_form.addRow("Scale floor", self.doubleSpinBox_scaleFloor)
+        self.label_actionHelp = QLabel(action_group)
+        self.label_actionHelp.setWordWrap(True)
+        self.label_actionHelp.setProperty("tone", "subtle")
+        action_form.addRow(self.label_actionHelp)
         root.addWidget(action_group)
 
         self.label_summary = QLabel(self)
@@ -916,6 +954,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         if not initial_kwargs:
             initial_kwargs = POLICY_REGISTRY.resolve(kind, "sample_guard").defaults()
         self._load_rule(initial_kwargs, preset_name=initial_preset)
+        self._apply_editor_mode()
 
     @staticmethod
     def _number_box(parent) -> QDoubleSpinBox:
@@ -939,21 +978,27 @@ class SampleGuardRuleEditorDialog(QDialog):
     def _set_condition_row(self, row: int, condition: dict) -> None:
         self.tableWidget_conditions.insertRow(row)
         metric = QComboBox(self.tableWidget_conditions)
+        metric.setToolTip("How the samples are reduced before comparison.")
         for value in self.METRICS:
             metric.addItem(self.METRIC_LABELS[value], value)
         metric.setCurrentIndex(
             max(0, metric.findData(str(condition.get("metric", "mean_abs"))))
         )
         operator = QComboBox(self.tableWidget_conditions)
+        operator.setToolTip("Comparison used to decide whether this condition matches.")
         for value in self.OPERATORS:
             operator.addItem(self.OPERATOR_LABELS[value], value)
         operator.setCurrentIndex(
             max(0, operator.findData(str(condition.get("operator", "gt"))))
         )
         value = self._number_box(self.tableWidget_conditions)
+        value.setToolTip("Trigger threshold in the selected metric's units.")
         value.setValue(float(condition.get("value", 0.0)))
         atol = self._nonnegative_box(
             self.tableWidget_conditions, float(condition.get("atol", 0.0))
+        )
+        atol.setToolTip(
+            "Absolute tolerance for Equal to and Not equal to; ignored otherwise."
         )
         self.tableWidget_conditions.setCellWidget(row, 0, metric)
         self.tableWidget_conditions.setCellWidget(row, 1, operator)
@@ -1025,7 +1070,8 @@ class SampleGuardRuleEditorDialog(QDialog):
         self._on_rule_changed()
 
     def _update_action_fields(self) -> None:
-        violate = self.comboBox_action.currentData() == "violate_bound"
+        action_type = self.comboBox_action.currentData()
+        violate = action_type == "violate_bound"
         self.doubleSpinBox_actionValue.setVisible(not violate)
         value_label = self.doubleSpinBox_actionValue.parent().layout().labelForField(
             self.doubleSpinBox_actionValue
@@ -1041,6 +1087,51 @@ class SampleGuardRuleEditorDialog(QDialog):
             label = box.parent().layout().labelForField(box)
             if label is not None:
                 label.setVisible(violate)
+        action_help = {
+            "replace": "When matched, return Value instead of the measured result.",
+            "add_offset": "When matched, add Value to the measured objective result.",
+            "violate_bound": (
+                "When matched, place the result just beyond its configured constraint "
+                "bound. Lower or Upper bound must exist in Task Builder."
+            ),
+        }
+        self.label_actionHelp.setText(action_help.get(str(action_type), ""))
+
+    def _apply_editor_mode(self) -> None:
+        if self.read_only:
+            template = self.template_display_name or self.comboBox_preset.currentText()
+            self.label_mode.setText(
+                f"Using Policy Template: {template}. Settings are read-only. "
+                "Choose Customize Policy to create a copy for this PV."
+            )
+            self.buttonBox.button(QDialogButtonBox.Ok).setText("Customize Policy")
+            self.buttonBox.button(QDialogButtonBox.Cancel).setText("Close")
+        else:
+            self.label_mode.setText(
+                "Changes apply only to this PV's Custom Policy and do not modify a template."
+            )
+            self.buttonBox.button(QDialogButtonBox.Ok).setText("Save Policy")
+        editable_widgets = (
+            self.comboBox_preset,
+            self.comboBox_target,
+            self.comboBox_match,
+            self.comboBox_action,
+            self.doubleSpinBox_actionValue,
+            self.doubleSpinBox_deltaRatio,
+            self.doubleSpinBox_deltaMin,
+            self.doubleSpinBox_scaleFloor,
+        )
+        if self.read_only:
+            for widget in editable_widgets:
+                widget.setEnabled(False)
+            for row in range(self.tableWidget_conditions.rowCount()):
+                for column in range(self.tableWidget_conditions.columnCount()):
+                    widget = self.tableWidget_conditions.cellWidget(row, column)
+                    if widget is not None:
+                        widget.setEnabled(False)
+            self.pushButton_addCondition.setVisible(False)
+            self.pushButton_removeCondition.setVisible(False)
+            self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(True)
 
     def _add_custom_condition(self) -> None:
         self._set_condition_row(
@@ -1131,7 +1222,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         except Exception as exc:
             self.label_validation.setText(str(exc))
             self.label_validation.setVisible(True)
-            self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(False)
+            self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(self.read_only)
             return False
         self.label_validation.clear()
         self.label_validation.setVisible(False)
@@ -1139,7 +1230,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         return True
 
     def _accept_if_valid(self) -> None:
-        if not self._refresh_validation():
+        if not self.read_only and not self._refresh_validation():
             return
         self.accept()
 
@@ -1150,6 +1241,7 @@ class MappingPolicyManagerDialog(QDialog):
     def __init__(self, *, target: str, pv_name: str, policies: list[dict], parent=None) -> None:
         super().__init__(parent)
         self._request: tuple[str, int | None] | None = None
+        self._policies = list(policies)
         self.setWindowTitle(f"Policies for {target}")
         self.resize(760, 380)
 
@@ -1189,19 +1281,29 @@ class MappingPolicyManagerDialog(QDialog):
 
         actions = QHBoxLayout()
         self.pushButton_add = QPushButton("Add Policy", self)
-        self.pushButton_edit = QPushButton("Edit Policy", self)
+        self.pushButton_edit = QPushButton("View Policy", self)
         self.pushButton_remove = QPushButton("Remove Selected", self)
         self.pushButton_toggle = QPushButton("Enable / Disable", self)
-        self.pushButton_savePreset = QPushButton("Save as Template", self)
         close_button = QPushButton("Close", self)
         actions.addWidget(self.pushButton_add)
         actions.addWidget(self.pushButton_edit)
         actions.addWidget(self.pushButton_remove)
         actions.addWidget(self.pushButton_toggle)
-        actions.addWidget(self.pushButton_savePreset)
         actions.addStretch(1)
         actions.addWidget(close_button)
         root.addLayout(actions)
+
+        advanced_actions = QHBoxLayout()
+        advanced_label = QLabel("Advanced", self)
+        advanced_label.setProperty("tone", "subtle")
+        self.pushButton_savePreset = QPushButton("Save as Template", self)
+        self.pushButton_savePreset.setToolTip(
+            "Save the selected Custom Policy as a reusable machine template."
+        )
+        advanced_actions.addWidget(advanced_label)
+        advanced_actions.addWidget(self.pushButton_savePreset)
+        advanced_actions.addStretch(1)
+        root.addLayout(advanced_actions)
 
         has_policies = bool(policies)
         self.pushButton_edit.setEnabled(has_policies)
@@ -1214,7 +1316,20 @@ class MappingPolicyManagerDialog(QDialog):
         self.pushButton_toggle.clicked.connect(lambda: self._finish("toggle"))
         self.pushButton_savePreset.clicked.connect(lambda: self._finish("save_preset"))
         self.tableWidget_policies.doubleClicked.connect(lambda *_: self._finish("edit"))
+        self.tableWidget_policies.itemSelectionChanged.connect(self._update_actions)
         close_button.clicked.connect(self.reject)
+        self._update_actions()
+
+    def _update_actions(self) -> None:
+        row = self.tableWidget_policies.currentRow()
+        selected = self._policies[row] if 0 <= row < len(self._policies) else None
+        has_selection = selected is not None
+        is_template = bool(selected and selected.get("is_template"))
+        self.pushButton_edit.setText("View Policy" if is_template else "Edit Policy")
+        self.pushButton_edit.setEnabled(has_selection)
+        self.pushButton_remove.setEnabled(has_selection)
+        self.pushButton_toggle.setEnabled(has_selection)
+        self.pushButton_savePreset.setEnabled(has_selection and not is_template)
 
     def _finish(self, action: str) -> None:
         row = self.tableWidget_policies.currentRow()

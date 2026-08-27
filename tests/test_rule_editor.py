@@ -216,7 +216,7 @@ def test_policy_editor_uses_plain_language_and_inline_validation(monkeypatch):
     try:
         metric = dialog.tableWidget_conditions.cellWidget(0, 0)
         operator = dialog.tableWidget_conditions.cellWidget(0, 1)
-        assert dialog.windowTitle() == "Objective Policy Editor"
+        assert dialog.windowTitle() == "Edit Objective Policy"
         assert dialog.comboBox_preset.itemText(0) == "Custom Policy"
         assert dialog.comboBox_match.currentText() in {"Any condition", "All conditions"}
         assert metric.currentText() == dialog.METRIC_LABELS[metric.currentData()]
@@ -236,6 +236,40 @@ def test_policy_editor_uses_plain_language_and_inline_validation(monkeypatch):
         app.processEvents()
 
 
+def test_template_policy_opens_read_only_before_customization(monkeypatch):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication, QDialogButtonBox
+    from gotacc.gui.views.tool_dialogs import SampleGuardRuleEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    spec = POLICY_REGISTRY.expand_preset("constraint", "bpm_guard")
+    dialog = SampleGuardRuleEditorDialog(
+        kind="constraint",
+        target_names=["orbit_x"],
+        kwargs=spec["kwargs"],
+        preset_name="bpm_guard",
+        locked_target="orbit_x",
+        pv_name="BPM:01:X",
+        read_only=True,
+        template_display_name="BPM Zero Guard",
+    )
+    try:
+        assert dialog.windowTitle() == "View Constraint Policy"
+        assert "Settings are read-only" in dialog.label_mode.text()
+        assert not dialog.comboBox_preset.isEnabled()
+        assert not dialog.tableWidget_conditions.cellWidget(0, 0).isEnabled()
+        assert dialog.pushButton_addCondition.isHidden()
+        assert (
+            dialog.buttonBox.button(QDialogButtonBox.Ok).text()
+            == "Customize Policy"
+        )
+        assert dialog.buttonBox.button(QDialogButtonBox.Cancel).text() == "Close"
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_mapping_policy_manager_exposes_row_management_actions(monkeypatch):
     pytest.importorskip("PyQt5")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
@@ -250,11 +284,14 @@ def test_mapping_policy_manager_exposes_row_management_actions(monkeypatch):
             {
                 "enabled": True,
                 "preset": "BPM Zero Guard",
+                "is_template": True,
                 "summary": "max_abs ≤ 1e-09 → Mark infeasible",
             }
         ],
     )
     try:
+        assert dialog.pushButton_edit.text() == "View Policy"
+        assert not dialog.pushButton_savePreset.isEnabled()
         dialog.pushButton_toggle.click()
         assert dialog.result() == QDialog.Accepted
         assert dialog.requested_action() == ("toggle", 0)
