@@ -224,7 +224,7 @@ optimizer automatically. EPICS tasks can also define constraint policies such as
 `bpm_guard` / `bpm_zero_guard` to replace all-zero BPM constraint samples with a
 sentinel value derived from the configured constraint bounds.
 
-## Specific Policies
+## Policies
 
 Machine Setup -> PV Mapping is the primary assignment point for objective and
 constraint policies. The page uses a compact machine-signal list with a selected
@@ -245,15 +245,15 @@ result before it is saved. Assigned templates open in a read-only Policy view;
 cancelling customization leaves the template binding unchanged. Custom Policy
 parameters include threshold, tolerance, and constraint-bound guidance. Saving
 a Custom Policy as a reusable template remains an Advanced action. Machine
-Setup -> Policies -> Templates shows the
-registry-backed catalog of reusable policies. Machine projects store assignments
+Setup -> Policies -> Templates shows the registry-backed catalog of reusable
+policies. Machine projects store assignments
 in the canonical `machine.policy_bindings` model; when a task is built, the GUI
 compiles each stable target name to the backend's objective/constraint policy
 list and current `target_col`. The declarative
 `sample_guard` policy lets online tasks describe common signal-quality rules
 without executing user-provided code.
-Reusable presets provide the former FEL energy, zero-objective, and BPM
-zero-signal behavior; bindings expand those presets to the common
+Built-in templates provide the former FEL energy, zero-objective, and BPM
+zero-signal behavior; bindings expand those templates to the common
 `sample_guard` policy. Existing GUI projects with legacy objective/constraint
 policy rows, and backend configs that name `fel_energy_guard`,
 `zero_guard`, or `bpm_guard` directly remain supported. For example, an
@@ -283,6 +283,8 @@ shows that setup requirement before the template is used without blocking the
 operator from completing bounds after synchronization.
 
 Deferred Policy ideas are tracked in [docs/TODO.md](docs/TODO.md).
+The current offline/offscreen verification scope is recorded in
+[docs/CONTROLLED_ACCEPTANCE.md](docs/CONTROLLED_ACCEPTANCE.md).
 
 ```python
 "policy_bindings": [

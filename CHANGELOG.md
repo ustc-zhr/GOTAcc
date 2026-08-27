@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 - 2026-06-29
+## 1.3.0 - 2026-08-27
 
 - Redesigned GOTAcc Studio around a compact half_linac-style control-room
   shell, including dark/light theme switching, a horizontal workspace status
@@ -52,7 +52,7 @@
   compatibility
 - Integrated objective and constraint policy assignment into individual PV
   Mapping rows, with stable-name target binding, multi-policy management, and a
-  read-only Policy Templates compatibility summary
+  read-only Policy Templates library
 - Redesigned PV Mapping as a compact signal list with a scrollable selected-row
   detail panel, policy-first actions, signal metadata, and a dedicated
   mapping-issue review action
@@ -75,7 +75,7 @@
   constraint
 - Added explicit Task Builder row actions and non-serialized empty-state hints,
   while preserving all table data when users merely switch the task mode
-- Added shared, target-aware machine policy validation across Rule save,
+- Added shared, target-aware machine policy validation across Policy save,
   PV Mapping sync, task validation, and run start, with compact Ready/Issue/
   Disabled summaries and actionable constraint-bound diagnostics
 - Made PV-library signal definitions read-only in PV Mapping and limited the
