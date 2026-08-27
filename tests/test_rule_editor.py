@@ -140,7 +140,7 @@ def test_policy_template_picker_is_preset_first_and_explains_setup(monkeypatch):
             objective.tableWidget_templates.item(0, 1).text()
         )
         assert objective.tableWidget_templates.item(2, 0).text() == "Stable Signal"
-        assert objective.tableWidget_templates.item(3, 0).text() == "Custom Rule"
+        assert objective.tableWidget_templates.item(3, 0).text() == "Custom Policy"
 
         assert constraint.tableWidget_templates.rowCount() == 2
         constraint.tableWidget_templates.setCurrentCell(0, 0)
@@ -195,6 +195,42 @@ def test_structured_rule_editor_applies_machine_custom_preset(monkeypatch):
         assert state["kwargs"]["conditions"] == [
             {"metric": "std", "operator": "lt", "value": 0.01}
         ]
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_policy_editor_uses_plain_language_and_inline_validation(monkeypatch):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication, QDialogButtonBox
+    from gotacc.gui.views.tool_dialogs import SampleGuardRuleEditorDialog
+
+    app = QApplication.instance() or QApplication([])
+    dialog = SampleGuardRuleEditorDialog(
+        kind="objective",
+        target_names=["fel_energy"],
+        locked_target="fel_energy",
+        pv_name="FEL:ENERGY",
+    )
+    try:
+        metric = dialog.tableWidget_conditions.cellWidget(0, 0)
+        operator = dialog.tableWidget_conditions.cellWidget(0, 1)
+        assert dialog.windowTitle() == "Objective Policy Editor"
+        assert dialog.comboBox_preset.itemText(0) == "Custom Policy"
+        assert dialog.comboBox_match.currentText() in {"Any condition", "All conditions"}
+        assert metric.currentText() == dialog.METRIC_LABELS[metric.currentData()]
+        assert operator.currentText() == dialog.OPERATOR_LABELS[operator.currentData()]
+        assert dialog.rule_state()["kwargs"]["conditions"][0]["metric"] in dialog.METRICS
+        assert "Policy behavior: fel_energy" in dialog.label_summary.text()
+        assert "FEL:ENERGY" in dialog.findChild(
+            type(dialog.label_summary), "policyEditorTarget"
+        ).text()
+
+        dialog.tableWidget_conditions.setRowCount(0)
+        dialog._on_rule_changed()
+        assert not dialog.buttonBox.button(QDialogButtonBox.Ok).isEnabled()
+        assert "Add at least one condition" in dialog.label_validation.text()
     finally:
         dialog.close()
         app.processEvents()

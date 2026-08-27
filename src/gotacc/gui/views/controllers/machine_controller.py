@@ -686,7 +686,9 @@ class MachineController:
         intro.setWordWrap(True)
         preset_layout.addWidget(intro)
         preset_table = QTableWidget(0, 4, preset_page)
-        preset_table.setHorizontalHeaderLabels(["Kind", "Preset", "Source", "Description"])
+        preset_table.setHorizontalHeaderLabels(
+            ["Kind", "Policy Template", "Source", "Description"]
+        )
         preset_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         preset_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         preset_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -699,7 +701,7 @@ class MachineController:
         preset_layout.addWidget(preset_table, 1)
         preset_actions = QHBoxLayout()
         preset_hint = QLabel(
-            "To create one, open a PV Mapping policy and choose Save as Preset.",
+            "To create one, open a PV Mapping policy and choose Save as Template.",
             preset_page,
         )
         rename_button = QPushButton("Rename", preset_page)
@@ -710,9 +712,9 @@ class MachineController:
         preset_actions.addWidget(rename_button)
         preset_actions.addWidget(delete_button)
         preset_layout.addLayout(preset_actions)
-        advanced_tabs.addTab(preset_page, "Rule Presets")
+        advanced_tabs.addTab(preset_page, "Manage Templates")
         main_tabs.addTab(safeguards_page, "Run Safeguards")
-        main_tabs.addTab(advanced_page, "Policy Presets")
+        main_tabs.addTab(advanced_page, "Policy Templates")
         main_tabs.setCurrentWidget(ui.tab_mapping)
 
         ui.tab_runSafeguards = safeguards_page

@@ -438,11 +438,11 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert [
             window.machine_ui.tabWidget_machine.tabText(index)
             for index in range(window.machine_ui.tabWidget_machine.count())
-        ] == ["PV Mapping", "Run Safeguards", "Policy Presets"]
+        ] == ["PV Mapping", "Run Safeguards", "Policy Templates"]
         assert [
             window.machine_ui.tabWidget_machineAdvanced.tabText(index)
             for index in range(window.machine_ui.tabWidget_machineAdvanced.count())
-        ] == ["Write Policy", "Rule Presets"]
+        ] == ["Write Policy", "Manage Templates"]
         assert window.machine_ui.tableWidget_policyPresets.rowCount() == 3
         assert {
             window.machine_ui.tableWidget_policyPresets.item(row, 1).text()

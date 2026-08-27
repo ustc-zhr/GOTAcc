@@ -1586,10 +1586,23 @@ class MainWindow(QMainWindow):
             and str(row.get("Name", "")).strip()
         ]
 
+    def _policy_target_pv(self, kind: str, target: str) -> str:
+        mapping_rows = TaskService.table_to_records(self.machine_ui.tableWidget_mapping)
+        row = next(
+            (
+                item
+                for item in mapping_rows
+                if str(item.get("Role", "")).strip().lower() == kind
+                and str(item.get("Name", "")).strip() == target
+            ),
+            None,
+        )
+        return str((row or {}).get("PV Name", "")).strip()
+
     @staticmethod
     def _policy_rule_summary(kwargs: dict) -> str:
         conditions = kwargs.get("conditions", []) or []
-        action = str((kwargs.get("action", {}) or {}).get("type", "rule")).strip()
+        action = str((kwargs.get("action", {}) or {}).get("type", "policy")).strip()
         match = str(kwargs.get("match", "all")).strip()
         action_labels = {
             "replace": "Replace result",
@@ -1606,8 +1619,19 @@ class MainWindow(QMainWindow):
                 "eq": "=",
                 "ne": "≠",
             }
+            metric_labels = {
+                "mean_abs": "Mean absolute sample",
+                "max_abs": "Maximum absolute sample",
+                "peak_to_peak": "Signal variation",
+                "mean": "Mean sample",
+                "std": "Sample standard deviation",
+                "reduced": "Processed result",
+            }
+            metric = metric_labels.get(
+                str(condition.get("metric")), condition.get("metric", "Value")
+            )
             condition_text = (
-                f"{condition.get('metric', 'value')} "
+                f"{metric} "
                 f"{operator_labels.get(str(condition.get('operator')), condition.get('operator', ''))} "
                 f"{condition.get('value', '')}"
             )
@@ -1643,7 +1667,7 @@ class MainWindow(QMainWindow):
             kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
             preset_name = str(binding.get("preset", "custom") or "custom")
             if preset_name == "custom":
-                preset_label = "Custom Rule"
+                preset_label = "Custom Policy"
             else:
                 custom_preset = self._custom_policy_preset(kind, preset_name)
                 if custom_preset is not None:
@@ -1926,6 +1950,9 @@ class MainWindow(QMainWindow):
             preset_name=None if preset_name == "custom" else preset_name,
             custom_presets=copy.deepcopy(self.machine_ui.policy_presets),
             locked_target=locked_target or str(binding.get("target", "")),
+            pv_name=self._policy_target_pv(
+                kind, locked_target or str(binding.get("target", ""))
+            ),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -1958,8 +1985,8 @@ class MainWindow(QMainWindow):
             return
         display_name, accepted = QInputDialog.getText(
             self,
-            "Save Custom Preset",
-            "Preset name:",
+            "Save Policy Template",
+            "Template name:",
         )
         display_name = display_name.strip()
         if not accepted or not display_name:
@@ -1975,8 +2002,8 @@ class MainWindow(QMainWindow):
         ):
             QMessageBox.warning(
                 self,
-                "Save Custom Preset",
-                f"A {kind} preset named {display_name!r} already exists.",
+                "Save Policy Template",
+                f"A {kind} Policy Template named {display_name!r} already exists.",
             )
             return
         preset_id = self._policy_preset_id(display_name)
@@ -2019,8 +2046,8 @@ class MainWindow(QMainWindow):
             return
         display_name, accepted = QInputDialog.getText(
             self,
-            "Rename Custom Preset",
-            "Preset name:",
+            "Rename Policy Template",
+            "Template name:",
             text=str(preset.get("name", "")),
         )
         display_name = display_name.strip()
@@ -2037,7 +2064,11 @@ class MainWindow(QMainWindow):
             and str(item.get("name", "")).strip().casefold() == display_name.casefold()
             for item in self.machine_ui.policy_presets
         ):
-            QMessageBox.warning(self, "Rename Custom Preset", "That preset name is already in use.")
+            QMessageBox.warning(
+                self,
+                "Rename Policy Template",
+                "That template name is already in use.",
+            )
             return
         preset["name"] = display_name
         self.machine_controller.refresh_policy_preset_browser()
@@ -2053,9 +2084,9 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(
             self,
-            "Delete Custom Preset",
-            f"Delete preset {preset.get('name', preset_id)!r}? Existing policy "
-            "bindings will keep their rule as Custom Rule.",
+            "Delete Policy Template",
+            f"Delete template {preset.get('name', preset_id)!r}? Existing policy "
+            "bindings will keep their behavior as Custom Policy.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )

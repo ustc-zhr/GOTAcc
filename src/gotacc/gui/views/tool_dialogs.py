@@ -612,7 +612,7 @@ class PolicyTemplatePickerDialog(QDialog):
         heading.setWordWrap(True)
         root.addWidget(heading)
         intro = QLabel(
-            "Choose a Policy Template to use its tested defaults. Choose Custom Rule "
+            "Choose a Policy Template to use its tested defaults. Choose Custom Policy "
             "only when the signal needs advanced conditions.",
             self,
         )
@@ -657,7 +657,7 @@ class PolicyTemplatePickerDialog(QDialog):
                     "id": preset_id,
                     "name": str(preset.get("name", preset_id)),
                     "description": str(preset.get("description", "")).strip()
-                    or "Use this machine-specific saved rule.",
+                    or "Use this machine-specific saved policy.",
                     "policy": policy,
                     "custom_rule": False,
                 }
@@ -665,9 +665,9 @@ class PolicyTemplatePickerDialog(QDialog):
         templates.append(
             {
                 "id": "custom",
-                "name": "Custom Rule",
+                "name": "Custom Policy",
                 "description": (
-                    "Open the structured Rule Editor to define conditions and an action."
+                    "Open the Policy Editor to define conditions and an action."
                 ),
                 "policy": None,
                 "custom_rule": True,
@@ -741,6 +741,28 @@ class SampleGuardRuleEditorDialog(QDialog):
 
     METRICS = ("mean_abs", "max_abs", "peak_to_peak", "mean", "std", "reduced")
     OPERATORS = ("gt", "ge", "lt", "le", "eq", "ne")
+    METRIC_LABELS = {
+        "mean_abs": "Mean absolute sample",
+        "max_abs": "Maximum absolute sample",
+        "peak_to_peak": "Signal variation (peak-to-peak)",
+        "mean": "Mean sample",
+        "std": "Sample standard deviation",
+        "reduced": "Processed result",
+    }
+    OPERATOR_LABELS = {
+        "gt": "Greater than",
+        "ge": "Greater than or equal",
+        "lt": "Less than",
+        "le": "Less than or equal",
+        "eq": "Equal to",
+        "ne": "Not equal to",
+    }
+    MATCH_LABELS = {"any": "Any condition", "all": "All conditions"}
+    ACTION_LABELS = {
+        "replace": "Replace result",
+        "add_offset": "Add offset",
+        "violate_bound": "Mark constraint infeasible",
+    }
 
     def __init__(
         self,
@@ -752,14 +774,16 @@ class SampleGuardRuleEditorDialog(QDialog):
         preset_name: str | None = None,
         custom_presets: list[dict] | None = None,
         locked_target: str | None = None,
+        pv_name: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
         if kind not in {"objective", "constraint"}:
-            raise ValueError("Rule Editor kind must be objective or constraint")
+            raise ValueError("Policy Editor kind must be objective or constraint")
         self.kind = kind
         self.target_names = [str(name).strip() for name in target_names if str(name).strip()]
         self.locked_target = str(locked_target or "").strip()
+        self.pv_name = str(pv_name or "").strip()
         self.custom_presets = {
             str(preset.get("id", "")).strip().lower(): preset
             for preset in custom_presets or []
@@ -768,12 +792,21 @@ class SampleGuardRuleEditorDialog(QDialog):
         if self.locked_target and self.locked_target not in self.target_names:
             self.target_names.append(self.locked_target)
         self._loading = False
-        self.setWindowTitle(f"{kind.title()} Rule Editor")
+        self.setWindowTitle(f"{kind.title()} Policy Editor")
         self.resize(760, 590)
 
         root = QVBoxLayout(self)
+        heading_parts = [f"Edit {kind.title()} Policy"]
+        if self.locked_target:
+            heading_parts.append(self.locked_target)
+        if self.pv_name:
+            heading_parts.append(self.pv_name)
+        heading = QLabel(" · ".join(heading_parts), self)
+        heading.setObjectName("policyEditorTarget")
+        heading.setWordWrap(True)
+        root.addWidget(heading)
         intro = QLabel(
-            "Build a reusable sample rule from fields. No Python expressions or raw JSON are required.",
+            "Define when this policy applies and what it should do. No code or JSON is required.",
             self,
         )
         intro.setWordWrap(True)
@@ -781,7 +814,7 @@ class SampleGuardRuleEditorDialog(QDialog):
 
         form = QFormLayout()
         self.comboBox_preset = QComboBox(self)
-        self.comboBox_preset.addItem("Custom Rule", "")
+        self.comboBox_preset.addItem("Custom Policy", "")
         for name in POLICY_REGISTRY.preset_names(kind, gui_only=True):
             preset = POLICY_REGISTRY.resolve_preset(kind, name)
             self.comboBox_preset.addItem(preset.display_name, preset.name)
@@ -789,7 +822,7 @@ class SampleGuardRuleEditorDialog(QDialog):
             self.comboBox_preset.insertSeparator(self.comboBox_preset.count())
             for preset_id, preset in self.custom_presets.items():
                 self.comboBox_preset.addItem(str(preset.get("name", preset_id)), preset_id)
-        form.addRow("Preset", self.comboBox_preset)
+        form.addRow("Policy Template", self.comboBox_preset)
 
         self.comboBox_target = QComboBox(self)
         self.comboBox_target.setEditable(True)
@@ -803,7 +836,8 @@ class SampleGuardRuleEditorDialog(QDialog):
         form.addRow("Target", self.comboBox_target)
 
         self.comboBox_match = QComboBox(self)
-        self.comboBox_match.addItems(["any", "all"])
+        for value, label in self.MATCH_LABELS.items():
+            self.comboBox_match.addItem(label, value)
         form.addRow("Match conditions", self.comboBox_match)
         root.addLayout(form)
 
@@ -828,10 +862,14 @@ class SampleGuardRuleEditorDialog(QDialog):
         action_group = QGroupBox("Action", self)
         action_form = QFormLayout(action_group)
         self.comboBox_action = QComboBox(action_group)
-        self.comboBox_action.addItems(
-            ["replace", "add_offset"] if kind == "objective" else ["replace", "violate_bound"]
+        action_values = (
+            ["replace", "add_offset"]
+            if kind == "objective"
+            else ["replace", "violate_bound"]
         )
-        action_form.addRow("Type", self.comboBox_action)
+        for value in action_values:
+            self.comboBox_action.addItem(self.ACTION_LABELS[value], value)
+        action_form.addRow("Policy action", self.comboBox_action)
         self.doubleSpinBox_actionValue = self._number_box(action_group)
         action_form.addRow("Value", self.doubleSpinBox_actionValue)
         self.doubleSpinBox_deltaRatio = self._nonnegative_box(action_group, 0.1)
@@ -845,9 +883,14 @@ class SampleGuardRuleEditorDialog(QDialog):
         self.label_summary = QLabel(self)
         self.label_summary.setWordWrap(True)
         root.addWidget(self.label_summary)
+        self.label_validation = QLabel(self)
+        self.label_validation.setProperty("tone", "danger")
+        self.label_validation.setWordWrap(True)
+        root.addWidget(self.label_validation)
         self.buttonBox = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
         )
+        self.buttonBox.button(QDialogButtonBox.Ok).setText("Save Policy")
         root.addWidget(self.buttonBox)
 
         self.comboBox_preset.currentIndexChanged.connect(self._on_preset_changed)
@@ -896,11 +939,17 @@ class SampleGuardRuleEditorDialog(QDialog):
     def _set_condition_row(self, row: int, condition: dict) -> None:
         self.tableWidget_conditions.insertRow(row)
         metric = QComboBox(self.tableWidget_conditions)
-        metric.addItems(list(self.METRICS))
-        metric.setCurrentText(str(condition.get("metric", "mean_abs")))
+        for value in self.METRICS:
+            metric.addItem(self.METRIC_LABELS[value], value)
+        metric.setCurrentIndex(
+            max(0, metric.findData(str(condition.get("metric", "mean_abs"))))
+        )
         operator = QComboBox(self.tableWidget_conditions)
-        operator.addItems(list(self.OPERATORS))
-        operator.setCurrentText(str(condition.get("operator", "gt")))
+        for value in self.OPERATORS:
+            operator.addItem(self.OPERATOR_LABELS[value], value)
+        operator.setCurrentIndex(
+            max(0, operator.findData(str(condition.get("operator", "gt"))))
+        )
         value = self._number_box(self.tableWidget_conditions)
         value.setValue(float(condition.get("value", 0.0)))
         atol = self._nonnegative_box(
@@ -923,12 +972,22 @@ class SampleGuardRuleEditorDialog(QDialog):
             if target is None and 0 <= target_col < len(self.target_names):
                 target = self.target_names[target_col]
             self.comboBox_target.setCurrentText(str(target or ""))
-            self.comboBox_match.setCurrentText(str(kwargs.get("match", "any")))
+            self.comboBox_match.setCurrentIndex(
+                max(
+                    0,
+                    self.comboBox_match.findData(str(kwargs.get("match", "any"))),
+                )
+            )
             self.tableWidget_conditions.setRowCount(0)
             for condition in kwargs.get("conditions", []):
                 self._set_condition_row(self.tableWidget_conditions.rowCount(), dict(condition))
             action = dict(kwargs.get("action", {}))
-            self.comboBox_action.setCurrentText(str(action.get("type", "replace")))
+            self.comboBox_action.setCurrentIndex(
+                max(
+                    0,
+                    self.comboBox_action.findData(str(action.get("type", "replace"))),
+                )
+            )
             self.doubleSpinBox_actionValue.setValue(float(action.get("value", 0.0)))
             self.doubleSpinBox_deltaRatio.setValue(float(action.get("delta_ratio", 0.1)))
             self.doubleSpinBox_deltaMin.setValue(float(action.get("delta_min", 1e-6)))
@@ -966,7 +1025,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         self._on_rule_changed()
 
     def _update_action_fields(self) -> None:
-        violate = self.comboBox_action.currentText() == "violate_bound"
+        violate = self.comboBox_action.currentData() == "violate_bound"
         self.doubleSpinBox_actionValue.setVisible(not violate)
         value_label = self.doubleSpinBox_actionValue.parent().layout().labelForField(
             self.doubleSpinBox_actionValue
@@ -1005,15 +1064,15 @@ class SampleGuardRuleEditorDialog(QDialog):
         conditions = []
         for row in range(self.tableWidget_conditions.rowCount()):
             condition = {
-                "metric": self.tableWidget_conditions.cellWidget(row, 0).currentText(),
-                "operator": self.tableWidget_conditions.cellWidget(row, 1).currentText(),
+                "metric": self.tableWidget_conditions.cellWidget(row, 0).currentData(),
+                "operator": self.tableWidget_conditions.cellWidget(row, 1).currentData(),
                 "value": self.tableWidget_conditions.cellWidget(row, 2).value(),
             }
             atol = self.tableWidget_conditions.cellWidget(row, 3).value()
             if atol:
                 condition["atol"] = atol
             conditions.append(condition)
-        action_type = self.comboBox_action.currentText()
+        action_type = str(self.comboBox_action.currentData())
         if action_type == "violate_bound":
             action = {
                 "type": action_type,
@@ -1030,36 +1089,57 @@ class SampleGuardRuleEditorDialog(QDialog):
                 "target": target or None,
                 "target_col": target_col,
                 "conditions": conditions,
-                "match": self.comboBox_match.currentText(),
+                "match": str(self.comboBox_match.currentData()),
                 "action": action,
             },
         }
 
     def _refresh_summary(self) -> None:
         state = self.rule_state()
-        count = len(state["kwargs"]["conditions"])
+        conditions = state["kwargs"]["conditions"]
+        count = len(conditions)
         target = state["kwargs"]["target"] or f"column {state['kwargs']['target_col']}"
-        action_labels = {
-            "replace": "replace the result",
-            "add_offset": "add an offset",
-            "violate_bound": "mark the constraint as infeasible",
-        }
-        action = action_labels.get(
-            state["kwargs"]["action"]["type"], state["kwargs"]["action"]["type"]
-        )
-        match_text = "the condition matches" if count == 1 else (
-            f"{state['kwargs']['match']} of {count} conditions match"
-        )
+        action_state = state["kwargs"]["action"]
+        action_type = action_state["type"]
+        if action_type == "replace":
+            action = f"replace the result with {action_state['value']:g}"
+        elif action_type == "add_offset":
+            action = f"add {action_state['value']:g} to the result"
+        else:
+            action = "mark the constraint as infeasible"
+        if count == 1:
+            condition = conditions[0]
+            metric = self.METRIC_LABELS.get(condition["metric"], condition["metric"])
+            operator = self.OPERATOR_LABELS.get(
+                condition["operator"], condition["operator"]
+            ).lower()
+            match_text = f"{metric} is {operator} {condition['value']:g}"
+        else:
+            quantifier = "any" if state["kwargs"]["match"] == "any" else "all"
+            match_text = f"{quantifier} of {count} conditions match"
         self.label_summary.setText(
-            f"{target}: When {match_text}, {action}."
+            f"Policy behavior: {target} — when {match_text}, {action}."
         )
+        self._refresh_validation(state)
+
+    def _refresh_validation(self, state: dict | None = None) -> bool:
+        try:
+            current = state or self.rule_state()
+            if not current["kwargs"]["conditions"]:
+                raise ValueError("Add at least one condition before saving this policy.")
+            POLICY_REGISTRY.validate(self.kind, current["name"], current["kwargs"])
+        except Exception as exc:
+            self.label_validation.setText(str(exc))
+            self.label_validation.setVisible(True)
+            self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(False)
+            return False
+        self.label_validation.clear()
+        self.label_validation.setVisible(False)
+        self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(True)
+        return True
 
     def _accept_if_valid(self) -> None:
-        try:
-            state = self.rule_state()
-            POLICY_REGISTRY.validate(self.kind, state["name"], state["kwargs"])
-        except Exception as exc:
-            QMessageBox.critical(self, "Rule Editor", str(exc))
+        if not self._refresh_validation():
             return
         self.accept()
 
@@ -1085,7 +1165,9 @@ class MappingPolicyManagerDialog(QDialog):
         root.addWidget(hint)
 
         self.tableWidget_policies = QTableWidget(0, 3, self)
-        self.tableWidget_policies.setHorizontalHeaderLabels(["Enabled", "Preset", "Rule"])
+        self.tableWidget_policies.setHorizontalHeaderLabels(
+            ["Enabled", "Policy Template", "Policy behavior"]
+        )
         self.tableWidget_policies.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tableWidget_policies.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tableWidget_policies.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -1096,7 +1178,7 @@ class MappingPolicyManagerDialog(QDialog):
                 row, 0, QTableWidgetItem("Yes" if policy.get("enabled") else "No")
             )
             self.tableWidget_policies.setItem(
-                row, 1, QTableWidgetItem(str(policy.get("preset", "Custom Rule")))
+                row, 1, QTableWidgetItem(str(policy.get("preset", "Custom Policy")))
             )
             self.tableWidget_policies.setItem(
                 row, 2, QTableWidgetItem(str(policy.get("summary", "sample guard")))
@@ -1107,10 +1189,10 @@ class MappingPolicyManagerDialog(QDialog):
 
         actions = QHBoxLayout()
         self.pushButton_add = QPushButton("Add Policy", self)
-        self.pushButton_edit = QPushButton("Edit Selected", self)
+        self.pushButton_edit = QPushButton("Edit Policy", self)
         self.pushButton_remove = QPushButton("Remove Selected", self)
         self.pushButton_toggle = QPushButton("Enable / Disable", self)
-        self.pushButton_savePreset = QPushButton("Save as Preset", self)
+        self.pushButton_savePreset = QPushButton("Save as Template", self)
         close_button = QPushButton("Close", self)
         actions.addWidget(self.pushButton_add)
         actions.addWidget(self.pushButton_edit)

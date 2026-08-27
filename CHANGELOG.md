@@ -46,23 +46,23 @@
 - Added declarative objective and constraint `sample_guard` policies with
   named signal targets, bounded condition/operator vocabularies, and
   pre-evaluation target validation
-- Replaced raw JSON policy editing in Machine Setup with a structured Rule
+- Replaced raw JSON policy editing in Machine Setup with a structured Policy
   Editor and converted the FEL energy, zero-objective, and BPM guards into
   reusable presets that expand to `sample_guard`, while retaining legacy config
   compatibility
 - Integrated objective and constraint policy assignment into individual PV
   Mapping rows, with stable-name target binding, multi-policy management, and a
-  read-only Policy Presets compatibility summary
+  read-only Policy Templates compatibility summary
 - Redesigned PV Mapping as a compact signal list with a scrollable selected-row
   detail panel, policy-first actions, signal metadata, and a dedicated
   mapping-issue review action
 - Replaced hidden objective/constraint policy tables with canonical
   `machine.policy_bindings`, including legacy project migration, stable target
-  compilation through current PV Mapping order, and a registry-backed Rule
-  Presets browser
-- Added machine-scoped custom policy presets that can be saved from a binding,
-  reused from the structured Rule Editor, renamed through stable IDs, and
-  deleted without removing or changing existing bound rule behavior
+  compilation through current PV Mapping order, and a registry-backed Policy
+  Templates browser
+- Added machine-scoped custom policy templates that can be saved from a binding,
+  reused from the structured Policy Editor, renamed through stable IDs, and
+  deleted without removing or changing existing bound policy behavior
 - Added independent versioned Machine Profile files for mapping, safeguards,
   write links and policies; profile loading no longer changes Task Builder until
   an operator confirms the displayed synchronization diff
@@ -88,7 +88,10 @@
 - Added a preset-first Policy Quick Add flow with target/PV context,
   plain-language behavior descriptions, machine custom templates, and early
   constraint-bound guidance; empty Policy Manager dialogs and implicit FEL/BPM
-  defaults were removed, while Custom Rule retains the structured editor
+  defaults were removed, while Custom Policy retains the structured editor
+- Unified operator-facing terminology around Policy and Policy Template, and
+  upgraded Policy Editor fields with readable labels, a live behavior summary,
+  target/PV context, and inline validation while preserving registry/config keys
 
 ## 1.2.0 - 2026-06-27
 

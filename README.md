@@ -233,12 +233,15 @@ definitions from the selected PV library; the Mapping page changes the selected
 signal set and manages policies rather than editing the library itself. The
 first `Add Policy` action opens a target-aware Policy Template chooser with
 plain-language behavior descriptions. Built-in and machine-specific templates
-use their validated defaults directly; only `Custom Rule` opens the structured
-Rule Editor. Once policies exist, `Manage N Policies` provides editing, enable/
-disable, removal, additional assignment, and preset saving. The Rule Editor
+use their validated defaults directly; only `Custom Policy` opens the structured
+Policy Editor. Once policies exist, `Manage N Policies` provides editing, enable/
+disable, removal, additional assignment, and template saving. The Policy Editor
 locks the target to that mapping row and edits conditions, match mode, and
-action without requiring JSON. Machine Setup -> Policy Presets shows the
-registry-backed catalog of reusable rules. Machine projects store assignments
+action without requiring JSON. Its selectors use plain-language metric,
+comparison, and action labels, while the saved configuration keeps the stable
+registry vocabulary. A live behavior sentence and inline validation explain the
+result before it is saved. Machine Setup -> Policy Templates shows the
+registry-backed catalog of reusable policies. Machine projects store assignments
 in the canonical `machine.policy_bindings` model; when a task is built, the GUI
 compiles each stable target name to the backend's objective/constraint policy
 list and current `target_col`. The declarative
@@ -251,12 +254,12 @@ policy rows, and backend configs that name `fel_energy_guard`,
 `zero_guard`, or `bpm_guard` directly remain supported. For example, an
 objective binding can target the stable Task Builder objective name:
 
-Machine-specific custom presets can be created from any existing binding with
-`Save as Preset`. They are stored in `machine.policy_presets`, appear alongside
-built-in presets in the Rule Editor, and can be reused by other compatible PV
-Mapping rows. Renaming preserves references through a stable preset ID. Deleting
-a custom preset preserves each assigned rule and converts those bindings to
-standalone `Custom Rule` entries.
+Machine-specific Policy Templates can be created from any existing binding with
+`Save as Template`. They are stored in `machine.policy_presets`, appear alongside
+built-in templates in the Policy Editor, and can be reused by other compatible PV
+Mapping rows. Renaming preserves references through a stable internal preset ID.
+Deleting a template preserves each assigned policy and converts those bindings to
+standalone `Custom Policy` entries.
 
 Policy validation stays in the normal workflow instead of adding another
 always-visible editor panel. PV Mapping marks assigned policies as `Ready`,

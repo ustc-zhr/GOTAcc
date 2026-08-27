@@ -442,7 +442,7 @@ def test_quick_add_opens_advanced_editor_only_for_custom_rule(window, monkeypatc
         "selected_template",
         lambda _dialog: {
             "id": "custom",
-            "name": "Custom Rule",
+            "name": "Custom Policy",
             "policy": None,
             "custom_rule": True,
         },
