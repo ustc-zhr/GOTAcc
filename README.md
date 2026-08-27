@@ -106,9 +106,11 @@ Variables, Objectives, Constraints, PV Mapping, and write links; load a Machine
 Profile and use `Sync To Task` to create real signal rows. A new Offline task
 starts as a runnable two-variable Rosenbrock benchmark with no placeholder
 constraint. Switching the Mode field on an existing task never clears its rows.
-Each Task Builder table also provides explicit `Add Row` and
-`Remove Selected` actions, while empty-state guidance is displayed outside the
-serialized table data.
+Offline Task Builder tables provide explicit `Add Row` and `Remove Selected`
+actions. Online tables hide `Add Row` because signal rows come from Machine
+Profile/PV Mapping sync; `Remove Selected` remains available and a resulting
+selection mismatch is reported in Machine Setup. Empty-state guidance is
+displayed outside the serialized table data.
 
 The Configure footer opens `Preview Task` for the normalized runnable
 configuration. `Export TaskConfig` is available from that preview and writes a

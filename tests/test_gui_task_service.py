@@ -272,6 +272,23 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
             window.task_ui.horizontalLayout_variablesToolbarActions.itemAt(0).widget()
             is window.task_ui.pushButton_openBoundsTools
         )
+        for add_button in (
+            window.task_ui.pushButton_addVariableRow,
+            window.task_ui.pushButton_addObjectiveRow,
+            window.task_ui.pushButton_addConstraintRow,
+        ):
+            assert add_button.isHidden()
+            assert add_button.property("inlineAction") is True
+            assert add_button.size().width() == 82
+            assert add_button.size().height() == 24
+        for remove_button in (
+            window.task_ui.pushButton_removeVariableRows,
+            window.task_ui.pushButton_removeObjectiveRows,
+            window.task_ui.pushButton_removeConstraintRows,
+        ):
+            assert remove_button.property("inlineAction") is True
+            assert remove_button.size().width() == 124
+            assert remove_button.size().height() == 24
         preview_button = window.ui.pushButton_preview
         assert preview_button.text() == "Preview Task"
         assert window.ui.label_validationStatus.text() == "Not validated"

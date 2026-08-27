@@ -152,6 +152,16 @@ def test_empty_task_tables_can_add_and_remove_real_rows(window):
     controller = window.task_builder_controller
     controller.create_new_online_task()
 
+    for field in ("Variable", "Objective", "Constraint"):
+        assert getattr(window.task_ui, f"pushButton_add{field}Row").isHidden()
+        assert not getattr(window.task_ui, f"pushButton_remove{field}Rows").isEnabled()
+    assert "manually" not in window.task_ui.label_variablesEmptyState.text()
+
+    window.task_ui.comboBox_mode.setCurrentText("Offline")
+    QApplication.processEvents()
+    for field in ("Variable", "Objective", "Constraint"):
+        assert not getattr(window.task_ui, f"pushButton_add{field}Row").isHidden()
+
     controller.add_task_table_row("constraints")
     rows = TaskService.table_to_records(window.task_ui.tableWidget_constraints)
     assert rows[0] == {
@@ -166,6 +176,7 @@ def test_empty_task_tables_can_add_and_remove_real_rows(window):
     controller.remove_selected_task_rows("constraints")
     assert window.task_ui.tableWidget_constraints.rowCount() == 0
     assert not window.task_ui.label_constraintsEmptyState.isHidden()
+    assert not window.task_ui.pushButton_removeConstraintRows.isEnabled()
 
 
 def test_mapping_sync_preserves_parameters_by_name_and_can_undo(

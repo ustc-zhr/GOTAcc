@@ -82,6 +82,9 @@
   workspace to signal selection, policy assignment, and task synchronization;
   sync status now distinguishes empty selection, changed selection, synced
   rows, incomplete knob setup, and actionable issues
+- Hid manual `Add Row` actions from Online Task Builder tables while retaining
+  them for Offline tasks, kept row removal available, and normalized the row
+  toolbar buttons to compact fixed dimensions
 
 ## 1.2.0 - 2026-06-27
 

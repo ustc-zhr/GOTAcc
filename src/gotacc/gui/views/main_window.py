@@ -1207,16 +1207,21 @@ class MainWindow(QMainWindow):
                 toolbar = QFrame(tab)
                 toolbar.setObjectName(f"frame_{field}Toolbar")
                 toolbar_layout = QHBoxLayout(toolbar)
-                toolbar_layout.setContentsMargins(10, 6, 10, 6)
+                toolbar_layout.setContentsMargins(8, 3, 8, 3)
                 toolbar_layout.setSpacing(6)
+                toolbar.setMaximumHeight(34)
                 tab_layout.insertWidget(0, toolbar)
             else:
                 toolbar = self.task_ui.frame_variablesToolbar
                 toolbar_layout = existing_layout
             hint = QLabel(toolbar)
-            hint.setWordWrap(True)
+            hint.setWordWrap(False)
             add_button = QPushButton("Add Row", toolbar)
             remove_button = QPushButton("Remove Selected", toolbar)
+            for button, width in ((add_button, 82), (remove_button, 124)):
+                button.setProperty("inlineAction", True)
+                button.setFixedSize(width, 24)
+                button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             if field == "variables":
                 toolbar_layout.insertWidget(0, hint, 1)
                 toolbar_layout.addWidget(add_button)

@@ -1554,12 +1554,12 @@ class TaskBuilderController:
         online = ui.comboBox_mode.currentText().strip() == "Online EPICS"
         messages = {
             "variables": (
-                "Load a Machine Profile, then Sync To Task, or add a knob row manually."
+                "Load a Machine Profile, then Sync To Task."
                 if online
                 else "Add at least one benchmark variable."
             ),
             "objectives": (
-                "Load a Machine Profile, then Sync To Task, or add an objective row manually."
+                "Load a Machine Profile, then Sync To Task."
                 if online
                 else "Add at least one benchmark objective."
             ),
@@ -1572,8 +1572,12 @@ class TaskBuilderController:
         for field, message in messages.items():
             table = self._task_table(field)
             label = getattr(ui, f"label_{field}EmptyState")
+            add_button = getattr(ui, f"pushButton_add{field.title()[:-1]}Row")
+            remove_button = getattr(ui, f"pushButton_remove{field.title()[:-1]}Rows")
             label.setText(message)
             label.setVisible(table.rowCount() == 0)
+            add_button.setVisible(not online)
+            remove_button.setEnabled(table.rowCount() > 0)
 
     def apply_task_payload(
         self,
