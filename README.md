@@ -231,8 +231,13 @@ constraint policies. The page uses a compact machine-signal list with a selected
 signal detail panel. Role, name, PV, readback, group, and note are read-only
 definitions from the selected PV library; the Mapping page changes the selected
 signal set and manages policies rather than editing the library itself. The
-structured Rule Editor locks the target to that mapping row and edits its
-conditions, match mode, and action without requiring JSON. Machine Setup -> Policy Presets shows the
+first `Add Policy` action opens a target-aware Policy Template chooser with
+plain-language behavior descriptions. Built-in and machine-specific templates
+use their validated defaults directly; only `Custom Rule` opens the structured
+Rule Editor. Once policies exist, `Manage N Policies` provides editing, enable/
+disable, removal, additional assignment, and preset saving. The Rule Editor
+locks the target to that mapping row and edits conditions, match mode, and
+action without requiring JSON. Machine Setup -> Policy Presets shows the
 registry-backed catalog of reusable rules. Machine projects store assignments
 in the canonical `machine.policy_bindings` model; when a task is built, the GUI
 compiles each stable target name to the backend's objective/constraint policy
@@ -259,7 +264,9 @@ always-visible editor panel. PV Mapping marks assigned policies as `Ready`,
 identify the affected signal and the required fix. Rule save, `Sync To Task`,
 task validation, and run start share the same side-effect-free checks. In
 particular, a constraint rule using `violate_bound` is not ready until its
-matching Task Builder constraint defines a lower or upper bound.
+matching Task Builder constraint defines a lower or upper bound. Quick Add
+shows that setup requirement before the template is used without blocking the
+operator from completing bounds after synchronization.
 
 ```python
 "policy_bindings": [

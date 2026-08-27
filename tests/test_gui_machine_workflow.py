@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
 from gotacc.gui.services.task_service import TaskService
 from gotacc.gui.services.machine_profile import MachineProfile, save_machine_profile
@@ -414,6 +414,57 @@ def test_mapping_policy_status_stays_compact_and_reports_task_setup(window):
     )
     assert "Synced To Task" in window.machine_ui.label_pvLibrarySummary.text()
     assert not window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
+
+
+def test_quick_add_opens_advanced_editor_only_for_custom_rule(window, monkeypatch):
+    import gotacc.gui.views.main_window as main_window_module
+
+    window.task_builder_controller.fill_table_from_records(
+        window.machine_ui.tableWidget_mapping,
+        [
+            {
+                "Role": "objective",
+                "Name": "beam_signal",
+                "PV Name": "TEST:BEAM",
+            }
+        ],
+    )
+    window._refresh_mapping_policy_widgets()
+    editor_calls = []
+    manager_calls = []
+    monkeypatch.setattr(
+        main_window_module.PolicyTemplatePickerDialog,
+        "exec_",
+        lambda _dialog: QDialog.Accepted,
+    )
+    monkeypatch.setattr(
+        main_window_module.PolicyTemplatePickerDialog,
+        "selected_template",
+        lambda _dialog: {
+            "id": "custom",
+            "name": "Custom Rule",
+            "policy": None,
+            "custom_rule": True,
+        },
+    )
+    monkeypatch.setattr(
+        main_window_module.SampleGuardRuleEditorDialog,
+        "exec_",
+        lambda _dialog: editor_calls.append(True) or QDialog.Accepted,
+    )
+    monkeypatch.setattr(
+        main_window_module.MappingPolicyManagerDialog,
+        "exec_",
+        lambda _dialog: manager_calls.append(True) or QDialog.Rejected,
+    )
+
+    window._manage_mapping_policies(0)
+
+    assert editor_calls == [True]
+    assert manager_calls == []
+    assert len(window.machine_ui.policy_bindings) == 1
+    assert window.machine_ui.policy_bindings[0]["preset"] == "custom"
+    assert window.machine_ui.policy_bindings[0]["target"] == "beam_signal"
 
 
 def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, window):

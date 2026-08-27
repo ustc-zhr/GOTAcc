@@ -94,6 +94,68 @@ def test_mapping_bound_rule_editor_locks_and_persists_target(monkeypatch):
         app.processEvents()
 
 
+def test_policy_template_picker_is_preset_first_and_explains_setup(monkeypatch):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication, QDialogButtonBox
+    from gotacc.gui.views.tool_dialogs import PolicyTemplatePickerDialog
+
+    app = QApplication.instance() or QApplication([])
+    objective = PolicyTemplatePickerDialog(
+        kind="objective",
+        target="fel_energy",
+        pv_name="FEL:ENERGY",
+        custom_presets=[
+            {
+                "id": "custom_stable",
+                "name": "Stable Signal",
+                "kind": "objective",
+                "description": "Keep a locally validated stable-signal rule.",
+                "policy": {
+                    "name": "sample_guard",
+                    "kwargs": {
+                        "conditions": [
+                            {"metric": "std", "operator": "lt", "value": 0.01}
+                        ],
+                        "match": "all",
+                        "action": {"type": "replace", "value": 0.0},
+                    },
+                },
+            }
+        ],
+    )
+    constraint = PolicyTemplatePickerDialog(
+        kind="constraint",
+        target="orbit_x",
+        pv_name="BPM:01:X",
+        constraint_bound_ready=False,
+    )
+    try:
+        assert objective.tableWidget_templates.rowCount() == 4
+        assert objective.selected_template() is None
+        assert not objective.buttonBox.button(QDialogButtonBox.Ok).isEnabled()
+        objective.tableWidget_templates.setCurrentCell(0, 0)
+        assert objective.selected_template()["id"] == "fel_energy_guard"
+        assert "replace the result with 0" in (
+            objective.tableWidget_templates.item(0, 1).text()
+        )
+        assert objective.tableWidget_templates.item(2, 0).text() == "Stable Signal"
+        assert objective.tableWidget_templates.item(3, 0).text() == "Custom Rule"
+
+        assert constraint.tableWidget_templates.rowCount() == 2
+        constraint.tableWidget_templates.setCurrentCell(0, 0)
+        assert constraint.selected_template()["id"] == "bpm_guard"
+        assert not constraint.label_setup.isHidden()
+        assert "Lower or Upper bound" in constraint.label_setup.text()
+        constraint.tableWidget_templates.setCurrentCell(1, 0)
+        assert constraint.selected_template()["id"] == "custom"
+        assert constraint.label_setup.isHidden()
+    finally:
+        objective.close()
+        constraint.close()
+        app.processEvents()
+
+
 def test_structured_rule_editor_applies_machine_custom_preset(monkeypatch):
     pytest.importorskip("PyQt5")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")

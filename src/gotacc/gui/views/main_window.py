@@ -53,6 +53,7 @@ try:
     from .view_adapter import GuiViewAdapter
     from .tool_dialogs import (
         MappingPolicyManagerDialog,
+        PolicyTemplatePickerDialog,
         PVMonitorDialog,
         SampleGuardRuleEditorDialog,
     )
@@ -69,6 +70,7 @@ except ImportError:  # pragma: no cover - local script fallback
     from view_adapter import GuiViewAdapter
     from tool_dialogs import (
         MappingPolicyManagerDialog,
+        PolicyTemplatePickerDialog,
         PVMonitorDialog,
         SampleGuardRuleEditorDialog,
     )
@@ -2067,25 +2069,95 @@ class MainWindow(QMainWindow):
         self._refresh_mapping_policy_widgets()
         self._refresh_task_preview()
 
-    def _add_policy_for_mapping(self, kind: str, target: str) -> None:
-        default_preset = "fel_energy_guard" if kind == "objective" else "bpm_guard"
-        spec = POLICY_REGISTRY.expand_preset(kind, default_preset)
+    def _constraint_target_has_bound(self, target: str) -> bool:
+        rows = TaskService.table_to_records(self.task_ui.tableWidget_constraints)
+        row = next(
+            (
+                item
+                for item in rows
+                if str(item.get("Name", "")).strip() == target
+            ),
+            None,
+        )
+        if row is None:
+            return False
+        try:
+            TaskService._constraint_bounds_from_rows([row])
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    def _add_policy_for_mapping(
+        self,
+        kind: str,
+        target: str,
+        pv_name: str = "",
+    ) -> bool:
+        picker = PolicyTemplatePickerDialog(
+            kind=kind,
+            target=target,
+            pv_name=pv_name,
+            custom_presets=copy.deepcopy(self.machine_ui.policy_presets),
+            constraint_bound_ready=(
+                kind != "constraint" or self._constraint_target_has_bound(target)
+            ),
+            parent=self,
+        )
+        if picker.exec_() != QDialog.Accepted:
+            return False
+        template = picker.selected_template()
+        if template is None:
+            return False
+        preset_id = str(template.get("id", "custom") or "custom")
+        if preset_id != "custom" and any(
+            binding.get("kind") == kind
+            and binding.get("target") == target
+            and binding.get("preset") == preset_id
+            for binding in self.machine_ui.policy_bindings
+        ):
+            QMessageBox.information(
+                self,
+                "Add Policy",
+                f"{template.get('name', preset_id)} is already assigned to {target}.",
+            )
+            return False
+
+        policy = copy.deepcopy(template.get("policy") or {})
+        if bool(template.get("custom_rule")):
+            policy = {
+                "name": "sample_guard",
+                "kwargs": POLICY_REGISTRY.resolve(kind, "sample_guard").defaults(),
+            }
+            preset_id = "custom"
+        if not isinstance(policy, dict):
+            QMessageBox.warning(self, "Add Policy", "The selected template is invalid.")
+            return False
         names = self._policy_target_names(kind)
-        kwargs = copy.deepcopy(spec["kwargs"])
+        kwargs = copy.deepcopy(policy.get("kwargs", {}) or {})
         kwargs["target"] = target
         kwargs["target_col"] = names.index(target) if target in names else 0
         binding = {
             "target": target,
             "kind": kind,
             "enabled": True,
-            "preset": default_preset,
-            "policy": {"name": spec["name"], "kwargs": kwargs},
+            "preset": preset_id,
+            "policy": {
+                "name": str(policy.get("name", "sample_guard")),
+                "kwargs": kwargs,
+            },
         }
         self.machine_ui.policy_bindings.append(binding)
         row = len(self.machine_ui.policy_bindings) - 1
-        if not self._edit_policy_rule_row(kind, row, locked_target=target):
-            self.machine_ui.policy_bindings.pop()
-            self._refresh_mapping_policy_widgets()
+        if bool(template.get("custom_rule")):
+            if not self._edit_policy_rule_row(kind, row, locked_target=target):
+                self.machine_ui.policy_bindings.pop()
+                self._refresh_mapping_policy_widgets()
+                return False
+            return True
+
+        self._refresh_mapping_policy_widgets()
+        self._refresh_task_preview()
+        return True
 
     def _manage_mapping_policies(self, mapping_row: int) -> None:
         table = self.machine_ui.tableWidget_mapping
@@ -2099,6 +2171,9 @@ class MainWindow(QMainWindow):
         target = name.text().strip() if name is not None else ""
         pv_name = pv.text().strip() if pv is not None else ""
         if kind not in {"objective", "constraint"} or not target:
+            return
+        if not self._bound_policy_rows(kind, target):
+            self._add_policy_for_mapping(kind, target, pv_name)
             return
         while True:
             bound = self._bound_policy_rows(kind, target)
@@ -2115,7 +2190,7 @@ class MainWindow(QMainWindow):
                 break
             action, selected = request
             if action == "add":
-                self._add_policy_for_mapping(kind, target)
+                self._add_policy_for_mapping(kind, target, pv_name)
             elif selected is not None and selected < len(bound) and action == "edit":
                 self._edit_policy_rule_row(
                     kind,

@@ -85,6 +85,10 @@
 - Hid manual `Add Row` actions from Online Task Builder tables while retaining
   them for Offline tasks, kept row removal available, and normalized the row
   toolbar buttons to compact fixed dimensions
+- Added a preset-first Policy Quick Add flow with target/PV context,
+  plain-language behavior descriptions, machine custom templates, and early
+  constraint-bound guidance; empty Policy Manager dialogs and implicit FEL/BPM
+  defaults were removed, while Custom Rule retains the structured editor
 
 ## 1.2.0 - 2026-06-27
 

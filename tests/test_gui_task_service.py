@@ -480,13 +480,31 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.lineEdit_mappingDetailReadback.isReadOnly()
         assert window.machine_ui.lineEdit_mappingDetailGroup.isReadOnly()
         assert window.machine_ui.lineEdit_mappingDetailNote.isReadOnly()
+        advanced_editor_calls = []
+        manager_calls = []
+        def accept_first_policy_template(dialog):
+            dialog.tableWidget_templates.setCurrentCell(0, 0)
+            return QDialog.Accepted
+
         with monkeypatch.context() as policy_patch:
+            policy_patch.setattr(
+                main_window_module.PolicyTemplatePickerDialog,
+                "exec_",
+                accept_first_policy_template,
+            )
             policy_patch.setattr(
                 main_window_module.SampleGuardRuleEditorDialog,
                 "exec_",
-                lambda _dialog: QDialog.Accepted,
+                lambda _dialog: advanced_editor_calls.append(True) or QDialog.Rejected,
             )
-            window._add_policy_for_mapping("objective", "obj0")
+            policy_patch.setattr(
+                main_window_module.MappingPolicyManagerDialog,
+                "exec_",
+                lambda _dialog: manager_calls.append(True) or QDialog.Rejected,
+            )
+            window._manage_mapping_policies(1)
+        assert advanced_editor_calls == []
+        assert manager_calls == []
         assert len(window.machine_ui.policy_bindings) == 1
         binding = window.machine_ui.policy_bindings[0]
         assert binding["kind"] == "objective"

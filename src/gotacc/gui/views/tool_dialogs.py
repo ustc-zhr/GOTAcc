@@ -582,6 +582,160 @@ class PVMonitorDialog(QDialog):
         self._read_indices(list(range(len(self._rows))))
 
 
+class PolicyTemplatePickerDialog(QDialog):
+    """Preset-first policy entry point for routine machine operation."""
+
+    def __init__(
+        self,
+        *,
+        kind: str,
+        target: str,
+        pv_name: str,
+        custom_presets: list[dict] | None = None,
+        constraint_bound_ready: bool = True,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.kind = str(kind).strip().lower()
+        self.target = str(target).strip()
+        self.pv_name = str(pv_name).strip()
+        self.constraint_bound_ready = bool(constraint_bound_ready)
+        self.setWindowTitle("Add Policy")
+        self.resize(760, 430)
+
+        root = QVBoxLayout(self)
+        heading = QLabel(
+            f"{self.kind.title()} · {self.target} · {self.pv_name or 'PV not assigned'}",
+            self,
+        )
+        heading.setObjectName("policyTemplateTarget")
+        heading.setWordWrap(True)
+        root.addWidget(heading)
+        intro = QLabel(
+            "Choose a Policy Template to use its tested defaults. Choose Custom Rule "
+            "only when the signal needs advanced conditions.",
+            self,
+        )
+        intro.setWordWrap(True)
+        root.addWidget(intro)
+
+        self.tableWidget_templates = QTableWidget(0, 2, self)
+        self.tableWidget_templates.setHorizontalHeaderLabels(
+            ["Policy Template", "What it does"]
+        )
+        self.tableWidget_templates.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tableWidget_templates.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tableWidget_templates.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tableWidget_templates.verticalHeader().setVisible(False)
+        header = self.tableWidget_templates.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.tableWidget_templates.setColumnWidth(0, 190)
+        root.addWidget(self.tableWidget_templates, 1)
+
+        templates: list[dict] = []
+        for preset_id in POLICY_REGISTRY.preset_names(self.kind, gui_only=True):
+            preset = POLICY_REGISTRY.resolve_preset(self.kind, preset_id)
+            templates.append(
+                {
+                    "id": preset.name,
+                    "name": preset.display_name,
+                    "description": preset.description,
+                    "policy": POLICY_REGISTRY.expand_preset(self.kind, preset.name),
+                    "custom_rule": False,
+                }
+            )
+        for preset in custom_presets or []:
+            if str(preset.get("kind", "")).strip().lower() != self.kind:
+                continue
+            preset_id = str(preset.get("id", "")).strip()
+            policy = preset.get("policy", {}) or {}
+            if not preset_id or not isinstance(policy, dict):
+                continue
+            templates.append(
+                {
+                    "id": preset_id,
+                    "name": str(preset.get("name", preset_id)),
+                    "description": str(preset.get("description", "")).strip()
+                    or "Use this machine-specific saved rule.",
+                    "policy": policy,
+                    "custom_rule": False,
+                }
+            )
+        templates.append(
+            {
+                "id": "custom",
+                "name": "Custom Rule",
+                "description": (
+                    "Open the structured Rule Editor to define conditions and an action."
+                ),
+                "policy": None,
+                "custom_rule": True,
+            }
+        )
+        for template in templates:
+            row = self.tableWidget_templates.rowCount()
+            self.tableWidget_templates.insertRow(row)
+            name_item = QTableWidgetItem(str(template["name"]))
+            name_item.setData(Qt.UserRole, template)
+            self.tableWidget_templates.setItem(row, 0, name_item)
+            self.tableWidget_templates.setItem(
+                row, 1, QTableWidgetItem(str(template["description"]))
+            )
+            self.tableWidget_templates.setRowHeight(row, 48)
+
+        self.label_setup = QLabel(self)
+        self.label_setup.setProperty("tone", "warning")
+        self.label_setup.setWordWrap(True)
+        root.addWidget(self.label_setup)
+        self.buttonBox = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
+        )
+        self.buttonBox.button(QDialogButtonBox.Ok).setText("Use Policy")
+        root.addWidget(self.buttonBox)
+        self.buttonBox.accepted.connect(self._accept_selection)
+        self.buttonBox.rejected.connect(self.reject)
+        self.tableWidget_templates.currentCellChanged.connect(
+            lambda *_args: self._refresh_setup_message()
+        )
+        self.tableWidget_templates.doubleClicked.connect(
+            lambda *_args: self._accept_selection()
+        )
+        self._refresh_setup_message()
+
+    def selected_template(self) -> dict | None:
+        row = self.tableWidget_templates.currentRow()
+        item = self.tableWidget_templates.item(row, 0) if row >= 0 else None
+        value = item.data(Qt.UserRole) if item is not None else None
+        return value if isinstance(value, dict) else None
+
+    def _refresh_setup_message(self) -> None:
+        template = self.selected_template()
+        self.buttonBox.button(QDialogButtonBox.Ok).setEnabled(template is not None)
+        policy = template.get("policy") if template else None
+        kwargs = policy.get("kwargs", {}) if isinstance(policy, dict) else {}
+        action = kwargs.get("action", {}) if isinstance(kwargs, dict) else {}
+        needs_bound = (
+            self.kind == "constraint"
+            and isinstance(action, dict)
+            and action.get("type") == "violate_bound"
+            and not self.constraint_bound_ready
+        )
+        self.label_setup.setVisible(needs_bound)
+        self.label_setup.setText(
+            f"Setup required: {self.target} needs a Lower or Upper bound in "
+            "Task Builder after Sync To Task."
+            if needs_bound
+            else ""
+        )
+
+    def _accept_selection(self) -> None:
+        if self.selected_template() is None:
+            QMessageBox.information(self, "Add Policy", "Choose a Policy Template first.")
+            return
+        self.accept()
+
+
 class SampleGuardRuleEditorDialog(QDialog):
     """Structured editor for declarative objective/constraint sample guards."""
 

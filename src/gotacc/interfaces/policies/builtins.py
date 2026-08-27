@@ -219,7 +219,10 @@ POLICY_REGISTRY.register_preset(
             "match": "any",
             "action": {"type": "replace", "value": 0.0},
         },
-        description="Reject implausibly large or nearly constant FEL energy samples.",
+        description=(
+            "If FEL energy samples are implausibly large or nearly constant, "
+            "replace the result with 0."
+        ),
         legacy_kwargs_adapter=_adapt_fel_guard,
     )
 )
@@ -239,7 +242,9 @@ POLICY_REGISTRY.register_preset(
             "match": "all",
             "action": {"type": "add_offset", "value": 100.0},
         },
-        description="Add an offset when the reduced objective is effectively zero.",
+        description=(
+            "If the reduced objective is effectively zero, add the configured offset."
+        ),
         legacy_kwargs_adapter=_adapt_zero_guard,
     )
 )
@@ -264,7 +269,9 @@ POLICY_REGISTRY.register_preset(
                 "scale_floor": 1.0,
             },
         },
-        description="Treat all-zero BPM samples as an infeasible constraint.",
+        description=(
+            "If all BPM samples are near zero, mark this constraint as infeasible."
+        ),
         legacy_kwargs_adapter=_adapt_bpm_guard,
     )
 )
