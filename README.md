@@ -142,7 +142,11 @@ by role and name. Existing bounds, initial values, and objective settings are
 preserved; new knobs require explicit task setup, and task rows absent from the
 current Mapping are removed. `Undo Sync` restores the previous rows. PV Mapping
 changes invalidate the previous PV Check, which must match the current task
-before an online run can start.
+before an online run can start. The compact Mapping status distinguishes no
+selected signals, a changed selection that needs sync, rows already synced to
+Task Builder, incomplete knob setup, and configuration issues. `Sync To Task`
+is enabled only when the selected role/name set actually differs from Task
+Builder and the Mapping has no blocking issue.
 
 Task Builder `Bounds` generates a row-by-row preview before enabling
 `Apply Bounds`. Applying uses the previewed values without reading the machine
@@ -222,10 +226,11 @@ sentinel value derived from the configured constraint bounds.
 
 Machine Setup -> PV Mapping is the primary assignment point for objective and
 constraint policies. The page uses a compact machine-signal list with a selected
-signal detail panel. Readback, group, note, and policy management stay in the
-detail panel instead of expanding the main table. The structured Rule Editor
-locks the target to that mapping row and edits its conditions, match mode, and
-action without requiring JSON. Machine Setup -> Policy Presets shows the
+signal detail panel. Role, name, PV, readback, group, and note are read-only
+definitions from the selected PV library; the Mapping page changes the selected
+signal set and manages policies rather than editing the library itself. The
+structured Rule Editor locks the target to that mapping row and edits its
+conditions, match mode, and action without requiring JSON. Machine Setup -> Policy Presets shows the
 registry-backed catalog of reusable rules. Machine projects store assignments
 in the canonical `machine.policy_bindings` model; when a task is built, the GUI
 compiles each stable target name to the backend's objective/constraint policy

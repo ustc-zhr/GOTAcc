@@ -70,7 +70,6 @@ class MachineController:
         self.view = window.view_adapter
         self._loaded_pv_library: PVLibraryDocument | None = None
         self._last_sync_snapshot: dict[str, list[dict[str, str]]] | None = None
-        self._mapping_detail_loading = False
 
     @staticmethod
     def _default_config_directory() -> Path:
@@ -415,7 +414,8 @@ class MachineController:
         header.setWordWrap(True)
         detail_layout.addWidget(header)
         subtitle = QLabel(
-            "Signal details and policies are managed here. Sync To Task preserves task-side settings.",
+            "Signal definitions come from the PV library. Assign policies here; "
+            "Sync To Task preserves task-side settings.",
             detail,
         )
         subtitle.setObjectName("mappingDetailSubtitle")
@@ -435,6 +435,17 @@ class MachineController:
         readback_edit = QLineEdit(signal_group)
         group_edit = QLineEdit(signal_group)
         note_edit = QLineEdit(signal_group)
+        role_combo.setEnabled(False)
+        role_combo.setToolTip("Defined by the selected PV library entry.")
+        for editor in (
+            name_edit,
+            pv_edit,
+            readback_edit,
+            group_edit,
+            note_edit,
+        ):
+            editor.setReadOnly(True)
+            editor.setToolTip("Defined by the selected PV library entry.")
         signal_form.addRow("Role", role_combo)
         signal_form.addRow("Name", name_edit)
         signal_form.addRow("PV Name", pv_edit)
@@ -504,21 +515,6 @@ class MachineController:
                 self.refresh_mapping_detail(current_row)
             )
         )
-        role_combo.currentTextChanged.connect(
-            lambda value: self._write_mapping_detail("Role", value)
-        )
-        for field, editor in (
-            ("Name", name_edit),
-            ("PV Name", pv_edit),
-            ("Readback", readback_edit),
-            ("Group", group_edit),
-            ("Note", note_edit),
-        ):
-            editor.editingFinished.connect(
-                lambda field_name=field, widget=editor: self._write_mapping_detail(
-                    field_name, widget.text()
-                )
-            )
         manage_button.clicked.connect(self._manage_selected_mapping_policies)
 
         if table.rowCount():
@@ -528,8 +524,8 @@ class MachineController:
 
     def _set_mapping_detail_enabled(self, enabled: bool) -> None:
         ui = self.window.machine_ui
+        ui.comboBox_mappingDetailRole.setEnabled(False)
         for widget in (
-            ui.comboBox_mappingDetailRole,
             ui.lineEdit_mappingDetailName,
             ui.lineEdit_mappingDetailPv,
             ui.lineEdit_mappingDetailReadback,
@@ -560,17 +556,13 @@ class MachineController:
 
         role = value("Role").lower()
         name = value("Name")
-        self._mapping_detail_loading = True
-        try:
-            self._set_mapping_detail_enabled(True)
-            ui.comboBox_mappingDetailRole.setCurrentText(role or "objective")
-            ui.lineEdit_mappingDetailName.setText(name)
-            ui.lineEdit_mappingDetailPv.setText(value("PV Name"))
-            ui.lineEdit_mappingDetailReadback.setText(value("Readback"))
-            ui.lineEdit_mappingDetailGroup.setText(value("Group"))
-            ui.lineEdit_mappingDetailNote.setText(value("Note"))
-        finally:
-            self._mapping_detail_loading = False
+        self._set_mapping_detail_enabled(True)
+        ui.comboBox_mappingDetailRole.setCurrentText(role or "objective")
+        ui.lineEdit_mappingDetailName.setText(name)
+        ui.lineEdit_mappingDetailPv.setText(value("PV Name"))
+        ui.lineEdit_mappingDetailReadback.setText(value("Readback"))
+        ui.lineEdit_mappingDetailGroup.setText(value("Group"))
+        ui.lineEdit_mappingDetailNote.setText(value("Note"))
 
         role_label = role.title() if role else "Unassigned"
         ui.label_mappingDetailTitle.setText(f"{role_label} · {name or 'Unnamed signal'}")
@@ -582,15 +574,9 @@ class MachineController:
             return
         bound = self.window._bound_policy_rows(role, name)
         if not bound:
-            ui.comboBox_mappingDetailRole.setEnabled(True)
-            ui.comboBox_mappingDetailRole.setToolTip("")
             ui.label_mappingPolicySummary.setText("No policies assigned.")
             ui.pushButton_manageMappingPolicies.setText("Add Policy")
         else:
-            ui.comboBox_mappingDetailRole.setEnabled(False)
-            ui.comboBox_mappingDetailRole.setToolTip(
-                "Remove bound policies before changing this signal's role."
-            )
             enabled = sum(bool(policy["enabled"]) for policy in bound)
             lines = [
                 f"• {policy['preset']} · {policy['status']} — "
@@ -604,38 +590,6 @@ class MachineController:
             ui.pushButton_manageMappingPolicies.setToolTip(
                 f"{enabled} of {len(bound)} policies enabled."
             )
-
-    def _write_mapping_detail(self, field: str, value: str) -> None:
-        if self._mapping_detail_loading:
-            return
-        table = self.window.machine_ui.tableWidget_mapping
-        row = table.currentRow()
-        if row < 0:
-            return
-        headers = self.window.task_builder_controller.table_headers(table)
-        column = headers.index(field)
-        item = table.item(row, column)
-        if item is None:
-            item = QTableWidgetItem()
-            table.setItem(row, column, item)
-        normalized = str(value).strip()
-        if item.text() == normalized:
-            return
-        old_value = item.text().strip()
-        role_item = table.item(row, headers.index("Role"))
-        role = role_item.text().strip().lower() if role_item is not None else ""
-        bindings = (
-            self.window._bound_policy_rows(role, old_value)
-            if field == "Name" and role in {"objective", "constraint"}
-            else []
-        )
-        item.setText(normalized)
-        item.setToolTip(normalized)
-        if bindings:
-            self.window._retarget_mapping_policy_rows(role, bindings, normalized)
-        self.window._refresh_mapping_policy_widgets()
-        self.update_pv_library_summary()
-        self.refresh_mapping_detail(row)
 
     def _manage_selected_mapping_policies(self) -> None:
         row = self.window.machine_ui.tableWidget_mapping.currentRow()
@@ -1015,7 +969,7 @@ class MachineController:
         )
         return list(dict.fromkeys(errors))
 
-    def _enabled_task_names(self, role: str) -> list[str]:
+    def _task_row_names(self, role: str) -> list[str]:
         task = self.view.current_task()
         field = {
             "knob": "variables",
@@ -1024,21 +978,17 @@ class MachineController:
         }[role]
         return [
             str(row.get("Name", "")).strip()
-            for row in TaskService._enabled_rows(task.get(field, []))
+            for row in task.get(field, []) or []
+            if isinstance(row, dict)
             if str(row.get("Name", "")).strip()
         ]
 
     def _mapping_names(self, role: str) -> list[str]:
         return [entry.name for entry in self._mapping_items_for_role(role) if entry.name]
 
-    def _mapping_matches_task_builder(self) -> bool:
-        task = self.view.current_task()
-        if not self.is_online_task(task):
-            return False
-        if self._mapping_sync_errors():
-            return False
+    def _selection_matches_task_builder(self) -> bool:
         return all(
-            set(self._enabled_task_names(role)) == set(self._mapping_names(role))
+            set(self._task_row_names(role)) == set(self._mapping_names(role))
             for role in ("knob", "objective", "constraint")
         )
 
@@ -1100,6 +1050,9 @@ class MachineController:
         mapped_knobs = self._mapping_items_for_role("knob")
         mapped_objectives = self._mapping_items_for_role("objective")
         mapped_constraints = self._mapping_items_for_role("constraint")
+        has_signals = bool(mapped_knobs or mapped_objectives or mapped_constraints)
+        selection_matches = self._selection_matches_task_builder()
+        online_task = self.is_online_task(self.view.current_task())
         active_run = self.window.state.run.phase in {
             "Running",
             "Stopping",
@@ -1120,12 +1073,42 @@ class MachineController:
             )
             issues_button.setToolTip("\n".join(errors))
         if errors:
-            sync_state = "Attention required"
-        elif self._mapping_matches_task_builder():
+            issue_count = len(errors)
+            sync_state = f"{issue_count} Issue" + ("" if issue_count == 1 else "s")
+        elif not has_signals:
+            sync_state = "No Signals Selected"
+        elif selection_matches:
             needs_setup = self._task_rows_needing_setup()
-            sync_state = "Synced" if not needs_setup else f"Synced · {needs_setup} needs setup"
+            if not needs_setup:
+                sync_state = "Synced To Task"
+            elif needs_setup == 1:
+                sync_state = "Synced · 1 Knob Needs Setup"
+            else:
+                sync_state = f"Synced · {needs_setup} Knobs Need Setup"
         else:
-            sync_state = "Pending changes"
+            sync_state = "Selection Changed · Sync Needed"
+
+        can_sync = (
+            has_signals
+            and not selection_matches
+            and not errors
+            and online_task
+            and not active_run
+        )
+        if apply_button is not None:
+            apply_button.setEnabled(can_sync)
+            if not has_signals:
+                apply_button.setToolTip("Select one or more machine signals first.")
+            elif errors:
+                apply_button.setToolTip("Review Mapping issues before syncing to Task Builder.")
+            elif not online_task:
+                apply_button.setToolTip("Switch to an Online EPICS task before syncing.")
+            elif selection_matches:
+                apply_button.setToolTip("The selected signal rows already match Task Builder.")
+            else:
+                apply_button.setToolTip(
+                    "Update Task Builder to match the selected knob, objective and constraint signals."
+                )
 
         if self._loaded_pv_library is None:
             source_label.setText("Library: none")
@@ -1134,11 +1117,6 @@ class MachineController:
                 f"{len(mapped_constraints)} constraint | {sync_state}"
             )
             summary_label.setToolTip("No PV library is currently loaded.")
-            if apply_button is not None:
-                apply_button.setEnabled(
-                    bool(mapped_knobs or mapped_objectives or mapped_constraints)
-                    and not active_run
-                )
             return
 
         source_label.setText(f"Library: {self._loaded_pv_library.source}")
@@ -1152,11 +1130,6 @@ class MachineController:
             f"Available: {len(self._loaded_pv_library.knobs)} knob, "
             f"{len(self._loaded_pv_library.objectives)} objective"
         )
-        if apply_button is not None:
-            apply_button.setEnabled(
-                bool(mapped_knobs or mapped_objectives or mapped_constraints)
-                and not active_run
-            )
 
     def load_external_pv_library(self) -> bool:
         path, _ = QFileDialog.getOpenFileName(

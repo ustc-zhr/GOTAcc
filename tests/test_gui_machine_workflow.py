@@ -85,7 +85,7 @@ def window(monkeypatch):
     app.processEvents()
 
 
-def test_mapping_master_detail_edits_selected_signal(tmp_path, window):
+def test_mapping_master_detail_displays_library_signal_as_read_only(tmp_path, window):
     task = _online_task(tmp_path)
     window._apply_task_payload(task, goto_builder=False)
     table = window.machine_ui.tableWidget_mapping
@@ -94,19 +94,20 @@ def test_mapping_master_detail_edits_selected_signal(tmp_path, window):
     assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · Transmission"
     assert window.machine_ui.lineEdit_mappingDetailPv.text() == "TEST:TRANS"
     assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Add Policy"
-
-    window.machine_ui.lineEdit_mappingDetailReadback.setText("TEST:TRANS:RB")
-    window.machine_ui.lineEdit_mappingDetailReadback.editingFinished.emit()
-    window.machine_ui.lineEdit_mappingDetailNote.setText("Primary transmission monitor")
-    window.machine_ui.lineEdit_mappingDetailNote.editingFinished.emit()
-
-    headers = window.task_builder_controller.table_headers(table)
-    assert table.item(2, headers.index("Readback")).text() == "TEST:TRANS:RB"
-    assert table.item(2, headers.index("Note")).text() == "Primary transmission monitor"
-    serialized = window._current_task()["machine"]["mapping"][2]
-    assert serialized["Readback"] == "TEST:TRANS:RB"
-    assert serialized["Note"] == "Primary transmission monitor"
-    assert "Policies" not in serialized
+    assert not window.machine_ui.comboBox_mappingDetailRole.isEnabled()
+    assert all(
+        editor.isReadOnly()
+        for editor in (
+            window.machine_ui.lineEdit_mappingDetailName,
+            window.machine_ui.lineEdit_mappingDetailPv,
+            window.machine_ui.lineEdit_mappingDetailReadback,
+            window.machine_ui.lineEdit_mappingDetailGroup,
+            window.machine_ui.lineEdit_mappingDetailNote,
+        )
+    )
+    assert "PV library" in window.machine_ui.label_mappingDetailSubtitle.text()
+    assert "Synced To Task" in window.machine_ui.label_pvLibrarySummary.text()
+    assert not window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
 
 
 def test_new_tasks_use_mode_specific_defaults_without_mode_switch_data_loss(window):
@@ -189,6 +190,11 @@ def test_mapping_sync_preserves_parameters_by_name_and_can_undo(
     window.go_to_page(window.PAGE_MACHINE)
     monkeypatch.setattr(QMessageBox, "question", lambda *_args, **_kwargs: QMessageBox.Yes)
 
+    assert "Selection Changed · Sync Needed" in (
+        window.machine_ui.label_pvLibrarySummary.text()
+    )
+    assert window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
+
     window.machine_controller.apply_selected_pv_library_entries()
 
     rows = TaskService.table_to_records(window.task_ui.tableWidget_variables)
@@ -201,7 +207,10 @@ def test_mapping_sync_preserves_parameters_by_name_and_can_undo(
     assert rows[2]["Lower"] == ""
     assert rows[2]["Upper"] == ""
     assert rows[2]["Initial"] == ""
-    assert "1 needs setup" in window.machine_ui.label_pvLibrarySummary.text()
+    assert "Synced · 1 Knob Needs Setup" in (
+        window.machine_ui.label_pvLibrarySummary.text()
+    )
+    assert not window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
     assert window.machine_ui.pushButton_undoMappingSync.isEnabled()
     assert window.ui.tabWidget_configure.currentIndex() == window.CONFIGURE_TAB_TASK_BUILDER
     assert window.task_ui.tabWidget_tables.currentIndex() == 0
@@ -374,6 +383,7 @@ def test_mapping_policy_status_stays_compact_and_reports_task_setup(window):
     ]
 
     window._refresh_mapping_policy_widgets()
+    window.machine_controller.update_pv_library_summary()
     window.machine_ui.tableWidget_mapping.setCurrentCell(0, 1)
     QApplication.processEvents()
 
@@ -381,13 +391,18 @@ def test_mapping_policy_status_stays_compact_and_reports_task_setup(window):
     assert policy_cell.text() == "BPM Zero Guard · Issue"
     assert "requires Lower or Upper" in policy_cell.toolTip()
     assert "BPM Zero Guard · Issue" in window.machine_ui.label_mappingPolicySummary.text()
+    assert "1 Issue" in window.machine_ui.label_pvLibrarySummary.text()
+    assert not window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
 
     window.task_ui.tableWidget_constraints.item(0, 3).setText("1.0")
     window._refresh_mapping_policy_widgets()
+    window.machine_controller.update_pv_library_summary()
 
     assert window.machine_ui.tableWidget_mapping.item(0, 6).text() == (
         "BPM Zero Guard · Ready"
     )
+    assert "Synced To Task" in window.machine_ui.label_pvLibrarySummary.text()
+    assert not window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
 
 
 def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, window):

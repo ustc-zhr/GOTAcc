@@ -54,7 +54,7 @@
   Mapping rows, with stable-name target binding, multi-policy management, and a
   read-only Policy Presets compatibility summary
 - Redesigned PV Mapping as a compact signal list with a scrollable selected-row
-  detail panel, policy-first actions, editable signal metadata, and a dedicated
+  detail panel, policy-first actions, signal metadata, and a dedicated
   mapping-issue review action
 - Replaced hidden objective/constraint policy tables with canonical
   `machine.policy_bindings`, including legacy project migration, stable target
@@ -78,6 +78,10 @@
 - Added shared, target-aware machine policy validation across Rule save,
   PV Mapping sync, task validation, and run start, with compact Ready/Issue/
   Disabled summaries and actionable constraint-bound diagnostics
+- Made PV-library signal definitions read-only in PV Mapping and limited the
+  workspace to signal selection, policy assignment, and task synchronization;
+  sync status now distinguishes empty selection, changed selection, synced
+  rows, incomplete knob setup, and actionable issues
 
 ## 1.2.0 - 2026-06-27
 

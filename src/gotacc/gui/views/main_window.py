@@ -1665,24 +1665,6 @@ class MainWindow(QMainWindow):
             )
         return results
 
-    def _retarget_mapping_policy_rows(
-        self,
-        kind: str,
-        bindings: list[dict],
-        target: str,
-    ) -> None:
-        if not bindings or not target:
-            return
-        names = self._policy_target_names(kind)
-        target_col = names.index(target) if target in names else 0
-        for binding in bindings:
-            stored = self.machine_ui.policy_bindings[int(binding["row"])]
-            kwargs = copy.deepcopy(stored["policy"]["kwargs"])
-            kwargs["target"] = target
-            kwargs["target_col"] = target_col
-            stored["target"] = target
-            stored["policy"]["kwargs"] = kwargs
-
     def _load_policy_bindings(self, machine: dict) -> None:
         bindings: list[dict] = []
         if "policy_bindings" in machine:

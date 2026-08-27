@@ -440,6 +440,8 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.policy_bindings == []
         assert window.machine_ui.label_mappingDetailTitle.text() == "Select a machine signal"
         assert not window.machine_ui.pushButton_manageMappingPolicies.isEnabled()
+        assert "No Signals Selected" in window.machine_ui.label_pvLibrarySummary.text()
+        assert not window.machine_ui.pushButton_applySelectedPvLibrary.isEnabled()
         window.task_builder_controller.fill_table_from_records(
             window.machine_ui.tableWidget_mapping,
             [
@@ -455,6 +457,12 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · obj0"
         assert window.machine_ui.label_mappingPolicySummary.text() == "No policies assigned."
         assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Add Policy"
+        assert not window.machine_ui.comboBox_mappingDetailRole.isEnabled()
+        assert window.machine_ui.lineEdit_mappingDetailName.isReadOnly()
+        assert window.machine_ui.lineEdit_mappingDetailPv.isReadOnly()
+        assert window.machine_ui.lineEdit_mappingDetailReadback.isReadOnly()
+        assert window.machine_ui.lineEdit_mappingDetailGroup.isReadOnly()
+        assert window.machine_ui.lineEdit_mappingDetailNote.isReadOnly()
         with monkeypatch.context() as policy_patch:
             policy_patch.setattr(
                 main_window_module.SampleGuardRuleEditorDialog,
@@ -482,13 +490,6 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert "FEL Energy Guard · Ready" in window.machine_ui.label_mappingPolicySummary.text()
         assert window.machine_ui.pushButton_manageMappingPolicies.text() == "Manage 1 Policy"
         assert not window.machine_ui.comboBox_mappingDetailRole.isEnabled()
-        window.machine_ui.lineEdit_mappingDetailName.setText("fel_energy")
-        window.machine_ui.lineEdit_mappingDetailName.editingFinished.emit()
-        retargeted_rule = window.machine_ui.policy_bindings[0]["policy"]["kwargs"]
-        assert retargeted_rule["target"] == "fel_energy"
-        assert window.machine_ui.policy_bindings[0]["target"] == "fel_energy"
-        assert window.machine_ui.tableWidget_mapping.item(1, 1).text() == "fel_energy"
-        assert window.machine_ui.label_mappingDetailTitle.text() == "Objective · fel_energy"
         assert not window.machine_ui.pushButton_reviewMappingIssues.isHidden()
         assert window.machine_ui.pushButton_reviewMappingIssues.text() == "Review 2 Issues"
         assert not hasattr(window.machine_ui, "pushButton_addObjectivePolicy")
@@ -497,7 +498,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert len(serialized_mapping) == 2
         assert all("Policies" not in row and "Policy Action" not in row for row in serialized_mapping)
         serialized_machine = window._current_task()["machine"]
-        assert serialized_machine["policy_bindings"][0]["target"] == "fel_energy"
+        assert serialized_machine["policy_bindings"][0]["target"] == "obj0"
         assert "objective_policies" not in serialized_machine
         assert "constraint_policies" not in serialized_machine
         assert (
