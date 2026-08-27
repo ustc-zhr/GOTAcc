@@ -96,6 +96,10 @@
   read-only, `Customize Policy` creates a per-PV Custom Policy without mutating
   the template, parameter guidance is available in the editor, and reusable
   template saving is limited to Custom Policies under Advanced actions
+- Finished the compact Policy workflow with visible list-based execution order,
+  conditional `Move Up` / `Move Down` actions, concise trigger messages in the
+  existing Run Events log, simplified Policies/Template navigation, and a
+  documented deferred-work list instead of additional GUI complexity
 
 ## 1.2.0 - 2026-06-27
 

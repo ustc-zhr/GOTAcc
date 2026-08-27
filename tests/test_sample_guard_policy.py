@@ -94,6 +94,30 @@ def test_constraint_sample_guard_derives_infeasible_value_from_bounds():
     np.testing.assert_allclose(guarded, [1.2])
 
 
+def test_sample_guard_reports_a_concise_event_only_when_triggered():
+    policy = SampleGuardObjectivePolicy(
+        target="beam_current",
+        conditions=[{"metric": "mean", "operator": "ge", "value": 5.0}],
+        action={"type": "add_offset", "value": 10.0},
+    )
+    events = []
+    policy.set_event_sink(events.append)
+    backend = _backend_context()
+
+    policy.post_reduce(
+        np.asarray([2.0, 5.0]),
+        np.asarray([[1.0, 5.0], [2.0, 5.0], [3.0, 5.0]]),
+        backend,
+    )
+    policy.post_reduce(
+        np.asarray([2.0, 4.0]),
+        np.asarray([[1.0, 4.0], [2.0, 4.0], [3.0, 4.0]]),
+        backend,
+    )
+
+    assert events == ["Policy triggered for beam_current [add offset]: 5 → 15"]
+
+
 def test_sample_guard_rejects_invalid_rules_and_unknown_targets_before_evaluation():
     with pytest.raises(ValueError, match="metric"):
         POLICY_REGISTRY.validate(

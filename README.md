@@ -245,7 +245,7 @@ result before it is saved. Assigned templates open in a read-only Policy view;
 cancelling customization leaves the template binding unchanged. Custom Policy
 parameters include threshold, tolerance, and constraint-bound guidance. Saving
 a Custom Policy as a reusable template remains an Advanced action. Machine
-Setup -> Policy Templates shows the
+Setup -> Policies -> Templates shows the
 registry-backed catalog of reusable policies. Machine projects store assignments
 in the canonical `machine.policy_bindings` model; when a task is built, the GUI
 compiles each stable target name to the backend's objective/constraint policy
@@ -266,15 +266,23 @@ Mapping rows. Renaming preserves references through a stable internal preset ID.
 Deleting a template preserves each assigned policy and converts those bindings to
 standalone `Custom Policy` entries.
 
+When one signal has multiple enabled policies, Policy Manager shows their
+top-to-bottom execution order and exposes `Move Up` / `Move Down` only for that
+case. The list order remains the canonical runtime order, so no extra priority
+field is serialized. A triggered sample policy writes one concise before/after
+message to the existing Run Events log without adding another diagnostics panel.
+
 Policy validation stays in the normal workflow instead of adding another
 always-visible editor panel. PV Mapping marks assigned policies as `Ready`,
 `Issue`, or `Disabled`; issue tooltips and the existing Review Issues action
-identify the affected signal and the required fix. Rule save, `Sync To Task`,
+identify the affected signal and the required fix. Policy save, `Sync To Task`,
 task validation, and run start share the same side-effect-free checks. In
 particular, a constraint rule using `violate_bound` is not ready until its
 matching Task Builder constraint defines a lower or upper bound. Quick Add
 shows that setup requirement before the template is used without blocking the
 operator from completing bounds after synchronization.
+
+Deferred Policy ideas are tracked in [docs/TODO.md](docs/TODO.md).
 
 ```python
 "policy_bindings": [

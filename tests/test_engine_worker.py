@@ -73,6 +73,27 @@ class _FakeBackend:
         self.close_called = True
 
 
+def test_engine_worker_routes_policy_events_to_run_log_signal(tmp_path):
+    class EventPolicy:
+        def set_event_sink(self, sink):
+            self.sink = sink
+
+    policy = EventPolicy()
+    backend = type(
+        "Backend",
+        (),
+        {"objective_policy": policy, "constraint_policy": None},
+    )()
+    worker = EngineWorker(_offline_task(tmp_path))
+    messages = []
+    worker.sig_log.connect(messages.append)
+
+    worker._attach_policy_event_sink(backend)
+    policy.sink("Policy triggered for beam_current [replace]: 5 → 0")
+
+    assert messages == ["Policy triggered for beam_current [replace]: 5 → 0"]
+
+
 @pytest.fixture
 def worker_patches(monkeypatch):
     created_backends = []

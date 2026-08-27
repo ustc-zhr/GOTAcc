@@ -516,6 +516,56 @@ def test_template_binding_requires_explicit_customize_before_edit(
     )
 
 
+def test_policy_manager_reorders_existing_bindings_without_new_config_fields(
+    tmp_path, window, monkeypatch
+):
+    import gotacc.gui.views.main_window as main_window_module
+
+    task = _online_task(tmp_path)
+    first = POLICY_REGISTRY.expand_preset("objective", "fel_energy_guard")
+    second = POLICY_REGISTRY.expand_preset("objective", "zero_guard")
+    for spec in (first, second):
+        spec["kwargs"]["target"] = "Transmission"
+    task["machine"]["policy_bindings"] = [
+        {
+            "kind": "objective",
+            "target": "Transmission",
+            "enabled": True,
+            "preset": "fel_energy_guard",
+            "policy": first,
+        },
+        {
+            "kind": "objective",
+            "target": "Transmission",
+            "enabled": True,
+            "preset": "zero_guard",
+            "policy": second,
+        },
+    ]
+    window._apply_task_payload(task, goto_builder=False)
+
+    calls = []
+
+    def move_first_down_then_close(dialog):
+        calls.append(True)
+        if len(calls) == 1:
+            dialog._request = ("move_down", 0)
+            return QDialog.Accepted
+        return QDialog.Rejected
+
+    monkeypatch.setattr(
+        main_window_module.MappingPolicyManagerDialog,
+        "exec_",
+        move_first_down_then_close,
+    )
+    window._manage_mapping_policies(2)
+
+    assert [
+        binding["preset"] for binding in window.machine_ui.policy_bindings
+    ] == ["zero_guard", "fel_energy_guard"]
+    assert all("order" not in binding for binding in window.machine_ui.policy_bindings)
+
+
 def test_legacy_policy_rows_migrate_to_canonical_machine_bindings(tmp_path, window):
     task = _online_task(tmp_path)
     task["machine"]["objective_policies"] = [

@@ -2268,6 +2268,22 @@ class MainWindow(QMainWindow):
                 )
                 self._refresh_mapping_policy_widgets()
                 self._refresh_task_preview()
+            elif (
+                selected is not None
+                and selected < len(bound)
+                and action in {"move_up", "move_down"}
+            ):
+                neighbor = selected - 1 if action == "move_up" else selected + 1
+                if 0 <= neighbor < len(bound):
+                    policy_row = int(bound[selected]["row"])
+                    neighbor_row = int(bound[neighbor]["row"])
+                    bindings = self.machine_ui.policy_bindings
+                    bindings[policy_row], bindings[neighbor_row] = (
+                        bindings[neighbor_row],
+                        bindings[policy_row],
+                    )
+                    self._refresh_mapping_policy_widgets()
+                    self._refresh_task_preview()
             elif selected is not None and selected < len(bound) and action == "save_preset":
                 self._save_policy_binding_as_preset(
                     kind,

@@ -115,6 +115,7 @@ class EngineWorker(QObject):
 
             backend_task_cfg = TaskService.make_backend_build_ready_config(task_cfg)
             backend = build_backend(backend_task_cfg)
+            self._attach_policy_event_sink(backend)
             x0 = np.asarray(backend.init_knob_value(), dtype=float).reshape(-1)
             bounds = resolve_bounds(task_cfg, x0)
             self._variable_names = list(task_cfg.backend.kwargs.get("variable_names", [])) or [f"x{i}" for i in range(len(x0))]
@@ -314,6 +315,13 @@ class EngineWorker(QObject):
     # ------------------------------------------------------------------
     # Objective wrapper / live reporting
     # ------------------------------------------------------------------
+    def _attach_policy_event_sink(self, backend: Any) -> None:
+        for attribute in ("objective_policy", "constraint_policy"):
+            policy = getattr(backend, attribute, None)
+            setter = getattr(policy, "set_event_sink", None)
+            if callable(setter):
+                setter(self.sig_log.emit)
+
     def _make_objective_wrapper(self, evaluate_fn):
         def wrapped(x):
             arr = np.asarray(x, dtype=float)

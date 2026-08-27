@@ -27,7 +27,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 
@@ -180,6 +180,15 @@ class BaseObjectivePolicy:
         """Validate policy/backend compatibility before any evaluation writes."""
         return None
 
+    def set_event_sink(self, sink: Callable[[str], None] | None) -> None:
+        """Attach an optional runtime event sink without changing policy behavior."""
+        self._event_sink = sink
+
+    def emit_event(self, message: str) -> None:
+        sink = getattr(self, "_event_sink", None)
+        if sink is not None:
+            sink(str(message))
+
 
 class CompositeObjectivePolicy(BaseObjectivePolicy):
     """
@@ -227,6 +236,10 @@ class CompositeObjectivePolicy(BaseObjectivePolicy):
     def validate_backend(self, backend: "EpicsObjective") -> None:
         for policy in self.policies:
             policy.validate_backend(backend)
+
+    def set_event_sink(self, sink: Callable[[str], None] | None) -> None:
+        for policy in self.policies:
+            policy.set_event_sink(sink)
 
 
 class FelEnergyGuardPolicy(BaseObjectivePolicy):
@@ -363,6 +376,15 @@ class BaseConstraintPolicy:
         """Validate policy/backend compatibility before any evaluation writes."""
         return None
 
+    def set_event_sink(self, sink: Callable[[str], None] | None) -> None:
+        """Attach an optional runtime event sink without changing policy behavior."""
+        self._event_sink = sink
+
+    def emit_event(self, message: str) -> None:
+        sink = getattr(self, "_event_sink", None)
+        if sink is not None:
+            sink(str(message))
+
 
 class CompositeConstraintPolicy(BaseConstraintPolicy):
     """
@@ -390,6 +412,10 @@ class CompositeConstraintPolicy(BaseConstraintPolicy):
     def validate_backend(self, backend: "EpicsObjective") -> None:
         for policy in self.policies:
             policy.validate_backend(backend)
+
+    def set_event_sink(self, sink: Callable[[str], None] | None) -> None:
+        for policy in self.policies:
+            policy.set_event_sink(sink)
 
 
 class BPMGuardConstraintPolicy(BaseConstraintPolicy):

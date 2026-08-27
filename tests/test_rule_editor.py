@@ -256,7 +256,7 @@ def test_template_policy_opens_read_only_before_customization(monkeypatch):
     )
     try:
         assert dialog.windowTitle() == "View Constraint Policy"
-        assert "Settings are read-only" in dialog.label_mode.text()
+        assert "Based on Policy Template" in dialog.label_mode.text()
         assert not dialog.comboBox_preset.isEnabled()
         assert not dialog.tableWidget_conditions.cellWidget(0, 0).isEnabled()
         assert dialog.pushButton_addCondition.isHidden()
@@ -292,9 +292,54 @@ def test_mapping_policy_manager_exposes_row_management_actions(monkeypatch):
     try:
         assert dialog.pushButton_edit.text() == "View Policy"
         assert not dialog.pushButton_savePreset.isEnabled()
+        assert dialog.pushButton_moveUp.isHidden()
+        assert dialog.pushButton_moveDown.isHidden()
         dialog.pushButton_toggle.click()
         assert dialog.result() == QDialog.Accepted
         assert dialog.requested_action() == ("toggle", 0)
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_mapping_policy_manager_shows_order_controls_only_for_multiple_policies(
+    monkeypatch,
+):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5.QtWidgets import QApplication, QDialog
+    from gotacc.gui.views.tool_dialogs import MappingPolicyManagerDialog
+
+    app = QApplication.instance() or QApplication([])
+    policies = [
+        {
+            "enabled": True,
+            "preset": "First",
+            "is_template": True,
+            "summary": "First behavior",
+        },
+        {
+            "enabled": True,
+            "preset": "Custom Policy",
+            "is_template": False,
+            "summary": "Second behavior",
+        },
+    ]
+    dialog = MappingPolicyManagerDialog(
+        target="fel_energy",
+        pv_name="FEL:ENERGY",
+        policies=policies,
+    )
+    try:
+        assert dialog.tableWidget_policies.item(0, 0).text() == "1"
+        assert dialog.tableWidget_policies.item(1, 0).text() == "2"
+        assert not dialog.pushButton_moveUp.isHidden()
+        assert not dialog.pushButton_moveDown.isHidden()
+        assert not dialog.pushButton_moveUp.isEnabled()
+        assert dialog.pushButton_moveDown.isEnabled()
+        dialog.pushButton_moveDown.click()
+        assert dialog.result() == QDialog.Accepted
+        assert dialog.requested_action() == ("move_down", 0)
     finally:
         dialog.close()
         app.processEvents()

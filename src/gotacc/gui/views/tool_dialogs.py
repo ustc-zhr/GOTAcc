@@ -1101,7 +1101,7 @@ class SampleGuardRuleEditorDialog(QDialog):
         if self.read_only:
             template = self.template_display_name or self.comboBox_preset.currentText()
             self.label_mode.setText(
-                f"Using Policy Template: {template}. Settings are read-only. "
+                f"Based on Policy Template: {template}. Settings are read-only. "
                 "Choose Customize Policy to create a copy for this PV."
             )
             self.buttonBox.button(QDialogButtonBox.Ok).setText("Customize Policy")
@@ -1243,37 +1243,45 @@ class MappingPolicyManagerDialog(QDialog):
         self._request: tuple[str, int | None] | None = None
         self._policies = list(policies)
         self.setWindowTitle(f"Policies for {target}")
-        self.resize(760, 380)
+        self.resize(820, 400)
 
         root = QVBoxLayout(self)
         heading = QLabel(f"{target} — {pv_name or 'PV not assigned'}", self)
         heading.setWordWrap(True)
         root.addWidget(heading)
         hint = QLabel(
-            "Policies are bound to this Machine PV Mapping signal and are included when the task is built.",
+            "Policies are bound to this Machine PV Mapping signal and are included "
+            "when the task is built."
+            + (" Enabled policies run from top to bottom." if len(policies) > 1 else ""),
             self,
         )
         hint.setWordWrap(True)
         root.addWidget(hint)
 
-        self.tableWidget_policies = QTableWidget(0, 3, self)
+        self.tableWidget_policies = QTableWidget(0, 4, self)
         self.tableWidget_policies.setHorizontalHeaderLabels(
-            ["Enabled", "Policy Template", "Policy behavior"]
+            ["#", "Enabled", "Policy Template", "Policy behavior"]
         )
         self.tableWidget_policies.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tableWidget_policies.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeToContents
+        )
         self.tableWidget_policies.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tableWidget_policies.setSelectionMode(QAbstractItemView.SingleSelection)
         for policy in policies:
             row = self.tableWidget_policies.rowCount()
             self.tableWidget_policies.insertRow(row)
+            order_item = QTableWidgetItem(str(row + 1))
+            order_item.setTextAlignment(Qt.AlignCenter)
+            self.tableWidget_policies.setItem(row, 0, order_item)
             self.tableWidget_policies.setItem(
-                row, 0, QTableWidgetItem("Yes" if policy.get("enabled") else "No")
+                row, 1, QTableWidgetItem("Yes" if policy.get("enabled") else "No")
             )
             self.tableWidget_policies.setItem(
-                row, 1, QTableWidgetItem(str(policy.get("preset", "Custom Policy")))
+                row, 2, QTableWidgetItem(str(policy.get("preset", "Custom Policy")))
             )
             self.tableWidget_policies.setItem(
-                row, 2, QTableWidgetItem(str(policy.get("summary", "sample guard")))
+                row, 3, QTableWidgetItem(str(policy.get("summary", "sample guard")))
             )
         if self.tableWidget_policies.rowCount():
             self.tableWidget_policies.selectRow(0)
@@ -1284,11 +1292,18 @@ class MappingPolicyManagerDialog(QDialog):
         self.pushButton_edit = QPushButton("View Policy", self)
         self.pushButton_remove = QPushButton("Remove Selected", self)
         self.pushButton_toggle = QPushButton("Enable / Disable", self)
+        self.pushButton_moveUp = QPushButton("Move Up", self)
+        self.pushButton_moveDown = QPushButton("Move Down", self)
+        multiple_policies = len(policies) > 1
+        self.pushButton_moveUp.setVisible(multiple_policies)
+        self.pushButton_moveDown.setVisible(multiple_policies)
         close_button = QPushButton("Close", self)
         actions.addWidget(self.pushButton_add)
         actions.addWidget(self.pushButton_edit)
         actions.addWidget(self.pushButton_remove)
         actions.addWidget(self.pushButton_toggle)
+        actions.addWidget(self.pushButton_moveUp)
+        actions.addWidget(self.pushButton_moveDown)
         actions.addStretch(1)
         actions.addWidget(close_button)
         root.addLayout(actions)
@@ -1314,6 +1329,8 @@ class MappingPolicyManagerDialog(QDialog):
         self.pushButton_edit.clicked.connect(lambda: self._finish("edit"))
         self.pushButton_remove.clicked.connect(lambda: self._finish("remove"))
         self.pushButton_toggle.clicked.connect(lambda: self._finish("toggle"))
+        self.pushButton_moveUp.clicked.connect(lambda: self._finish("move_up"))
+        self.pushButton_moveDown.clicked.connect(lambda: self._finish("move_down"))
         self.pushButton_savePreset.clicked.connect(lambda: self._finish("save_preset"))
         self.tableWidget_policies.doubleClicked.connect(lambda *_: self._finish("edit"))
         self.tableWidget_policies.itemSelectionChanged.connect(self._update_actions)
@@ -1329,6 +1346,10 @@ class MappingPolicyManagerDialog(QDialog):
         self.pushButton_edit.setEnabled(has_selection)
         self.pushButton_remove.setEnabled(has_selection)
         self.pushButton_toggle.setEnabled(has_selection)
+        self.pushButton_moveUp.setEnabled(has_selection and row > 0)
+        self.pushButton_moveDown.setEnabled(
+            has_selection and row < len(self._policies) - 1
+        )
         self.pushButton_savePreset.setEnabled(has_selection and not is_template)
 
     def _finish(self, action: str) -> None:

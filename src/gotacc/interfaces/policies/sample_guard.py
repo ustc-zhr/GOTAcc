@@ -190,6 +190,13 @@ class _SampleGuardRule:
             )
         return index
 
+    def target_label(self, backend: Any, index: int) -> str:
+        if self.target is not None and str(self.target).strip():
+            return str(self.target).strip()
+        names, pvnames = self._candidate_names(backend)
+        candidates = names or pvnames
+        return str(candidates[index]).strip() if index < len(candidates) else f"column {index}"
+
     def validate_backend(self, backend: Any) -> None:
         self.resolve_target_col(backend)
 
@@ -277,11 +284,18 @@ class SampleGuardObjectivePolicy(BaseObjectivePolicy):
         triggered, index = self.rule.triggered(results, total, backend)
         if not triggered:
             return results
+        before = float(results[index])
         value = float(self.rule.action["value"])
         if self.rule.action_type == "replace":
             results[index] = value
         else:
             results[index] += value
+        target = self.rule.target_label(backend, index)
+        action = self.rule.action_type.replace("_", " ")
+        self.emit_event(
+            f"Policy triggered for {target} [{action}]: "
+            f"{before:.6g} → {float(results[index]):.6g}"
+        )
         return results
 
 
@@ -315,8 +329,15 @@ class SampleGuardConstraintPolicy(BaseConstraintPolicy):
         triggered, index = self.rule.triggered(results, total, backend)
         if not triggered:
             return results
+        before = float(results[index])
         if self.rule.action_type == "replace":
             results[index] = float(self.rule.action["value"])
         else:
             results[index] = self.rule.constraint_violation_value(backend, index)
+        target = self.rule.target_label(backend, index)
+        action = self.rule.action_type.replace("_", " ")
+        self.emit_event(
+            f"Policy triggered for {target} [{action}]: "
+            f"{before:.6g} → {float(results[index]):.6g}"
+        )
         return results
