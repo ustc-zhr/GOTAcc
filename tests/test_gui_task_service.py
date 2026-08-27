@@ -220,7 +220,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
     import sys
 
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication, QDialog, QPushButton, QSizePolicy
+    from PyQt5.QtWidgets import QApplication, QDialog, QFrame, QPushButton, QSizePolicy
 
     import gotacc.gui.main  # noqa: F401 - configures Qt runtime paths
     import gotacc.gui.views.main_window as main_window_module
@@ -624,6 +624,12 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.ui.label_paretoSolutionsHint.isHidden()
         assert window.label_results_source_task.text() == "No run"
         assert window.label_results_source_outcome.text() == "--"
+        result_status_items = window.frame_results_source.findChildren(
+            QFrame, "statusItem"
+        )
+        assert len(result_status_items) == 3
+        assert all(item.property("accent") is False for item in result_status_items)
+        assert window.frame_results_source.findChildren(QFrame, "statusSeparator") == []
         assert window.ui.treeWidget_runList.topLevelItem(0).text(0) == "No run results"
         window.state.latest_task_snapshot = {"task_name": "result_task"}
         window.state.latest_result_output_dir = "/tmp/gotacc/result_task"

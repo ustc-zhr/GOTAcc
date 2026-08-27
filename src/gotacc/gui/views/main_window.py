@@ -970,13 +970,8 @@ class MainWindow(QMainWindow):
             self._status_strip_item("OUTCOME", "--", self.frame_results_source),
             self._status_strip_item("OUTPUT", "--", self.frame_results_source),
         )
-        for index, (item, _label) in enumerate(source_items):
-            if index:
-                separator = QFrame(self.frame_results_source)
-                separator.setObjectName("statusSeparator")
-                separator.setFrameShape(QFrame.VLine)
-                separator.setFrameShadow(QFrame.Plain)
-                source_layout.addWidget(separator)
+        for item, _label in source_items:
+            item.setProperty("accent", False)
             source_layout.addWidget(item)
         source_items[-1][0].setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         source_layout.addStretch(1)

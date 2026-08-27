@@ -124,6 +124,10 @@ QFrame#statusItem[tone="danger"] {
     border-left-color: $status_tone_danger_bar;
 }
 
+QFrame#statusItem[accent="false"] {
+    border-left: none;
+}
+
 QFrame#statusSeparator {
     background: $status_separator;
     min-width: 1px;
