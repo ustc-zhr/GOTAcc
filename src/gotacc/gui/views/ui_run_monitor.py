@@ -230,7 +230,7 @@ class Ui_RunMonitorPage(object):
         self.tabWidget_plots.setTabText(self.tabWidget_plots.indexOf(self.tab_pareto), _translate("RunMonitorPage", "Pareto"))
         self.tabWidget_plots.setTabText(self.tabWidget_plots.indexOf(self.tab_variables), _translate("RunMonitorPage", "Variables"))
         self.groupBox_events.setTitle(_translate("RunMonitorPage", "Events"))
-        self.groupBox_table.setTitle(_translate("RunMonitorPage", "Recent Evaluations"))
+        self.groupBox_table.setTitle(_translate("RunMonitorPage", "Evaluation History"))
         item = self.tableWidget_recent.horizontalHeaderItem(0)
         item.setText(_translate("RunMonitorPage", "Eval ID"))
         item = self.tableWidget_recent.horizontalHeaderItem(1)

@@ -21,9 +21,16 @@ class RuntimeStatusController:
         ss = run.elapsed_seconds % 60
         self.window.run_ui.label_elapsedValue.setText(f"{hh:02d}:{mm:02d}:{ss:02d}")
         self.update_evaluation_label()
-        self.window.run_ui.label_bestValue.setText(
-            "--" if run.best_value is None else f"{run.best_value:.6f}"
-        )
+        task = self._task_for_run_workspace()
+        multi = self._is_multi_objective_task(task)
+        self.window.run_ui.label_bestTitle.setText("Hypervolume" if multi else "Best Objective")
+        if multi:
+            hv = self.window.state.hypervolume_history
+            self.window.run_ui.label_bestValue.setText("--" if not hv else f"{hv[-1]:.6g}")
+        else:
+            self.window.run_ui.label_bestValue.setText(
+                "--" if run.best_value is None else f"{run.best_value:.6f}"
+            )
         self.window.run_ui.label_feasibilityValue.setText(f"{run.feasibility_ratio:.2f}")
         self.window.ui.label_statusBestValue.setText(
             "--" if run.best_value is None else f"{run.best_value:.6f}"
@@ -160,25 +167,29 @@ class RuntimeStatusController:
 
         start_visible = not active
         stop_visible = running
-        abort_visible = phase_active
-        abort_enabled = running or stopping
-
         online_task = self._is_online_task(task)
+        multi_objective = self._is_multi_objective_task(task)
+        archived = self.window.state.viewing_archived_run
+        abort_visible = phase_active and online_task
+        abort_enabled = online_task and (running or stopping)
         restore_visible = (
             not active
             and online_task
+            and not archived
             and bool(self.window.state.latest_initial_x)
         )
         set_best_visible = (
             not active
             and online_task
+            and not archived
+            and not multi_objective
             and bool(self.window.state.latest_best_x)
         )
 
         primary_actions_in_sidebar = bool(getattr(self.window, "_run_primary_actions_in_sidebar", False))
         action_states = (
             (self.window.run_ui.pushButton_start, start_visible and not primary_actions_in_sidebar, start_visible),
-            (self.window.run_ui.pushButton_stop, stop_visible and not primary_actions_in_sidebar, stop_visible),
+            (self.window.run_ui.pushButton_stop, stop_visible, stop_visible),
             (self.window.run_ui.pushButton_abortRestore, abort_visible, abort_enabled),
             (
                 self.window.run_ui.pushButton_restoreInitial,
@@ -194,27 +205,26 @@ class RuntimeStatusController:
         for button, visible, enabled in action_states:
             button.setVisible(visible)
             button.setEnabled(enabled)
-        restore_on_abort = bool((task.get("machine", {}) or {}).get("restore_on_abort", True))
         if phase == "Restoring":
             abort_text = "Restoring..."
         elif phase == "Abort Requested":
             abort_text = "Abort Requested"
         else:
-            abort_text = "Abort && Restore" if restore_on_abort else "Abort"
+            abort_text = "Abort && Restore"
         self.window.run_ui.pushButton_abortRestore.setText(abort_text)
-        advanced_visible = any(
-            not button.isHidden()
-            for button in (
-                self.window.run_ui.pushButton_abortRestore,
-                self.window.run_ui.pushButton_restoreInitial,
-                self.window.run_ui.pushButton_setBest,
-            )
-        )
-        self.window.run_ui.groupBox_actions.setVisible(advanced_visible)
+        self.window.run_ui.groupBox_actions.setVisible(False)
 
     def _sync_plot_tab_visibility(self, task: dict[str, Any]) -> None:
         has_constraints = bool(self._enabled_rows(task.get("constraints", [])))
         is_multi_objective = self._is_multi_objective_task(task)
+        objective_index = self.window.run_ui.tabWidget_plots.indexOf(self.window.run_ui.tab_obj)
+        if objective_index >= 0:
+            self.window.run_ui.tabWidget_plots.setTabText(
+                objective_index, "Hypervolume" if is_multi_objective else "Objective"
+            )
+        self.window.run_ui.label_bestTitle.setText(
+            "Hypervolume" if is_multi_objective else "Best Objective"
+        )
 
         self._set_tab_visible(
             self.window.run_ui.tabWidget_plots,

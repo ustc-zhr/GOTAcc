@@ -1,8 +1,11 @@
+import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-from gotacc.gui.services.task_service import TaskService
+from gotacc.gui.services.task_service import SUPPORTED_GUI_OPTIMIZERS, TaskService
+from gotacc.runners.task_runner import build_optimizer
 
 
 def _offline_task(tmp_path: Path) -> dict:
@@ -38,6 +41,39 @@ def _offline_task(tmp_path: Path) -> dict:
     }
 
 
+def _offline_multi_task(tmp_path: Path, test_function: str, *, n_objectives: int = 2) -> dict:
+    task = _offline_task(tmp_path)
+    task.update(
+        {
+            "objective_type": "Multi Objective",
+            "algorithm": "NSGA-II",
+            "test_function": test_function,
+            "max_evaluations": 12,
+        }
+    )
+    n_variables = max(3, n_objectives)
+    task["variables"] = [
+        {
+            "Enable": "Yes",
+            "Name": f"x{index}",
+            "Lower": "0",
+            "Upper": "1",
+            "Initial": "0.5",
+        }
+        for index in range(n_variables)
+    ]
+    task["objectives"] = [
+        {
+            "Enable": "Yes",
+            "Name": f"f{index + 1}",
+            "Direction": "maximize",
+            "Weight": "1",
+        }
+        for index in range(n_objectives)
+    ]
+    return task
+
+
 def test_gui_task_config_build_has_no_filesystem_side_effect(tmp_path):
     task = _offline_task(tmp_path)
 
@@ -49,6 +85,21 @@ def test_gui_task_config_build_has_no_filesystem_side_effect(tmp_path):
     assert not (tmp_path / "save").exists()
 
 
+def test_run_archive_is_unique_and_preserves_task_identity(tmp_path):
+    task = _offline_task(tmp_path)
+
+    first = TaskService.create_run_archive(task)
+    second = TaskService.create_run_archive(task)
+
+    first_dir = Path(first["run_archive_dir"])
+    second_dir = Path(second["run_archive_dir"])
+    assert first_dir != second_dir
+    assert first_dir.parent == tmp_path / "preview_task"
+    assert (first_dir / "task_config.yaml").is_file()
+    assert TaskService.build_task_config(first).runtime.history_path == str(first_dir / "history.dat")
+    assert TaskService.normalized_task_identity(first) == TaskService.normalized_task_identity(task)
+
+
 def test_gui_preview_has_no_filesystem_side_effect(tmp_path):
     task = _offline_task(tmp_path)
 
@@ -58,6 +109,119 @@ def test_gui_preview_has_no_filesystem_side_effect(tmp_path):
     assert not (tmp_path / "save").exists()
 
 
+@pytest.mark.parametrize(
+    ("test_function", "n_objectives"),
+    [("tradeoff", 2), ("zdt1", 2), ("zdt2", 2), ("dtlz2", 3)],
+)
+def test_offline_multi_objective_benchmarks_build_vector_functions(
+    tmp_path,
+    test_function,
+    n_objectives,
+):
+    task = _offline_multi_task(
+        tmp_path,
+        test_function,
+        n_objectives=n_objectives,
+    )
+
+    valid, errors = TaskService.validate_task_data(task)
+    cfg = TaskService.build_task_config(task)
+    X = np.full((4, len(task["variables"])), 0.5, dtype=float)
+    values = np.asarray(cfg.backend.kwargs["func"](X), dtype=float)
+
+    assert valid, errors
+    assert cfg.backend.kwargs["combine_mode"] == "vector"
+    assert values.shape == (4, n_objectives)
+    assert np.all(np.isfinite(values))
+
+
+def test_offline_multi_objective_benchmark_names_are_separate_from_single_objective():
+    assert TaskService.offline_test_function_names("Single Objective") == (
+        "sphere",
+        "rosenbrock",
+        "ackley",
+    )
+    assert TaskService.offline_test_function_names("Multi Objective") == (
+        "tradeoff",
+        "zdt1",
+        "zdt2",
+        "dtlz2",
+    )
+
+
+def test_offline_benchmark_templates_include_complete_task_rows():
+    for name in (
+        *TaskService.offline_test_function_names("Single Objective"),
+        *TaskService.offline_test_function_names("Multi Objective"),
+    ):
+        template = TaskService.offline_benchmark_template(name)
+        assert template["variables"]
+        assert template["objectives"]
+        assert all(row["Enable"] == "Y" for row in template["variables"])
+        assert all(row["Direction"] == "maximize" for row in template["objectives"])
+
+    assert len(TaskService.offline_benchmark_template("zdt1")["variables"]) == 3
+    assert len(TaskService.offline_benchmark_template("zdt1")["objectives"]) == 2
+    assert len(TaskService.offline_benchmark_template("dtlz2")["variables"]) == 3
+
+
+def test_offline_benchmark_selection_autofills_tables_without_overwriting_loaded_project(
+    monkeypatch,
+    tmp_path,
+):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PyQt5.QtWidgets import QApplication
+
+    import gotacc.gui.main  # noqa: F401 - configures Qt runtime paths
+    from gotacc.gui.views.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.task_builder_controller.create_new_offline_task()
+    window.task_ui.comboBox_objectiveType.setCurrentText("Multi Objective")
+    window.task_ui.comboBox_testFunction.setCurrentText("zdt1")
+    app.processEvents()
+
+    task = window._current_task()
+    assert task["test_function"] == "zdt1"
+    assert [row["Name"] for row in task["variables"]] == ["x0", "x1", "x2"]
+    assert all(row["Lower"] == "0" and row["Upper"] == "1" for row in task["variables"])
+    assert [row["Name"] for row in task["objectives"]] == ["f1", "f2"]
+    assert all(row["Direction"] == "maximize" for row in task["objectives"])
+
+    loaded = _offline_multi_task(tmp_path, "zdt2")
+    loaded["variables"][0]["Name"] = "custom_x"
+    loaded["objectives"][0]["Name"] = "custom_f"
+    window.task_builder_controller.apply_task_payload(loaded, goto_builder=False)
+    app.processEvents()
+    restored = window._current_task()
+    assert restored["test_function"] == "zdt2"
+    assert restored["variables"][0]["Name"] == "custom_x"
+    assert restored["objectives"][0]["Name"] == "custom_f"
+    window.close()
+
+
+def test_offline_zdt_and_dtlz_dimension_validation(tmp_path):
+    zdt_task = _offline_multi_task(tmp_path, "zdt1", n_objectives=3)
+    valid, errors = TaskService.validate_task_data(zdt_task)
+    assert not valid
+    assert any("ZDT1 requires exactly two" in error for error in errors)
+
+    dtlz_task = _offline_multi_task(tmp_path, "dtlz2", n_objectives=3)
+    dtlz_task["variables"] = dtlz_task["variables"][:2]
+    valid, errors = TaskService.validate_task_data(dtlz_task)
+    assert not valid
+    assert any("DTLZ2 requires at least as many" in error for error in errors)
+
+    bounds_task = _offline_multi_task(tmp_path, "zdt2", n_objectives=2)
+    bounds_task["variables"][0]["Lower"] = "-1"
+    valid, errors = TaskService.validate_task_data(bounds_task)
+    assert not valid
+    assert any("ZDT2 requires every variable to use bounds [0, 1]" in error for error in errors)
+
+
 def test_gui_export_creates_runtime_directory(tmp_path):
     task = _offline_task(tmp_path)
 
@@ -65,6 +229,184 @@ def test_gui_export_creates_runtime_directory(tmp_path):
 
     assert (tmp_path / "exports" / "task.yaml").is_file()
     assert (tmp_path / "save").is_dir()
+
+
+def test_gui_algorithm_registry_includes_all_builder_options():
+    pytest.importorskip("PyQt5")
+    from gotacc.gui.views.controllers.task_builder_controller import (
+        MULTI_OBJECTIVE_ALGORITHMS,
+        SINGLE_OBJECTIVE_ALGORITHMS,
+    )
+
+    normalized = {
+        TaskService._optimizer_name_from_gui(name)
+        for name in (*SINGLE_OBJECTIVE_ALGORITHMS, *MULTI_OBJECTIVE_ALGORITHMS)
+    }
+
+    assert normalized <= SUPPORTED_GUI_OPTIMIZERS
+    assert "rcds" in normalized
+
+
+def test_gui_rcds_task_config_builds_runner_optimizer(tmp_path):
+    task = _offline_task(tmp_path)
+    task["algorithm"] = "RCDS"
+    task["algorithm_params"] = [
+        {"Parameter": "step", "Value": "0.1", "Type": "float", "Note": ""},
+        {"Parameter": "maxIt", "Value": "2", "Type": "int", "Note": ""},
+    ]
+
+    cfg = TaskService.build_task_config(task)
+    optimizer = build_optimizer(
+        task_cfg=cfg,
+        objective_callable=cfg.backend.kwargs["func"],
+        bounds=np.asarray(cfg.backend.bounds, dtype=float),
+    )
+
+    assert cfg.optimizer.name == "rcds"
+    assert cfg.optimizer.kwargs["maxEval"] == task["max_evaluations"]
+    assert optimizer.vrange.shape == (1, 2)
+
+
+def test_algorithm_detail_round_trip_preserves_all_optimizer_kwargs(monkeypatch):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PyQt5.QtWidgets import QApplication
+
+    from gotacc.gui.views.algorithm_ui_specs import parameter_ui_spec
+    from gotacc.gui.views.controllers.task_builder_controller import (
+        MULTI_OBJECTIVE_ALGORITHMS,
+        SINGLE_OBJECTIVE_ALGORITHMS,
+        TaskBuilderController,
+    )
+    from gotacc.gui.views.tool_dialogs import AlgorithmDetailDialog
+
+    app = QApplication.instance() or QApplication([])
+    controller = object.__new__(TaskBuilderController)
+    controller._algorithm_param_specs_cache = {}
+
+    for algorithm in (*SINGLE_OBJECTIVE_ALGORITHMS, *MULTI_OBJECTIVE_ALGORITHMS):
+        _algorithm_key, specs = controller._recommended_param_specs(algorithm, [])
+        assert specs, f"{algorithm} GUI parameter metadata is empty"
+        records = [[name, default, dtype, note] for name, default, dtype, note in specs]
+        before_dyn = TaskService._dynamic_params_to_dict(
+            [
+                {"Parameter": name, "Value": value, "Type": dtype, "Note": note}
+                for name, value, dtype, note in records
+            ]
+        )
+        task = {
+            "algorithm": algorithm,
+            "max_evaluations": 100,
+            "seed": 7,
+        }
+        before_kwargs = TaskService._build_optimizer_kwargs(task, before_dyn, 2)
+
+        dialog = AlgorithmDetailDialog(
+            algorithm=algorithm,
+            specs=specs,
+            records=records,
+            evaluation_budget=100,
+        )
+        after_records = dialog.parameter_records()
+        after_dyn = TaskService._dynamic_params_to_dict(
+            [
+                {"Parameter": name, "Value": value, "Type": dtype, "Note": note}
+                for name, value, dtype, note in after_records
+            ]
+        )
+        after_kwargs = TaskService._build_optimizer_kwargs(task, after_dyn, 2)
+
+        assert after_dyn == before_dyn
+        assert set(after_kwargs) == set(before_kwargs)
+        for key in before_kwargs:
+            before_value = before_kwargs[key]
+            after_value = after_kwargs[key]
+            if isinstance(before_value, np.ndarray):
+                np.testing.assert_array_equal(after_value, before_value)
+            else:
+                assert after_value == before_value
+        assert "maximize" not in dialog.visible_parameter_names
+        assert all(
+            name in dialog.visible_parameter_names
+            for name, *_rest in specs
+            if not parameter_ui_spec(algorithm, name).hidden
+        )
+        dialog.deleteLater()
+
+    app.processEvents()
+
+
+def test_algorithm_detail_uses_choices_and_q_batch_dependency(monkeypatch):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PyQt5.QtWidgets import QApplication, QCheckBox, QComboBox
+
+    from gotacc.gui.views.controllers.task_builder_controller import TaskBuilderController
+    from gotacc.gui.views.tool_dialogs import AlgorithmDetailDialog
+
+    app = QApplication.instance() or QApplication([])
+    controller = object.__new__(TaskBuilderController)
+    controller._algorithm_param_specs_cache = {}
+    _algorithm_key, specs = controller._recommended_param_specs("MOBO", [])
+    records = [[name, default, dtype, note] for name, default, dtype, note in specs]
+    dialog = AlgorithmDetailDialog(algorithm="MOBO", specs=specs, records=records)
+
+    acq_editor = dialog._editors["acq"][0]
+    q_batch_editor = dialog._editors["q_batch_size"][0]
+    assert isinstance(acq_editor, QComboBox)
+    assert [acq_editor.itemText(index) for index in range(acq_editor.count())] == [
+        "ehvi",
+        "qehvi",
+        "qnehvi",
+    ]
+    assert not q_batch_editor.isEnabled()
+
+    acq_editor.setCurrentText("qehvi")
+    app.processEvents()
+    assert q_batch_editor.isEnabled()
+    dialog.deleteLater()
+
+    _algorithm_key, specs = controller._recommended_param_specs("MGGPO", [])
+    records = [[name, default, dtype, note] for name, default, dtype, note in specs]
+    dialog = AlgorithmDetailDialog(algorithm="MGGPO", specs=specs, records=records)
+    all_history_editor = dialog._editors["use_all_history_for_gp"][0]
+    history_limit_editor = dialog._editors["gp_history_max"][0]
+    assert isinstance(all_history_editor, QCheckBox)
+    assert history_limit_editor.isEnabled()
+
+    all_history_editor.setChecked(True)
+    app.processEvents()
+    assert not history_limit_editor.isEnabled()
+    all_history_editor.setChecked(False)
+    app.processEvents()
+    assert history_limit_editor.isEnabled()
+    dialog.deleteLater()
+
+    _algorithm_key, specs = controller._recommended_param_specs("BO", [])
+    records = [[name, default, dtype, note] for name, default, dtype, note in specs]
+    dialog = AlgorithmDetailDialog(algorithm="BO", specs=specs, records=records)
+    optimizer_editor = dialog._editors["acq_optimizer"][0]
+    options_editor = dialog._editors["acq_opt_kwargs"][0]
+    assert not options_editor.spinBox_numRestarts.isHidden()
+    assert not options_editor.spinBox_rawSamples.isHidden()
+    assert options_editor.spinBox_candidates.isHidden()
+
+    optimizer_editor.setCurrentText("random")
+    app.processEvents()
+    assert options_editor.spinBox_numRestarts.isHidden()
+    assert options_editor.spinBox_rawSamples.isHidden()
+    assert not options_editor.spinBox_candidates.isHidden()
+    switched_records = dialog.parameter_records()
+    switched_dyn = TaskService._dynamic_params_to_dict(
+        [
+            {"Parameter": name, "Value": value, "Type": dtype, "Note": note}
+            for name, value, dtype, note in switched_records
+        ]
+    )
+    assert switched_dyn["acq_opt_kwargs"] == {"n_candidates": 8192}
+    dialog.deleteLater()
 
 
 def test_canonical_policy_bindings_compile_targets_from_mapping_order():
@@ -213,7 +555,7 @@ def test_policy_binding_issues_are_targeted_and_check_violate_bound_setup():
     assert "matching constraint PV Mapping row" in issues[0]["message"]
 
 
-def test_gui_main_window_offscreen_smoke(monkeypatch):
+def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
     pytest.importorskip("PyQt5")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
 
@@ -373,11 +715,11 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         stop_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_stopRun)
         assert window.ui.gridLayout_runActions.getItemPosition(stop_index) == (2, 1, 1, 1)
         assert window.machine_ui.groupBox_connection.title() == "EPICS"
-        assert window.machine_ui.label_machineProfileStatus.text().startswith(
-            "Embedded Machine · embedded · v1"
-        )
-        assert window.machine_ui.pushButton_openMachineProfile.text() == "Open…"
-        assert window.machine_ui.pushButton_saveMachineProfile.text() == "Save As…"
+        assert window.machine_ui.label_machineProfileName.text() == "Embedded Machine · v1"
+        assert window.machine_ui.label_machineProfileSource.text() == "Built-in"
+        assert window.machine_ui.pushButton_openMachineProfile.text() == "Open"
+        assert window.machine_ui.pushButton_saveMachineProfile.text() == "Save As"
+        assert window.machine_ui.frame_machineProfile.isHidden()
         assert not window.machine_ui.label_caAddress.isVisible()
         assert not window.machine_ui.lineEdit_caAddress.isVisible()
         assert not window.machine_ui.checkBox_autoConnect.isVisible()
@@ -431,6 +773,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert not window.machine_ui.label_readbackTol.isEnabled()
         assert not window.machine_ui.doubleSpinBox_readbackTol.isEnabled()
         window.task_ui.comboBox_mode.setCurrentText("Online EPICS")
+        assert not window.machine_ui.frame_machineProfile.isHidden()
         window.machine_ui.checkBox_readbackCheck.setChecked(True)
         assert window.machine_ui.label_readbackTol.isEnabled()
         assert window.machine_ui.doubleSpinBox_readbackTol.isEnabled()
@@ -582,7 +925,13 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert not window.offline_ui.frame_offlinePlaceholder.isVisible()
         assert window.offline_ui.groupBox_benchmark.title() == "Benchmark"
         assert window.run_ui.groupBox_runtime.maximumHeight() == 94
-        assert window.run_ui.groupBox_actions.height() == 72
+        assert window.run_ui.groupBox_actions.isHidden()
+        assert window.run_ui.pushButton_stop.parent() is window.run_ui.groupBox_runtime
+        assert window.run_ui.pushButton_abortRestore.parent() is window.run_ui.groupBox_runtime
+        assert window.run_ui.pushButton_restoreInitial.parent() is window.frame_results_source
+        assert window.run_ui.pushButton_setBest.parent() is window.frame_results_source
+        assert window.run_ui.frame_eval.maximumWidth() == 118
+        assert window.run_ui.frame_best.maximumWidth() == 176
         assert window.run_ui.frame_eval.objectName() == "statusItem"
         assert window.run_ui.label_evalTitle.property("role") == "title"
         assert window.run_ui.label_evalValue.property("role") == "value"
@@ -608,7 +957,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.run_ui.frame_obj.property("plotHost") is True
         assert window.run_ui.frame_obj.frameShape() == window.run_ui.frame_obj.NoFrame
         assert window.run_ui.verticalLayout_main.indexOf(window.run_ui.groupBox_runtime) == 1
-        assert window.run_ui.verticalLayout_main.indexOf(window.run_ui.groupBox_actions) == 2
+        assert window.run_ui.verticalLayout_main.indexOf(window.run_ui.groupBox_actions) == -1
         assert not window.ui.splitter_resultsMain.childrenCollapsible()
         assert not window.ui.splitter_resultsRight.childrenCollapsible()
         assert window.ui.splitter_convergencePlots.orientation() == Qt.Horizontal
@@ -617,10 +966,26 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.ui.groupBox_convergencePlot.title() == ""
         assert window.ui.groupBox_convergencePlot.property("plotPanel") is True
         assert window.ui.frame_plotConvergence.property("plotHost") is True
-        assert window.ui.groupBox_recentEvaluations.title() == "Evaluation History"
+        assert window.run_ui.groupBox_table.title() == "Evaluation History"
+        assert window.ui.widget_resultsTables.isHidden()
+        window.results_controller.append_recent_eval(
+            {
+                "eval_id": 1,
+                "timestamp": "12:00:00",
+                "status": "ok",
+                "x_values": {"x0": 0.5},
+                "objective_value": 1.0,
+                "constraint_summary": "--",
+            }
+        )
+        assert window.run_ui.tableWidget_recent.rowCount() == 1
+        assert window.ui.tableWidget_recentEvaluations.rowCount() == 0
+        window.view_adapter.clear_recent_evaluations()
+        assert window.run_ui.tableWidget_recent.rowCount() == 0
         assert window.ui.groupBox_evalHistory.isHidden()
         assert window.ui.pushButton_writeSelectedPareto.text() == "Write Selected to Machine"
         assert window.ui.pushButton_writeSelectedPareto.property("machineWrite") is True
+        assert window.ui.tableWidget_paretoSelectionDetail.columnCount() == 2
         assert window.ui.label_paretoSolutionsHint.isHidden()
         assert window.label_results_source_task.text() == "No run"
         assert window.label_results_source_outcome.text() == "--"
@@ -629,7 +994,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         )
         assert len(result_status_items) == 3
         assert window.frame_results_source.findChildren(QFrame, "statusSeparator") == []
-        assert window.ui.treeWidget_runList.topLevelItem(0).text(0) == "No run results"
+        assert window.ui.treeWidget_runList.topLevelItem(0).text(0) == "Archived Runs"
         window.state.latest_task_snapshot = {"task_name": "result_task"}
         window.state.latest_result_output_dir = "/tmp/gotacc/result_task"
         window.state.run.phase = "Finished"
@@ -645,6 +1010,108 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.ui.tableWidget_solutionInspector.item(3, 0).text() == "Constraints"
         window.state.eval_history.clear()
         window.results_controller.update_results_summary_table()
+
+        multi_task = _offline_multi_task(tmp_path, "zdt1")
+        window.state.latest_task_snapshot = multi_task
+        window.state.objective_dim = 2
+        window.state.pareto_points = [(-0.2, -1.4), (-0.5, -0.8)]
+        window.state.hypervolume_history = [0.0, 0.0]
+        window.runtime_status_controller.sync_run_workspace(multi_task)
+        window.runtime_status_controller.update_runtime_labels()
+        assert window.run_ui.label_bestTitle.text() == "Hypervolume"
+        assert window.run_ui.label_bestValue.text() == "0"
+        objective_tab = window.run_ui.tabWidget_plots.indexOf(window.run_ui.tab_obj)
+        assert window.run_ui.tabWidget_plots.tabText(objective_tab) == "Hypervolume"
+        window.results_controller.update_results_after_finish(
+            {
+                "state": "Finished",
+                "pareto_x": [[0.2, 0.5, 0.5], [0.5, 0.2, 0.2]],
+                "pareto_y": [[-0.2, -1.4], [-0.5, -0.8]],
+                "pareto_feasible": [True, False],
+                "pareto_constraints": [[], [0.1]],
+                "hypervolume_history": [0.0, 0.0],
+            }
+        )
+        assert window.ui.tabWidget_resultsViews.currentWidget() is window.ui.tab_pareto
+        assert window.ui.tableWidget_paretoSolutions.rowCount() == 2
+        window.ui.tableWidget_paretoSolutions.selectRow(1)
+        assert window.ui.tableWidget_paretoSelectionDetail.item(0, 1).text() == "1"
+        assert window.ui.tableWidget_paretoSelectionDetail.item(1, 1).text() == "no"
+
+        archived_task = TaskService.create_run_archive(multi_task)
+        archive_dir = Path(archived_task["run_archive_dir"])
+        evaluation_records = [
+            {
+                "eval_id": 1,
+                "timestamp": "2026-08-28 12:00:00",
+                "status": "ok",
+                "x_values": {"x0": 0.2, "x1": 0.5, "x2": 0.5},
+                "objective_values": [-0.2, -1.4],
+                "constraint_values": [],
+                "feasible": True,
+                "hypervolume_updates": [0.1],
+            },
+            {
+                "eval_id": 2,
+                "timestamp": "2026-08-28 12:00:01",
+                "status": "ok",
+                "x_values": {"x0": 0.5, "x1": 0.2, "x2": 0.2},
+                "objective_values": [-0.5, -0.8],
+                "constraint_values": [],
+                "feasible": True,
+                "hypervolume_updates": [0.25],
+            },
+        ]
+        (archive_dir / "evaluations.jsonl").write_text(
+            "".join(json.dumps(record) + "\n" for record in evaluation_records),
+            encoding="utf-8",
+        )
+        (archive_dir / "run_summary.json").write_text(
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "run_id": archived_task["run_id"],
+                    "task": archived_task,
+                    "run_state": "Finished",
+                    "elapsed_seconds": 3,
+                    "eval_count": 2,
+                    "objective_dim": 2,
+                    "best_value": None,
+                    "best_x": {},
+                    "pareto_solutions": [
+                        {
+                            "index": 0,
+                            "x": evaluation_records[0]["x_values"],
+                            "x_values": [0.2, 0.5, 0.5],
+                            "y": [-0.2, -1.4],
+                            "constraints": [],
+                            "feasible": True,
+                        }
+                    ],
+                    "hypervolume_history": [0.1, 0.25],
+                    "history_path": str(archive_dir / "history.dat"),
+                    "plot_path": "",
+                    "result_plot_paths": {},
+                    "output_directory": str(archive_dir),
+                }
+            ),
+            encoding="utf-8",
+        )
+        window.results_controller.load_run_archive(archive_dir)
+        assert window.state.viewing_archived_run
+        assert window.state.run.eval_count == 2
+        assert window.state.hypervolume_history == [0.1, 0.25]
+        assert len(window.state.eval_history) == 2
+        assert window.run_ui.tableWidget_recent.rowCount() == 2
+        assert window.label_results_source_outcome.text() == "Archived · Finished"
+
+        window.state.latest_task_snapshot = _offline_task(tmp_path)
+        window.state.viewing_archived_run = False
+        window.state.objective_dim = 1
+        window.runtime_status_controller.sync_run_workspace(window.state.latest_task_snapshot)
+        window.runtime_status_controller.update_runtime_labels()
+        assert window.run_ui.label_bestTitle.text() == "Best Objective"
+        assert window.run_ui.tabWidget_plots.tabText(objective_tab) == "Objective"
         window.state.run.phase = "Running"
         window.runtime_status_controller.set_run_phase("Running")
         assert window.label_workspace_run.text() == "Running"
@@ -657,9 +1124,27 @@ def test_gui_main_window_offscreen_smoke(monkeypatch):
         assert window.label_workspace_run.property("tone") == "subtle"
         window.state.run.phase = "Running"
         window.runtime_status_controller.sync_run_workspace()
+        assert window.run_ui.pushButton_abortRestore.isHidden()
+        assert window.run_ui.groupBox_actions.isHidden()
+        online_visibility_task = dict(window.state.latest_task_snapshot, mode="Online EPICS")
+        window.runtime_status_controller.sync_run_workspace(online_visibility_task)
         assert not window.run_ui.pushButton_abortRestore.isHidden()
-        assert not window.run_ui.groupBox_actions.isHidden()
+        assert window.run_ui.groupBox_actions.isHidden()
         window.state.run.phase = "Idle"
+        window.state.latest_initial_x = {"x0": 0.0}
+        window.state.latest_best_x = {"x0": 0.5}
+        window.runtime_status_controller.sync_run_workspace(online_visibility_task)
+        assert not window.run_ui.pushButton_restoreInitial.isHidden()
+        assert not window.run_ui.pushButton_setBest.isHidden()
+        online_multi_task = dict(online_visibility_task, objective_type="Multi Objective")
+        window.runtime_status_controller.sync_run_workspace(online_multi_task)
+        assert not window.run_ui.pushButton_restoreInitial.isHidden()
+        assert window.run_ui.pushButton_setBest.isHidden()
+        window.state.viewing_archived_run = True
+        window.runtime_status_controller.sync_run_workspace(online_visibility_task)
+        assert window.run_ui.pushButton_restoreInitial.isHidden()
+        assert window.run_ui.pushButton_setBest.isHidden()
+        window.state.viewing_archived_run = False
         window.runtime_status_controller.sync_run_workspace()
         assert window.run_ui.groupBox_actions.isHidden()
         assert [action.text() for action in window.new_task_menu.actions()] == [

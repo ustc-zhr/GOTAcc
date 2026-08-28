@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -19,8 +21,11 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -30,6 +35,11 @@ from PyQt5.QtWidgets import (
 )
 
 from gotacc.interfaces.policies import POLICY_REGISTRY
+
+try:
+    from .algorithm_ui_specs import parameter_ui_spec
+except ImportError:  # pragma: no cover - local script fallback
+    from algorithm_ui_specs import parameter_ui_spec
 
 try:
     from .ui_dialog_algorithm_detail import Ui_AlgorithmDetailDialog
@@ -468,13 +478,397 @@ class BoundsToolsDialog(QDialog):
         self.ui.buttonBox.rejected.connect(self.reject)
 
 
+class AcquisitionOptimizerOptionsEditor(QWidget):
+    changed = pyqtSignal()
+
+    KNOWN_KEYS = {"num_restarts", "raw_samples", "n_candidates", "options"}
+
+    def __init__(self, value: str, parent=None) -> None:
+        super().__init__(parent)
+        self._extra_values: dict = {}
+        form = QFormLayout(self)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+
+        self.label_numRestarts = QLabel("Num Restarts", self)
+        self.spinBox_numRestarts = QSpinBox(self)
+        self.spinBox_numRestarts.setRange(1, 999999999)
+        form.addRow(self.label_numRestarts, self.spinBox_numRestarts)
+
+        self.label_rawSamples = QLabel("Raw Samples", self)
+        self.spinBox_rawSamples = QSpinBox(self)
+        self.spinBox_rawSamples.setRange(1, 999999999)
+        form.addRow(self.label_rawSamples, self.spinBox_rawSamples)
+
+        self.label_candidates = QLabel("Candidate Count", self)
+        self.spinBox_candidates = QSpinBox(self)
+        self.spinBox_candidates.setRange(1, 999999999)
+        form.addRow(self.label_candidates, self.spinBox_candidates)
+
+        self.label_options = QLabel("Additional Options", self)
+        self.lineEdit_options = QLineEdit(self)
+        self.lineEdit_options.setPlaceholderText("Auto")
+        form.addRow(self.label_options, self.lineEdit_options)
+
+        self.set_value(value)
+        self.spinBox_numRestarts.valueChanged.connect(self.changed)
+        self.spinBox_rawSamples.valueChanged.connect(self.changed)
+        self.spinBox_candidates.valueChanged.connect(self.changed)
+        self.lineEdit_options.textEdited.connect(self.changed)
+        self.set_mode("optimize_acqf")
+
+    def set_value(self, value: str) -> None:
+        parsed = TaskService._coerce_scalar(value, "json")
+        values = dict(parsed) if isinstance(parsed, dict) else {}
+        self._extra_values = {
+            key: item for key, item in values.items() if key not in self.KNOWN_KEYS
+        }
+        self.spinBox_numRestarts.setValue(max(1, int(values.get("num_restarts", 8))))
+        self.spinBox_rawSamples.setValue(max(1, int(values.get("raw_samples", 256))))
+        self.spinBox_candidates.setValue(max(1, int(values.get("n_candidates", 8192))))
+        options = values.get("options")
+        self.lineEdit_options.setText(
+            "" if options is None or options == "" else json.dumps(options, ensure_ascii=False)
+        )
+
+    def set_mode(self, mode: str) -> None:
+        optimize_mode = str(mode or "").strip().lower() in {"optimize_acqf", "lbfgs"}
+        for widget in (
+            self.label_numRestarts,
+            self.spinBox_numRestarts,
+            self.label_rawSamples,
+            self.spinBox_rawSamples,
+            self.label_options,
+            self.lineEdit_options,
+        ):
+            widget.setVisible(optimize_mode)
+        self.label_candidates.setVisible(not optimize_mode)
+        self.spinBox_candidates.setVisible(not optimize_mode)
+
+    def value_text(self, mode: str) -> str:
+        result = dict(self._extra_values)
+        optimize_mode = str(mode or "").strip().lower() in {"optimize_acqf", "lbfgs"}
+        if optimize_mode:
+            result["num_restarts"] = self.spinBox_numRestarts.value()
+            result["raw_samples"] = self.spinBox_rawSamples.value()
+            options_text = self.lineEdit_options.text().strip()
+            if options_text:
+                result["options"] = json.loads(options_text)
+        else:
+            result["n_candidates"] = self.spinBox_candidates.value()
+        return json.dumps(result, ensure_ascii=False)
+
+    def validation_error(self) -> str:
+        value = self.lineEdit_options.text().strip()
+        if not value:
+            return ""
+        try:
+            parsed = json.loads(value)
+        except Exception as exc:
+            return f"Additional Options: invalid JSON ({exc})."
+        if not isinstance(parsed, dict):
+            return "Additional Options must be a JSON object."
+        return ""
+
+
 class AlgorithmDetailDialog(QDialog):
-    def __init__(self, parent=None) -> None:
+    SECTIONS = ("Basic", "Advanced", "Execution")
+
+    def __init__(
+        self,
+        *,
+        algorithm: str = "",
+        specs: list[tuple[str, str, str, str]] | None = None,
+        records: list[list[str]] | None = None,
+        evaluation_budget: int | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.ui = Ui_AlgorithmDetailDialog()
         self.ui.setupUi(self)
-        self.ui.buttonBox.accepted.connect(self.accept)
+        self.algorithm = str(algorithm or "").strip()
+        self._specs = list(specs or [])
+        self._records = [list(record) for record in records or []]
+        self._editors: dict[str, tuple[QWidget, str]] = {}
+        self._labels: dict[str, QLabel] = {}
+        self._touched: set[str] = set()
+        self._defaults = {name: str(default) for name, default, _dtype, _note in self._specs}
+
+        budget_suffix = ""
+        if evaluation_budget is not None:
+            budget_suffix = f" · evaluation budget {int(evaluation_budget)}"
+        self.ui.label_summary.setText(f"{self.algorithm} setup{budget_suffix}")
+        self.ui.tableWidget_dynamicParams.setVisible(False)
+
+        self.tabWidget_parameters = QTabWidget(self)
+        self.tabWidget_parameters.setObjectName("tabWidget_algorithmParameters")
+        self.ui.verticalLayout_main.insertWidget(1, self.tabWidget_parameters, 1)
+        self._build_parameter_tabs()
+
+        self.pushButton_resetRecommended = self.ui.buttonBox.addButton(
+            "Reset Recommended",
+            QDialogButtonBox.ResetRole,
+        )
+        self.pushButton_resetRecommended.setObjectName("pushButton_resetRecommended")
+        self.pushButton_resetRecommended.clicked.connect(self.reset_recommended)
+        self.ui.buttonBox.accepted.connect(self._accept_if_valid)
         self.ui.buttonBox.rejected.connect(self.reject)
+
+    @property
+    def visible_parameter_names(self) -> tuple[str, ...]:
+        return tuple(self._editors)
+
+    def _build_parameter_tabs(self) -> None:
+        record_values = {
+            str(record[0]).strip(): str(record[1]).strip()
+            for record in self._records
+            if record and str(record[0]).strip()
+        }
+        section_forms: dict[str, QFormLayout] = {}
+        for section in self.SECTIONS:
+            scroll = QScrollArea(self.tabWidget_parameters)
+            scroll.setWidgetResizable(True)
+            page = QWidget(scroll)
+            form = QFormLayout(page)
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+            form.setHorizontalSpacing(20)
+            form.setVerticalSpacing(12)
+            scroll.setWidget(page)
+            section_forms[section] = form
+            scroll.setProperty("parameterSection", section.lower())
+            self.tabWidget_parameters.addTab(scroll, section)
+
+        section_counts = {section: 0 for section in self.SECTIONS}
+        for name, default, dtype, note in self._specs:
+            ui_spec = parameter_ui_spec(self.algorithm, name)
+            if ui_spec.hidden:
+                continue
+            section = ui_spec.section if ui_spec.section in section_forms else "Advanced"
+            value = record_values.get(name, str(default))
+            editor = self._create_editor(name, value, dtype)
+            self._watch_editor(name, editor)
+            editor.setToolTip(note)
+            label = QLabel(ui_spec.label, self)
+            label.setToolTip(note)
+            section_forms[section].addRow(label, editor)
+            self._editors[name] = (editor, dtype)
+            self._labels[name] = label
+            section_counts[section] += 1
+
+        for index in reversed(range(self.tabWidget_parameters.count())):
+            section = self.tabWidget_parameters.tabText(index)
+            if section_counts.get(section, 0) == 0:
+                self.tabWidget_parameters.removeTab(index)
+
+        acq_editor = self._editors.get("acq")
+        if acq_editor is not None and isinstance(acq_editor[0], QComboBox):
+            acq_editor[0].currentTextChanged.connect(self._update_dependencies)
+        history_editor = self._editors.get("use_all_history_for_gp")
+        if history_editor is not None and isinstance(history_editor[0], QCheckBox):
+            history_editor[0].toggled.connect(self._update_dependencies)
+        optimizer_editor = self._editors.get("acq_optimizer")
+        options_editor = self._editors.get("acq_opt_kwargs")
+        if (
+            optimizer_editor is not None
+            and isinstance(optimizer_editor[0], QComboBox)
+            and options_editor is not None
+            and isinstance(options_editor[0], AcquisitionOptimizerOptionsEditor)
+        ):
+            optimizer_editor[0].currentTextChanged.connect(self._on_acquisition_optimizer_changed)
+        self._update_dependencies()
+
+    def _on_acquisition_optimizer_changed(self, mode: str) -> None:
+        options_entry = self._editors.get("acq_opt_kwargs")
+        if options_entry is None or not isinstance(options_entry[0], AcquisitionOptimizerOptionsEditor):
+            return
+        options_entry[0].set_mode(mode)
+        self._touched.add("acq_opt_kwargs")
+
+    def _watch_editor(self, name: str, editor: QWidget) -> None:
+        mark_touched = lambda *_args, param=name: self._touched.add(param)
+        if isinstance(editor, QCheckBox):
+            editor.toggled.connect(mark_touched)
+        elif isinstance(editor, (QSpinBox, QDoubleSpinBox)):
+            editor.valueChanged.connect(mark_touched)
+        elif isinstance(editor, QComboBox):
+            editor.currentTextChanged.connect(mark_touched)
+        elif isinstance(editor, QPlainTextEdit):
+            editor.textChanged.connect(mark_touched)
+        elif isinstance(editor, QLineEdit):
+            editor.textEdited.connect(mark_touched)
+        elif isinstance(editor, AcquisitionOptimizerOptionsEditor):
+            editor.changed.connect(mark_touched)
+
+    def _create_editor(self, name: str, value: str, dtype: str) -> QWidget:
+        ui_spec = parameter_ui_spec(self.algorithm, name)
+        normalized_dtype = str(dtype or "str").strip().lower()
+        parsed = TaskService._coerce_scalar(value, dtype)
+
+        if ui_spec.choices:
+            editor = QComboBox(self)
+            editor.addItems(list(ui_spec.choices))
+            current = str(value).strip()
+            if current and editor.findText(current) < 0:
+                editor.addItem(current)
+            editor.setCurrentText(current or ui_spec.choices[0])
+            return editor
+        if name == "acq_opt_kwargs":
+            return AcquisitionOptimizerOptionsEditor(str(value), self)
+        if normalized_dtype in {"bool", "boolean"}:
+            editor = QCheckBox(self)
+            editor.setChecked(bool(parsed))
+            return editor
+        if normalized_dtype in {"int", "integer"} and parsed not in {"", None}:
+            editor = QSpinBox(self)
+            editor.setRange(
+                int(ui_spec.minimum if ui_spec.minimum is not None else -999999999),
+                int(ui_spec.maximum if ui_spec.maximum is not None else 999999999),
+            )
+            editor.setValue(int(parsed))
+            return editor
+        if normalized_dtype in {"float", "double"} and parsed not in {"", None}:
+            editor = QDoubleSpinBox(self)
+            editor.setDecimals(ui_spec.decimals)
+            editor.setRange(
+                float(ui_spec.minimum if ui_spec.minimum is not None else -1.0e12),
+                float(ui_spec.maximum if ui_spec.maximum is not None else 1.0e12),
+            )
+            editor.setValue(float(parsed))
+            return editor
+        if normalized_dtype in {"json", "dict", "list"} and name == "ref_point":
+            editor = QLineEdit(self)
+            editor.setText(str(value))
+            editor.setPlaceholderText("[0.0, 0.0]")
+            return editor
+        if normalized_dtype in {"json", "dict", "list"}:
+            editor = QPlainTextEdit(self)
+            editor.setMaximumHeight(72)
+            editor.setPlainText(str(value))
+            return editor
+
+        editor = QLineEdit(self)
+        editor.setText(str(value))
+        if normalized_dtype in {"int", "integer", "float", "double"} and parsed in {"", None}:
+            editor.setPlaceholderText("Auto")
+        return editor
+
+    def _editor_value(self, editor: QWidget, dtype: str) -> str:
+        if isinstance(editor, AcquisitionOptimizerOptionsEditor):
+            optimizer_entry = self._editors.get("acq_optimizer")
+            mode = self._editor_value(*optimizer_entry) if optimizer_entry is not None else "optimize_acqf"
+            return editor.value_text(mode)
+        if isinstance(editor, QCheckBox):
+            return "true" if editor.isChecked() else "false"
+        if isinstance(editor, QSpinBox):
+            return str(editor.value())
+        if isinstance(editor, QDoubleSpinBox):
+            return format(editor.value(), "g")
+        if isinstance(editor, QComboBox):
+            return editor.currentText().strip()
+        if isinstance(editor, QPlainTextEdit):
+            return editor.toPlainText().strip()
+        if isinstance(editor, QLineEdit):
+            return editor.text().strip()
+        return ""
+
+    def _set_editor_value(self, editor: QWidget, dtype: str, value: str) -> None:
+        parsed = TaskService._coerce_scalar(value, dtype)
+        if isinstance(editor, AcquisitionOptimizerOptionsEditor):
+            editor.set_value(value)
+        elif isinstance(editor, QCheckBox):
+            editor.setChecked(bool(parsed))
+        elif isinstance(editor, QSpinBox):
+            editor.setValue(int(parsed))
+        elif isinstance(editor, QDoubleSpinBox):
+            editor.setValue(float(parsed))
+        elif isinstance(editor, QComboBox):
+            if editor.findText(str(value)) < 0:
+                editor.addItem(str(value))
+            editor.setCurrentText(str(value))
+        elif isinstance(editor, QPlainTextEdit):
+            editor.setPlainText(str(value))
+        elif isinstance(editor, QLineEdit):
+            editor.setText(str(value))
+
+    def _update_dependencies(self) -> None:
+        acq_entry = self._editors.get("acq")
+        q_batch_entry = self._editors.get("q_batch_size")
+        if acq_entry is not None and q_batch_entry is not None:
+            acquisition = self._editor_value(*acq_entry).lower()
+            enabled = acquisition.startswith("q")
+            q_batch_entry[0].setEnabled(enabled)
+            label = self._labels.get("q_batch_size")
+            if label is not None:
+                label.setEnabled(enabled)
+
+        all_history_entry = self._editors.get("use_all_history_for_gp")
+        history_limit_entry = self._editors.get("gp_history_max")
+        if all_history_entry is not None and history_limit_entry is not None:
+            use_all = isinstance(all_history_entry[0], QCheckBox) and all_history_entry[0].isChecked()
+            history_limit_entry[0].setEnabled(not use_all)
+            label = self._labels.get("gp_history_max")
+            if label is not None:
+                label.setEnabled(not use_all)
+
+        optimizer_entry = self._editors.get("acq_optimizer")
+        options_entry = self._editors.get("acq_opt_kwargs")
+        if optimizer_entry is not None and options_entry is not None and isinstance(
+            options_entry[0], AcquisitionOptimizerOptionsEditor
+        ):
+            options_entry[0].set_mode(self._editor_value(*optimizer_entry))
+
+    def reset_recommended(self) -> None:
+        for name, (editor, dtype) in self._editors.items():
+            self._set_editor_value(editor, dtype, self._defaults.get(name, ""))
+            self._touched.add(name)
+        self._update_dependencies()
+
+    def _validation_error(self) -> str:
+        for name, (editor, dtype) in self._editors.items():
+            if isinstance(editor, AcquisitionOptimizerOptionsEditor):
+                error = editor.validation_error()
+                if error:
+                    return f"{parameter_ui_spec(self.algorithm, name).label}: {error}"
+                continue
+            if str(dtype).strip().lower() not in {"json", "dict", "list"}:
+                continue
+            value = self._editor_value(editor, dtype)
+            if not value:
+                continue
+            try:
+                json.loads(value)
+            except Exception as exc:
+                return f"{parameter_ui_spec(self.algorithm, name).label}: invalid JSON ({exc})."
+        return ""
+
+    def _accept_if_valid(self) -> None:
+        error = self._validation_error()
+        if error:
+            QMessageBox.warning(self, "Algorithm Setup", error)
+            return
+        self.accept()
+
+    def parameter_records(self) -> list[list[str]]:
+        updated_values = {
+            name: self._editor_value(editor, dtype)
+            for name, (editor, dtype) in self._editors.items()
+        }
+        records: list[list[str]] = []
+        seen: set[str] = set()
+        for record in self._records:
+            padded = list(record) + [""] * max(0, 4 - len(record))
+            name = str(padded[0]).strip()
+            if name in updated_values and name in self._touched:
+                padded[1] = updated_values[name]
+            records.append(padded[:4])
+            seen.add(name)
+        for name, default, dtype, note in self._specs:
+            if name in seen:
+                continue
+            records.append([name, updated_values.get(name, str(default)), dtype, note])
+        return records
 
 
 class PVMonitorDialog(QDialog):

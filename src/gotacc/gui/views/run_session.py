@@ -70,6 +70,10 @@ class RunSession:
         if self._worker is not None:
             self._worker.request_stop()
 
+    def request_abort_restore(self) -> None:
+        if self._worker is not None:
+            self._worker.request_abort_restore()
+
     def start(self, task: dict, *, events: RunSessionEvents) -> None:
         self.cleanup_if_idle()
         if self.is_running():

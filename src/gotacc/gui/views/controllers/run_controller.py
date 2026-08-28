@@ -63,6 +63,8 @@ class RunController:
             )
             return
 
+        task = TaskService.prepare_run_archive(task)
+
         if self.view.is_online_task(task):
             try:
                 dialog = MachineWriteConfirmationDialog(
@@ -79,6 +81,13 @@ class RunController:
                 self.view.log_event("Online run authorization cancelled.")
                 return
             self.view.log_event("Online run authorized by operator.")
+
+        try:
+            TaskService.materialize_run_archive(task)
+        except Exception as exc:
+            self.view.log_warning(f"Run archive could not be created: {exc}")
+            QMessageBox.critical(self.window, "Cannot Start", f"Run archive could not be created:\n{exc}")
+            return
 
         self.presenter.prepare_for_start(objective_dim=self.window.state.objective_dim)
         self.preparation_presenter.prepare_for_start(task)
@@ -97,18 +106,17 @@ class RunController:
     def abort_and_restore(self) -> None:
         if self.window.state.run.phase not in {"Running", "Stopping"}:
             return
-        if self.window.run_session.has_worker():
-            self.window.run_session.request_stop()
-        self.presenter.mark_abort_requested()
         task = self.window.state.latest_task_snapshot or self.view.current_task()
-        restore_enabled = bool((task.get("machine", {}) or {}).get("restore_on_abort", True))
+        if not self.view.is_online_task(task):
+            self.view.log_event("Offline run uses Stop; no machine state is available to restore.")
+            self.stop_run()
+            return
+        if self.window.run_session.has_worker():
+            self.window.run_session.request_abort_restore()
+        self.presenter.mark_abort_requested()
         self.view.log_warning("Abort requested. Waiting for the active evaluation to stop.")
-        if restore_enabled:
-            self.view.log_event("Abort & Restore requested.")
-            self.view.log_pv("Worker will restore the initial machine state before completing abort.")
-        else:
-            self.view.log_event("Abort requested without restoration.")
-            self.view.log_pv("Restore-on-abort is disabled in the running task snapshot.")
+        self.view.log_event("Abort & Restore requested.")
+        self.view.log_pv("Worker will restore the initial machine state before completing abort.")
 
     def restore_initial_to_machine(self) -> None:
         if not self.window.state.latest_initial_x:
@@ -212,6 +220,13 @@ class RunController:
             return None
 
         state = self.window.state
+        if state.viewing_archived_run:
+            QMessageBox.warning(
+                self.window,
+                action_title,
+                "Archived runs are read-only. Start the task again before writing to the machine.",
+            )
+            return None
         if not state.latest_task_snapshot or not state.latest_task_identity:
             QMessageBox.warning(
                 self.window,
@@ -359,4 +374,19 @@ class RunController:
         self.presenter.mark_error()
         self.view.log_warning(f"Worker error: {message}")
         self.view.log_event(f"Worker error: {message}")
+        payload = {
+            "state": "Error",
+            "elapsed_seconds": self.window.state.run.elapsed_seconds,
+            "eval_count": self.window.state.run.eval_count,
+            "best_value": self.window.state.run.best_value,
+            "best_x": self.window.state.latest_best_x,
+            "error": message,
+        }
+        try:
+            self.view.update_results_after_finish(payload)
+            self.view.redraw_plots()
+            self.window.results_controller.save_result_images()
+            self.window.results_controller.save_run_summary()
+        except Exception as exc:
+            self.view.log_warning(f"Failed run archive finalization failed: {exc}")
         QMessageBox.critical(self.window, "Worker Error", message)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Tuple
 
@@ -47,7 +49,7 @@ def _ackley_vectorized(X: np.ndarray) -> np.ndarray:
     return val.reshape(-1, 1)
 
 
-def _two_objective_tradeoff(X: np.ndarray) -> np.ndarray:
+def _two_objective_tradeoff(X: np.ndarray, n_objectives: int = 2) -> np.ndarray:
     """Simple smooth multi-objective test function for GUI use.
 
     The optimizer will maximize both outputs when `maximize=True` is passed in
@@ -56,11 +58,59 @@ def _two_objective_tradeoff(X: np.ndarray) -> np.ndarray:
     """
     X = np.atleast_2d(np.asarray(X, dtype=float))
     dim = X.shape[1]
-    c1 = np.full(dim, 0.2, dtype=float)
-    c2 = np.full(dim, 0.8, dtype=float)
-    f1 = -np.sum((X - c1) ** 2, axis=1)
-    f2 = -np.sum((X - c2) ** 2, axis=1)
-    return np.column_stack([f1, f2])
+    centers = np.linspace(0.2, 0.8, max(2, int(n_objectives)))
+    values = [-np.sum((X - center) ** 2, axis=1) for center in centers]
+    return np.column_stack(values)
+
+
+def _zdt1_vectorized(X: np.ndarray, n_objectives: int = 2) -> np.ndarray:
+    """ZDT1 on the unit hypercube, returned in GOTAcc maximize convention."""
+    if int(n_objectives) != 2:
+        raise ValueError("ZDT1 requires exactly two objectives.")
+    X = np.atleast_2d(np.asarray(X, dtype=float))
+    if X.shape[1] < 2:
+        raise ValueError("ZDT1 requires at least two variables.")
+    f1 = X[:, 0]
+    g = 1.0 + 9.0 * np.mean(X[:, 1:], axis=1)
+    f2 = g * (1.0 - np.sqrt(np.clip(f1 / g, 0.0, None)))
+    return -np.column_stack([f1, f2])
+
+
+def _zdt2_vectorized(X: np.ndarray, n_objectives: int = 2) -> np.ndarray:
+    """ZDT2 on the unit hypercube, returned in GOTAcc maximize convention."""
+    if int(n_objectives) != 2:
+        raise ValueError("ZDT2 requires exactly two objectives.")
+    X = np.atleast_2d(np.asarray(X, dtype=float))
+    if X.shape[1] < 2:
+        raise ValueError("ZDT2 requires at least two variables.")
+    f1 = X[:, 0]
+    g = 1.0 + 9.0 * np.mean(X[:, 1:], axis=1)
+    f2 = g * (1.0 - (f1 / g) ** 2)
+    return -np.column_stack([f1, f2])
+
+
+def _dtlz2_vectorized(X: np.ndarray, n_objectives: int = 2) -> np.ndarray:
+    """DTLZ2 on the unit hypercube, returned in GOTAcc maximize convention."""
+    X = np.atleast_2d(np.asarray(X, dtype=float))
+    n_objectives = max(2, int(n_objectives))
+    if X.shape[1] < n_objectives:
+        raise ValueError("DTLZ2 requires at least as many variables as objectives.")
+    g = np.sum((X[:, n_objectives - 1 :] - 0.5) ** 2, axis=1)
+    values: list[np.ndarray] = []
+    for objective_index in range(n_objectives):
+        value = 1.0 + g
+        n_cos = n_objectives - objective_index - 1
+        if n_cos:
+            value = value * np.prod(
+                np.cos(0.5 * np.pi * X[:, :n_cos]),
+                axis=1,
+            )
+        if objective_index:
+            value = value * np.sin(
+                0.5 * np.pi * X[:, n_objectives - objective_index - 1]
+            )
+        values.append(-value)
+    return np.column_stack(values)
 
 
 SINGLE_OBJECTIVE_FUNCTIONS: dict[str, Callable[[np.ndarray], Any]] = {
@@ -69,10 +119,90 @@ SINGLE_OBJECTIVE_FUNCTIONS: dict[str, Callable[[np.ndarray], Any]] = {
     "ackley": _ackley_vectorized,
 }
 
+MULTI_OBJECTIVE_FUNCTIONS: dict[str, Callable[[np.ndarray, int], np.ndarray]] = {
+    "tradeoff": _two_objective_tradeoff,
+    "zdt1": _zdt1_vectorized,
+    "zdt2": _zdt2_vectorized,
+    "dtlz2": _dtlz2_vectorized,
+}
+
+
+def _benchmark_variables(
+    count: int,
+    lower: float,
+    upper: float,
+    initial: float,
+) -> list[dict[str, str]]:
+    return [
+        {
+            "Enable": "Y",
+            "Name": f"x{index}",
+            "Lower": format(lower, "g"),
+            "Upper": format(upper, "g"),
+            "Initial": format(initial, "g"),
+            "Group": "benchmark",
+        }
+        for index in range(count)
+    ]
+
+
+def _benchmark_objectives(names: tuple[str, ...]) -> list[dict[str, str]]:
+    return [
+        {
+            "Enable": "Y",
+            "Name": name,
+            "Direction": "maximize",
+            "Weight": "1",
+            "Samples": "1",
+            "Math": "mean",
+        }
+        for name in names
+    ]
+
+
+OFFLINE_BENCHMARK_TEMPLATES: dict[str, dict[str, Any]] = {
+    "sphere": {
+        "objective_type": "Single Objective",
+        "variables": _benchmark_variables(2, -5.12, 5.12, 0.0),
+        "objectives": _benchmark_objectives(("sphere",)),
+    },
+    "rosenbrock": {
+        "objective_type": "Single Objective",
+        "variables": _benchmark_variables(2, -2.0, 2.0, 0.0),
+        "objectives": _benchmark_objectives(("rosenbrock",)),
+    },
+    "ackley": {
+        "objective_type": "Single Objective",
+        "variables": _benchmark_variables(2, -5.0, 5.0, 0.0),
+        "objectives": _benchmark_objectives(("ackley",)),
+    },
+    "tradeoff": {
+        "objective_type": "Multi Objective",
+        "variables": _benchmark_variables(2, 0.0, 1.0, 0.5),
+        "objectives": _benchmark_objectives(("f1", "f2")),
+    },
+    "zdt1": {
+        "objective_type": "Multi Objective",
+        "variables": _benchmark_variables(3, 0.0, 1.0, 0.5),
+        "objectives": _benchmark_objectives(("f1", "f2")),
+    },
+    "zdt2": {
+        "objective_type": "Multi Objective",
+        "variables": _benchmark_variables(3, 0.0, 1.0, 0.5),
+        "objectives": _benchmark_objectives(("f1", "f2")),
+    },
+    "dtlz2": {
+        "objective_type": "Multi Objective",
+        "variables": _benchmark_variables(3, 0.0, 1.0, 0.5),
+        "objectives": _benchmark_objectives(("f1", "f2")),
+    },
+}
+
 SUPPORTED_GUI_OPTIMIZERS = {
     "bo",
     "consbo",
     "turbo",
+    "rcds",
     "mggpo_so",
     "consmggpo_so",
     "mobo",
@@ -296,6 +426,19 @@ class TaskService:
         return "rosenbrock"
 
     @staticmethod
+    def offline_test_function_names(objective_type: str) -> tuple[str, ...]:
+        if str(objective_type or "").strip().lower() == "multi objective":
+            return tuple(MULTI_OBJECTIVE_FUNCTIONS)
+        return tuple(SINGLE_OBJECTIVE_FUNCTIONS)
+
+    @staticmethod
+    def offline_benchmark_template(name: str) -> Dict[str, Any]:
+        normalized = str(name or "").strip().lower()
+        if normalized not in OFFLINE_BENCHMARK_TEMPLATES:
+            raise ValueError(f"Unknown offline benchmark template: {normalized!r}.")
+        return copy.deepcopy(OFFLINE_BENCHMARK_TEMPLATES[normalized])
+
+    @staticmethod
     def _direction_multiplier(direction: Any) -> float:
         text = str(direction or "").strip().lower()
         if text in {"min", "minimize", "minimization", "minimise"}:
@@ -419,6 +562,13 @@ class TaskService:
                 "verbose": verbose,
                 "device": device,
             }
+        elif algorithm == "rcds":
+            kwargs = {
+                "maxEval": max_evals,
+                "random_state": seed,
+                "verbose": verbose,
+                "maximize": bool(dyn.get("maximize", True)),
+            }
         elif algorithm in {"mggpo", "consmggpo", "mggpo_so", "consmggpo_so"}:
             pop_size, evals_per_gen, n_generations = TaskService._mggpo_budget_params(task, dyn)
             kwargs = {
@@ -479,6 +629,10 @@ class TaskService:
             "failure_tolerance",
             "length_init",
             "length_min",
+            "step",
+            "noise",
+            "tol",
+            "maxIt",
         ]:
             if key in dyn:
                 kwargs[key] = dyn[key]
@@ -1086,6 +1240,8 @@ class TaskService:
         enabled_objectives = TaskService._enabled_rows(objectives)
         if not enabled_objectives:
             errors.append("At least one enabled objective is required.")
+        if objective_type == "Multi Objective" and len(enabled_objectives) < 2:
+            errors.append("Multi Objective tasks require at least two enabled objectives.")
 
         for label, rows in (
             ("variable", enabled_variables),
@@ -1297,6 +1453,33 @@ class TaskService:
                     "Offline single-objective tasks require test_function to be one of: "
                     + ", ".join(sorted(SINGLE_OBJECTIVE_FUNCTIONS))
                 )
+        else:
+            test_function = str(task.get("test_function", "")).strip().lower() or "tradeoff"
+            if test_function not in MULTI_OBJECTIVE_FUNCTIONS:
+                errors.append(
+                    "Offline multi-objective tasks require test_function to be one of: "
+                    + ", ".join(sorted(MULTI_OBJECTIVE_FUNCTIONS))
+                )
+            elif test_function in {"zdt1", "zdt2"}:
+                if len(enabled_objectives) != 2:
+                    errors.append(f"{test_function.upper()} requires exactly two enabled objectives.")
+                if len(enabled_variables) < 2:
+                    errors.append(f"{test_function.upper()} requires at least two enabled variables.")
+            elif test_function == "dtlz2" and len(enabled_variables) < len(enabled_objectives):
+                errors.append("DTLZ2 requires at least as many enabled variables as objectives.")
+            if test_function in {"zdt1", "zdt2", "dtlz2"}:
+                try:
+                    has_nonstandard_bounds = any(
+                        not np.isclose(float(row.get("Lower", "")), 0.0)
+                        or not np.isclose(float(row.get("Upper", "")), 1.0)
+                        for row in enabled_variables
+                    )
+                except (TypeError, ValueError):
+                    has_nonstandard_bounds = False
+                if has_nonstandard_bounds:
+                    errors.append(
+                        f"{test_function.upper()} requires every variable to use bounds [0, 1]."
+                    )
 
         return len(errors) == 0, errors
 
@@ -1325,6 +1508,46 @@ class TaskService:
         serialized = TaskService._dump_serialized_payload(task_cfg.to_dict())
         with open(path, "w", encoding="utf-8") as f:
             f.write(serialized)
+
+    @staticmethod
+    def create_run_archive(task: Mapping[str, Any]) -> Dict[str, Any]:
+        """Freeze one GUI run into a unique, self-contained output directory."""
+        archived = TaskService.prepare_run_archive(task)
+        TaskService.materialize_run_archive(archived)
+        return archived
+
+    @staticmethod
+    def prepare_run_archive(task: Mapping[str, Any]) -> Dict[str, Any]:
+        """Add immutable archive metadata without touching the filesystem."""
+        archived = copy.deepcopy(dict(task))
+        base_dir = Path(str(archived.get("workdir") or Path.cwd())).expanduser().resolve()
+        raw_name = str(archived.get("task_name") or "task").strip()
+        task_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name).strip("._") or "task"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        run_dir = base_dir / task_name / timestamp
+
+        archived["project_workdir"] = str(base_dir)
+        archived["run_archive_dir"] = str(run_dir)
+        archived["run_id"] = timestamp
+        archived["workdir"] = str(run_dir)
+        return archived
+
+    @staticmethod
+    def materialize_run_archive(archived: Mapping[str, Any]) -> None:
+        """Create a prepared archive and write its frozen TaskConfig."""
+        run_dir_text = str(archived.get("run_archive_dir") or "").strip()
+        if not run_dir_text:
+            raise ValueError("Prepared run archive has no run_archive_dir.")
+        run_dir = Path(run_dir_text)
+        run_dir.mkdir(parents=True, exist_ok=False)
+        (run_dir / "evaluations.jsonl").touch()
+        task_cfg = TaskService.build_task_config(archived)
+        TaskService.ensure_runtime_directories(task_cfg)
+        config_path = run_dir / "task_config.yaml"
+        config_path.write_text(
+            TaskService._dump_serialized_payload(task_cfg.to_dict()),
+            encoding="utf-8",
+        )
 
     @staticmethod
     def extract_machine_pvs(task: Dict[str, Any]) -> list[dict[str, str]]:
@@ -1400,7 +1623,18 @@ class TaskService:
 
         if algorithm in {"mobo", "mopso", "nsga2"} or objective_type == "multi objective":
             n_objectives = max(2, len(objectives))
-            func = TaskService._wrap_objective_with_directions(_two_objective_tradeoff, direction_multipliers)
+            func_name = str(task.get("test_function", "")).strip().lower() or "tradeoff"
+            if func_name not in MULTI_OBJECTIVE_FUNCTIONS:
+                raise ValueError(f"Unknown offline multi-objective test function: {func_name!r}.")
+            benchmark = MULTI_OBJECTIVE_FUNCTIONS[func_name]
+
+            def selected_benchmark(X, _benchmark=benchmark, _n_objectives=n_objectives):
+                return _benchmark(X, _n_objectives)
+
+            func = TaskService._wrap_objective_with_directions(
+                selected_benchmark,
+                direction_multipliers,
+            )
         else:
             func_name = TaskService._guess_offline_test_function(task)
             func = TaskService._wrap_objective_with_directions(
@@ -1502,7 +1736,10 @@ class TaskService:
             "constraint_bounds": constraint_bounds,
             "set_interval": float(machine.get("set_interval", 1.0)),
             "sample_interval": float(machine.get("sample_interval", 0.2)),
-            "log_path": str(Path(task.get("workdir", Path.cwd())) / "save" / f"{task.get('task_name', 'task')}.opt"),
+            "log_path": str(
+                Path(task.get("workdir", Path.cwd()))
+                / ("machine.opt" if task.get("run_archive_dir") else f"save/{task.get('task_name', 'task')}.opt")
+            ),
             "readback_check": readback_check,
             "readback_tol": readback_tol,
             "combine_mode": combine_mode,
@@ -1618,11 +1855,14 @@ class TaskService:
             )
 
         workdir = Path(task.get("workdir", Path.cwd()))
-        save_dir = workdir / "save"
+        is_run_archive = bool(task.get("run_archive_dir"))
+        save_dir = workdir if is_run_archive else workdir / "save"
 
         runtime = RuntimeConfig(
             save_history=True,
-            history_path=str(save_dir / f"{task.get('task_name', 'task')}_history.dat"),
+            history_path=str(
+                save_dir / ("history.dat" if is_run_archive else f"{task.get('task_name', 'task')}_history.dat")
+            ),
             plot_convergence=False,
             plot_path=str(save_dir / f"{task.get('task_name', 'task')}_plot.png"),
             set_best=False,
@@ -1658,6 +1898,10 @@ class TaskService:
     def normalized_task_identity(task: Mapping[str, Any]) -> Dict[str, Any]:
         """Return stable, comparable data for a GUI run task."""
         task_copy = copy.deepcopy(dict(task))
+        if task_copy.get("project_workdir"):
+            task_copy["workdir"] = task_copy["project_workdir"]
+        for key in ("project_workdir", "run_archive_dir", "run_id"):
+            task_copy.pop(key, None)
         task_cfg = TaskService.build_task_config(task_copy)
         plain = TaskService._plain_data(task_cfg.to_dict())
         if not isinstance(plain, dict):  # pragma: no cover - TaskConfig always serializes to dict

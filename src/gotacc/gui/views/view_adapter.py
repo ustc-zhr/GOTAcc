@@ -91,9 +91,6 @@ class GuiViewAdapter:
         recent_table = self.window.run_ui.tableWidget_recent
         if self.qobj_alive(recent_table):
             recent_table.setRowCount(0)
-        results_table = getattr(self.window.ui, "tableWidget_recentEvaluations", None)
-        if self.qobj_alive(results_table):
-            results_table.setRowCount(0)
 
     def clear_run_events(self) -> None:
         self.window.run_ui.plainTextEdit_events.clear()

@@ -105,21 +105,34 @@ class MachineController:
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(8)
         title = QLabel("Machine Profile", frame)
-        combo = QComboBox(frame)
-        combo.setMinimumWidth(240)
-        status = QLabel(frame)
-        status.setObjectName("machineProfileStatus")
-        open_button = QPushButton("Open…", frame)
-        save_button = QPushButton("Save As…", frame)
+        summary = QFrame(frame)
+        summary_layout = QVBoxLayout(summary)
+        summary_layout.setContentsMargins(8, 0, 8, 0)
+        summary_layout.setSpacing(1)
+        name_label = QLabel("Embedded Machine · v1", summary)
+        name_label.setObjectName("machineProfileName")
+        name_label.setProperty("role", "value")
+        source_label = QLabel("Built-in", summary)
+        source_label.setObjectName("machineProfileSource")
+        source_label.setProperty("role", "title")
+        summary_layout.addWidget(name_label)
+        summary_layout.addWidget(source_label)
+        open_button = QPushButton("Open", frame)
+        save_button = QPushButton("Save As", frame)
+        for button in (open_button, save_button):
+            button.setProperty("inlineAction", True)
+            button.setFixedSize(88, 28)
         layout.addWidget(title)
-        layout.addWidget(combo)
-        layout.addWidget(status, 1)
+        layout.addWidget(summary)
+        layout.addStretch(1)
         layout.addWidget(open_button)
         layout.addWidget(save_button)
+        frame.setMaximumHeight(54)
         ui.verticalLayout_main.insertWidget(1, frame)
         ui.frame_machineProfile = frame
-        ui.comboBox_machineProfile = combo
-        ui.label_machineProfileStatus = status
+        ui.label_machineProfileName = name_label
+        ui.label_machineProfileSource = source_label
+        ui.label_machineProfileStatus = name_label
         ui.pushButton_openMachineProfile = open_button
         ui.pushButton_saveMachineProfile = save_button
         open_button.clicked.connect(self.open_machine_profile)
@@ -128,44 +141,21 @@ class MachineController:
 
     def refresh_machine_profile_bar(self) -> None:
         ui = self.window.machine_ui
-        if not hasattr(ui, "comboBox_machineProfile"):
+        if not hasattr(ui, "label_machineProfileName"):
             return
-        profile_dir = self._machine_profile_directory()
-        paths = sorted(profile_dir.glob("*.json")) if profile_dir.exists() else []
         current = getattr(ui, "machine_profile", {}) or {}
         current_source = str(current.get("source", ""))
-        combo = ui.comboBox_machineProfile
-        old_state = combo.blockSignals(True)
-        try:
-            combo.clear()
-            combo.addItem("Embedded / unsaved", "")
-            for path in paths:
-                try:
-                    profile = load_machine_profile(path)
-                    label = profile.name
-                except Exception:
-                    label = f"Invalid: {path.stem}"
-                combo.addItem(label, str(path))
-            if current_source:
-                index = combo.findData(current_source)
-                if index < 0:
-                    combo.addItem(str(current.get("name", Path(current_source).stem)), current_source)
-                    index = combo.count() - 1
-                combo.setCurrentIndex(index)
-            else:
-                combo.setCurrentIndex(0)
-        finally:
-            combo.blockSignals(old_state)
         name = str(current.get("name", "Embedded Machine"))
-        profile_id = str(current.get("profile_id", "embedded"))
         version = int(current.get("version", MACHINE_PROFILE_VERSION) or MACHINE_PROFILE_VERSION)
-        ui.label_machineProfileStatus.setText(f"{name} · {profile_id} · v{version}")
+        source_text = Path(current_source).name if current_source else "Built-in"
+        ui.label_machineProfileName.setText(f"{name} · v{version}")
+        ui.label_machineProfileName.setToolTip(
+            f"Machine Profile: {name}, version {version}"
+        )
+        ui.label_machineProfileSource.setText(source_text)
+        ui.label_machineProfileSource.setToolTip(current_source or "Built-in Machine Profile")
 
     def _selected_machine_profile_path(self) -> str:
-        ui = self.window.machine_ui
-        selected = str(ui.comboBox_machineProfile.currentData() or "")
-        if selected:
-            return selected
         path, _ = QFileDialog.getOpenFileName(
             self.window,
             "Open Machine Profile",
@@ -1702,6 +1692,10 @@ class MachineController:
     def refresh_machine_summary(self) -> None:
         if not hasattr(self.window.machine_ui, "label_machineSummary"):
             return
+        if hasattr(self.window.machine_ui, "frame_machineProfile"):
+            self.window.machine_ui.frame_machineProfile.setVisible(
+                self.is_online_task(self.view.current_task())
+            )
         write_policy = self.window.machine_ui.comboBox_policy.currentText().strip()
         bindings = getattr(self.window.machine_ui, "policy_bindings", [])
         enabled_objective_policies = [

@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 try:
     from ...services.task_service import TaskService
+    from ..algorithm_ui_specs import parameter_ui_spec
     from ..tool_dialogs import AlgorithmDetailDialog
     from ..tool_dialogs import BoundsToolsDialog
 except ImportError:  # pragma: no cover - local script fallback
@@ -42,6 +43,7 @@ except ImportError:  # pragma: no cover - local script fallback
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
     from task_service import TaskService
+    from algorithm_ui_specs import parameter_ui_spec
     from tool_dialogs import AlgorithmDetailDialog
     from tool_dialogs import BoundsToolsDialog
 
@@ -57,11 +59,12 @@ ALGORITHM_INIT_SOURCES = {
     "BO": (GOTACC_ROOT / "algorithms" / "single_objective" / "bo.py", "BOOptimizer"),
     "ConsBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "consbo.py", "ConsBOOptimizer"),
     "TuRBO": (GOTACC_ROOT / "algorithms" / "single_objective" / "turbo.py", "TuRBOOptimizer"),
+    "RCDS": (GOTACC_ROOT / "algorithms" / "single_objective" / "rcds.py", "RCDSOptimizer"),
     "MGGPO-SO": (GOTACC_ROOT / "algorithms" / "single_objective" / "mggpo_so.py", "MGGPOSOOptimizer"),
     "ConsMGGPO-SO": (GOTACC_ROOT / "algorithms" / "single_objective" / "consmggpo_so.py", "ConsMGGPOSOOptimizer"),
     "MOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mobo.py", "MOBOOptimizer"),
     "ConsMOBO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmobo.py", "ConsMOBOOptimizer"),
-    "ConsMGGPO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmggpo.py", "ConsMGGPOOptimizer"),
+    "ConsMGGPO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "consmggpo.py", "MultiObjectiveMGGPO"),
     "MGGPO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mggpo.py", "MGGPOOptimizer"),
     "MOPSO": (GOTACC_ROOT / "algorithms" / "multi_objective" / "mopso.py", "MOPSOOptimizer"),
     "NSGA-II": (GOTACC_ROOT / "algorithms" / "multi_objective" / "nsga2.py", "NSGA2Optimizer"),
@@ -71,6 +74,7 @@ EXCLUDED_INIT_PARAMS = {
     "BO": {"self", "func", "bounds", "random_state", "n_iter"},
     "ConsBO": {"self", "func", "bounds", "random_state", "n_iter", "constraint_bounds"},
     "TuRBO": {"self", "func", "bounds", "random_state", "n_iter"},
+    "RCDS": {"self", "func", "bounds", "vrange", "x0", "Dmat0", "random_state", "maxEval"},
     "MGGPO-SO": {"self", "func", "bounds", "random_state", "n_objectives", "n_constraints", "maximize", "ref_point"},
     "ConsMGGPO-SO": {"self", "func", "bounds", "random_state", "n_objectives", "constraint_bounds", "maximize", "ref_point"},
     "MOBO": {"self", "func", "bounds", "random_state", "n_objectives", "n_iter", "maximize"},
@@ -91,7 +95,7 @@ PARAM_NOTES = {
     "acq_opt_kwargs": "Acquisition optimizer kwargs as JSON.",
     "q_batch_size": "q-acquisition batch size. Only used by MOBO/ConsMOBO when acquisition starts with q.",
     "acq_mode": "MGGPO acquisition mode: ucb, ehvi or combine.",
-    "n_init": "Initial design size. Total evaluations are still capped by Max Evaluations.",
+    "n_init": "Number of evaluations collected before model-guided optimization begins. Total evaluations are still capped by Max Evaluations.",
     "device": "Torch device name, for example cpu or cuda.",
     "dtype": "Torch dtype name, for example float64.",
     "n_trust_regions": "TuRBO trust-region count.",
@@ -99,6 +103,11 @@ PARAM_NOTES = {
     "failure_tolerance": "TuRBO consecutive failure threshold.",
     "length_init": "Initial trust-region length.",
     "length_min": "Minimum trust-region length before restart.",
+    "step": "RCDS initial normalized line-search step.",
+    "noise": "RCDS objective noise tolerance used during bracket search.",
+    "tol": "RCDS relative convergence tolerance.",
+    "maxIt": "RCDS maximum direction-set iterations.",
+    "maximize": "Maximize the objective when true; minimize when false.",
     "ref_point": "Reference point as JSON array.",
     "pop_size": "Population size.",
     "n_generations": "Generation count. Budget is still clipped by Max Evaluations.",
@@ -135,6 +144,12 @@ ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
     },
     "TuRBO": {
         "acq_opt_kwargs": {"num_restarts": 8, "raw_samples": 512, "n_candidates": 8192},
+    },
+    "RCDS": {
+        "step": 0.2,
+        "maxIt": 20,
+        "tol": 1e-6,
+        "maximize": True,
     },
     "MGGPO-SO": {
         "pop_size": 50,
@@ -201,7 +216,7 @@ ALGORITHM_PARAM_DEFAULT_OVERRIDES = {
 
 OBJECTIVE_MATH_OPTIONS = ("mean", "std")
 
-SINGLE_OBJECTIVE_ALGORITHMS = ("BO", "ConsBO", "TuRBO", "MGGPO-SO", "ConsMGGPO-SO")
+SINGLE_OBJECTIVE_ALGORITHMS = ("BO", "ConsBO", "TuRBO", "RCDS", "MGGPO-SO", "ConsMGGPO-SO")
 MULTI_OBJECTIVE_ALGORITHMS = ("MOBO", "ConsMOBO", "MGGPO", "ConsMGGPO", "MOPSO", "NSGA-II")
 Q_BATCH_PARAM_NAME = "q_batch_size"
 LEGACY_Q_BATCH_PARAM_NAMES = {"qehvi_batch", "q_batch"}
@@ -294,6 +309,8 @@ class TaskBuilderController:
             return "TuRBO"
         if lowered == "consbo":
             return "ConsBO"
+        if lowered == "rcds":
+            return "RCDS"
         if lowered in {
             "mggpo-so",
             "mggpo_so",
@@ -870,7 +887,7 @@ class TaskBuilderController:
             refresh_preview=True,
         )
         if log_change:
-            self.view.log_console(f"Loaded {algorithm_key} parameters from optimizer __init__.")
+            self.view.log_console(f"Loaded recommended {algorithm_key} parameters.")
 
     def set_algorithm_overrides_expanded(self, expanded: bool) -> None:
         self._algorithm_overrides_expanded = bool(expanded)
@@ -896,32 +913,38 @@ class TaskBuilderController:
         if algorithm_text is None:
             algorithm_text = self.window.task_ui.comboBox_algorithm.currentText()
         algorithm_key = self.algorithm_template_key(algorithm_text)
-        count = self.window.task_ui.tableWidget_dynamicParams.rowCount()
-        summary_label.setText(f"{algorithm_key} · {count} field(s)")
+        specs = self._recommended_param_specs(algorithm_key, self.dynamic_table_records())[1]
+        defaults = {name: (default, dtype) for name, default, dtype, _note in specs}
+        custom_count = 0
+        for record in self.dynamic_table_records():
+            name = self._canonical_param_name(record[0] if record else "")
+            if name not in defaults or parameter_ui_spec(algorithm_key, name).hidden:
+                continue
+            default, dtype = defaults[name]
+            value = record[1] if len(record) > 1 else ""
+            if TaskService._coerce_scalar(value, dtype) != TaskService._coerce_scalar(default, dtype):
+                custom_count += 1
+        state = "Recommended" if custom_count == 0 else f"{custom_count} custom"
+        summary_label.setText(f"{algorithm_key} · {state}")
 
     def open_algorithm_detail_dialog(self) -> None:
-        dialog = AlgorithmDetailDialog(self.window)
-        self._algorithm_detail_dialog = dialog
-        dialog.ui.label_summary.setText(
-            self.window.task_ui.label_algorithmDetailSummary.text().strip()
-            or f"{self.algorithm_template_key(self.window.task_ui.comboBox_algorithm.currentText())} parameters"
+        algorithm_key, specs = self._recommended_param_specs(
+            self.window.task_ui.comboBox_algorithm.currentText(),
+            self.dynamic_table_records(),
         )
-        table = dialog.ui.tableWidget_dynamicParams
-        table.setAlternatingRowColors(True)
-        table.verticalHeader().setVisible(False)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        header = table.horizontalHeader()
-        for column, width in ((0, 190), (1, 150), (2, 90)):
-            header.setSectionResizeMode(column, QHeaderView.Fixed)
-            table.setColumnWidth(column, width)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        self._populate_parameter_table(table, self.dynamic_table_records())
+        dialog = AlgorithmDetailDialog(
+            algorithm=algorithm_key,
+            specs=specs,
+            records=self.dynamic_table_records(),
+            evaluation_budget=self.window.task_ui.spinBox_maxEval.value(),
+            parent=self.window,
+        )
+        self._algorithm_detail_dialog = dialog
         if dialog.exec_() != QDialog.Accepted:
             self._algorithm_detail_dialog = None
             return
 
-        records = self._parameter_table_records(table)
+        records = dialog.parameter_records()
         self._sync_algorithm_param_state(
             self.window.task_ui.comboBox_algorithm.currentText(),
             records=records,
@@ -959,12 +982,56 @@ class TaskBuilderController:
             update_params=not self.window._suppress_autofill,
         )
         if not self.window._suppress_autofill:
+            self._update_test_function_control(self.view.current_task())
+            self.apply_offline_benchmark_template(
+                self.window.task_ui.comboBox_testFunction.currentText(),
+                refresh=False,
+                log_change=False,
+            )
             if self.algorithm_template_key(previous_algorithm) != selected_algorithm:
                 self.view.log_console(
                     f"Objective Type changed to {text}; Algorithm switched to {selected_algorithm}."
                 )
             self.update_algorithm_guidance()
             self.refresh_task_preview()
+
+    def apply_offline_benchmark_template(
+        self,
+        test_function: str,
+        *,
+        refresh: bool = True,
+        log_change: bool = True,
+    ) -> None:
+        if self.window._suppress_autofill:
+            return
+        if self.window.task_ui.comboBox_mode.currentText().strip() != "Offline":
+            if refresh:
+                self.refresh_task_preview()
+            return
+        template = TaskService.offline_benchmark_template(test_function)
+        self.fill_table_from_records(
+            self.window.task_ui.tableWidget_variables,
+            template["variables"],
+        )
+        self.fill_table_from_records(
+            self.window.task_ui.tableWidget_objectives,
+            template["objectives"],
+        )
+        self.fill_table_from_records(
+            self.window.task_ui.tableWidget_constraints,
+            [],
+        )
+        if log_change:
+            self.view.log_console(
+                f"Loaded {str(test_function).upper()} offline benchmark variables and objectives."
+            )
+        if refresh:
+            self.refresh_task_preview()
+
+    def on_test_function_changed(self, text: str) -> None:
+        if self.window._suppress_autofill:
+            return
+        self.apply_offline_benchmark_template(text)
 
     def on_dynamic_param_table_changed(self) -> None:
         self._sync_algorithm_param_state(self.window.task_ui.comboBox_algorithm.currentText())
@@ -1599,6 +1666,11 @@ class TaskBuilderController:
             )
             self.window.task_ui.comboBox_algorithm.setCurrentText(str(task.get("algorithm", "BO")))
             test_function = str(task.get("test_function", "rosenbrock")).strip().lower() or "rosenbrock"
+            available_test_functions = TaskService.offline_test_function_names(
+                str(task.get("objective_type", "Single Objective"))
+            )
+            self.window.task_ui.comboBox_testFunction.clear()
+            self.window.task_ui.comboBox_testFunction.addItems(list(available_test_functions))
             test_function_index = self.window.task_ui.comboBox_testFunction.findText(
                 test_function,
                 Qt.MatchFixedString,
@@ -1842,24 +1914,37 @@ class TaskBuilderController:
         if task is None:
             task = self.view.current_task()
         offline_task = str(task.get("mode", "")).strip() == "Offline"
-        single_objective = str(task.get("objective_type", "")).strip() == "Single Objective"
+        objective_type = str(task.get("objective_type", "")).strip() or "Single Objective"
         combo = self.window.task_ui.comboBox_testFunction
         label = self.window.task_ui.label_testFunction
-        if offline_task and single_objective and combo.currentText().strip().lower() == "tradeoff":
+        available = TaskService.offline_test_function_names(objective_type)
+        configured = str(task.get("test_function", "")).strip().lower()
+        selected = configured if configured in available else available[0]
+        current_items = tuple(combo.itemText(index) for index in range(combo.count()))
+        if current_items != available or combo.currentText().strip().lower() != selected:
             old_state = combo.blockSignals(True)
             try:
-                combo.setCurrentText("rosenbrock")
+                combo.clear()
+                combo.addItems(list(available))
+                combo.setCurrentText(selected)
             finally:
                 combo.blockSignals(old_state)
         combo.setEnabled(offline_task)
         label.setEnabled(offline_task)
         tooltip = (
-            "Offline benchmark function. Ignored for online EPICS tasks."
+            f"Offline {objective_type.lower()} benchmark function."
             if offline_task
             else "Offline benchmark function. Disabled because the current task uses Online EPICS."
         )
         combo.setToolTip(tooltip)
         label.setToolTip(tooltip)
+        if hasattr(self.window, "offline_ui"):
+            self.window.offline_ui.label_offlineHint.setText(
+                "Built-in benchmark used for local optimization tests. "
+                "ZDT1, ZDT2 and DTLZ2 use the standard [0, 1] variable domain."
+                if objective_type == "Multi Objective"
+                else "Built-in benchmark used for local single-objective optimization tests."
+            )
 
     def update_algorithm_guidance(self, task: dict | None = None) -> None:
         if task is None:
@@ -1877,6 +1962,16 @@ class TaskBuilderController:
             "Select the optimizer family. Different algorithms consume evaluation budget differently; "
             "see the budget summary below."
         )
+        uses_random_seed = algorithm != "rcds"
+        self.window.task_ui.spinBox_seed.setEnabled(uses_random_seed)
+        self.window.task_ui.label_seed.setEnabled(uses_random_seed)
+        seed_hint = (
+            "Controls reproducible randomized initialization and sampling."
+            if uses_random_seed
+            else "RCDS is deterministic in the current implementation and does not use Random Seed."
+        )
+        self.window.task_ui.spinBox_seed.setToolTip(seed_hint)
+        self.window.task_ui.label_seed.setToolTip(seed_hint)
         self.window.task_ui.tableWidget_dynamicParams.setToolTip(
             self._dynamic_params_tooltip(algorithm)
         )
@@ -1908,16 +2003,11 @@ class TaskBuilderController:
             iter_cost = int(TaskService._bo_iteration_eval_cost(task, dyn, algorithm))
             planned = n_init + n_iter * iter_cost
             slack = max(0, max_evals - planned)
-            detail = self._bo_budget_detail(task, dyn, algorithm, iter_cost)
-            slack_text = (
-                f" Budget slack: {slack} evaluation(s) remain unused because iterations are discrete."
-                if slack
-                else ""
-            )
-            return (
-                f"Total planned evaluations = n_init ({n_init}) + n_iter ({n_iter}) x step cost ({iter_cost}) = {planned} / {max_evals}.\n"
-                f"{detail}{slack_text}"
-            )
+            slack_text = f" · {slack} unused" if slack else ""
+            return f"{n_init} initial + {n_iter} x {iter_cost}/step = {planned}/{max_evals}{slack_text}"
+
+        if algorithm == "rcds":
+            return f"RCDS hard limit: {max_evals} objective evaluations"
 
         pop_size = int(kwargs.get("pop_size", 0))
         evals_per_gen = int(kwargs.get("evals_per_gen", pop_size))
@@ -1925,34 +2015,13 @@ class TaskBuilderController:
         if algorithm in {"mggpo", "consmggpo", "mggpo_so", "consmggpo_so"}:
             planned = pop_size + n_generations * evals_per_gen
             slack = max(0, max_evals - planned)
-            slack_text = (
-                f" Budget slack: {slack} evaluation(s) remain unused because generations consume fixed batches."
-                if slack
-                else ""
-            )
-            label_map = {
-                "mggpo": "MGGPO",
-                "consmggpo": "ConsMGGPO",
-                "mggpo_so": "MGGPO-SO",
-                "consmggpo_so": "ConsMGGPO-SO",
-            }
-            label = label_map.get(algorithm, normalized_name)
-            return (
-                f"{label} spends one population to initialize and evals_per_gen per generation.\n"
-                f"Total planned evaluations = pop_size ({pop_size}) + n_generations ({n_generations}) x evals_per_gen ({evals_per_gen}) = {planned} / {max_evals}.{slack_text}"
-            )
+            slack_text = f" · {slack} unused" if slack else ""
+            return f"{pop_size} initial + {n_generations} x {evals_per_gen}/generation = {planned}/{max_evals}{slack_text}"
 
         planned = pop_size * (1 + n_generations)
         slack = max(0, max_evals - planned)
-        slack_text = (
-            f" Budget slack: {slack} evaluation(s) remain unused because generations consume a full population."
-            if slack
-            else ""
-        )
-        return (
-            "Population algorithms spend one population to initialize and one population per generation.\n"
-            f"Total planned evaluations = pop_size ({pop_size}) x [1 + n_generations ({n_generations})] = {planned} / {max_evals}.{slack_text}"
-        )
+        slack_text = f" · {slack} unused" if slack else ""
+        return f"{pop_size} x (1 + {n_generations} generations) = {planned}/{max_evals}{slack_text}"
 
     def show_task_preview(self) -> None:
         task = self.view.current_task()
@@ -2010,8 +2079,8 @@ class TaskBuilderController:
 
     def _dynamic_params_tooltip(self, algorithm: str) -> str:
         common = (
-            "Algorithm-specific overrides derived from the optimizer __init__ signature. "
-            "Budget-relevant keys usually include n_init, n_trust_regions, pop_size, n_generations and acq."
+            "Algorithm-specific setup grouped into basic, advanced and execution settings. "
+            "The evaluation budget remains controlled by Max Evaluations."
         )
         if algorithm == "turbo":
             return common + " For TuRBO, n_trust_regions determines the per-iteration evaluation cost."

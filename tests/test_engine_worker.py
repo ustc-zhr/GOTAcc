@@ -94,6 +94,30 @@ def test_engine_worker_routes_policy_events_to_run_log_signal(tmp_path):
     assert messages == ["Policy triggered for beam_current [replace]: 5 → 0"]
 
 
+def test_engine_worker_preserves_numeric_constraints_for_live_plots(tmp_path):
+    worker = EngineWorker(_offline_task(tmp_path))
+
+    normalized = worker._normalize_output(([1.25], [-0.2, 0.4]))
+
+    np.testing.assert_allclose(normalized["constraint_values"], [-0.2, 0.4])
+    assert normalized["constraint_summary"] == "c0=-0.200000, c1=0.400000"
+
+
+def test_population_live_hypervolume_emits_only_new_generations(tmp_path):
+    worker = EngineWorker(_offline_task(tmp_path))
+    optimizer = type("PopulationOptimizer", (), {"hypervolume_history": [0.1]})()
+    worker._single_objective = False
+    worker._population_multi_objective = True
+    worker._optimizer = optimizer
+
+    assert worker._live_hypervolume_updates() == [0.1]
+    assert worker._live_hypervolume_updates() == []
+
+    optimizer.hypervolume_history.append(0.25)
+    assert worker._live_hypervolume_updates() == [0.25]
+    assert worker._live_hypervolume_updates() == []
+
+
 @pytest.fixture
 def worker_patches(monkeypatch):
     created_backends = []
@@ -151,19 +175,36 @@ def test_engine_worker_reports_restore_failure_after_run_error(tmp_path, worker_
     assert created_backends[0].close_called
 
 
+def test_engine_worker_stop_does_not_restore(tmp_path, worker_patches, monkeypatch):
+    patch_backend, created_backends = worker_patches
+    patch_backend(fail_restore=False)
+    monkeypatch.setattr(
+        "gotacc.runners.task_runner.build_optimizer",
+        lambda **kwargs: _EvaluatingOptimizer(kwargs["objective_callable"]),
+    )
+    worker = EngineWorker(_offline_task(tmp_path))
+    finished = []
+    worker.sig_finished.connect(finished.append)
+    worker.request_stop()
+
+    worker.run()
+
+    assert finished[0]["state"] == "Stopped"
+    assert finished[0]["restore_state"] == "not_requested"
+    assert not created_backends[0].restore_called
+
+
 @pytest.mark.parametrize(
-    ("restore_enabled", "fail_restore", "expected_state", "expected_restore_state"),
+    ("fail_restore", "expected_state", "expected_restore_state"),
     [
-        (True, False, "Aborted", "restored"),
-        (True, True, "Restore Failed", "failed"),
-        (False, False, "Aborted", "disabled"),
+        (False, "Aborted", "restored"),
+        (True, "Restore Failed", "failed"),
     ],
 )
 def test_engine_worker_reports_abort_restore_outcome(
     tmp_path,
     worker_patches,
     monkeypatch,
-    restore_enabled,
     fail_restore,
     expected_state,
     expected_restore_state,
@@ -174,24 +215,21 @@ def test_engine_worker_reports_abort_restore_outcome(
         "gotacc.runners.task_runner.build_optimizer",
         lambda **kwargs: _EvaluatingOptimizer(kwargs["objective_callable"]),
     )
-    task = _offline_task(tmp_path)
-    task["machine"] = {"restore_on_abort": restore_enabled}
-    worker = EngineWorker(task)
+    worker = EngineWorker(_offline_task(tmp_path))
     statuses = []
     finished = []
     warnings = []
     worker.sig_status.connect(statuses.append)
     worker.sig_finished.connect(finished.append)
     worker.sig_warning.connect(warnings.append)
-    worker.request_stop()
+    worker.request_abort_restore()
 
     worker.run()
 
     assert finished[0]["state"] == expected_state
     assert finished[0]["restore_state"] == expected_restore_state
-    assert created_backends[0].restore_called is restore_enabled
+    assert created_backends[0].restore_called
     assert created_backends[0].close_called
-    if restore_enabled:
-        assert any(payload.get("state") == "Restoring" for payload in statuses)
+    assert any(payload.get("state") == "Restoring" for payload in statuses)
     if fail_restore:
         assert warnings == ["Restore initial failed after abort: restore failed"]

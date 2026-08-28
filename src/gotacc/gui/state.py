@@ -50,6 +50,7 @@ class GuiSessionState:
     last_test_read_status: str = "Not checked"
     last_test_read_detail: str = ""
     machine_check_identity: dict[str, Any] = field(default_factory=dict)
+    viewing_archived_run: bool = False
 
     def add_recent_activity(self, entry: dict[str, Any], limit: int = 12) -> None:
         normalized = {
@@ -73,6 +74,7 @@ class GuiSessionState:
         self.hypervolume_history.clear()
 
     def reset_for_run_start(self, objective_dim: int) -> None:
+        self.viewing_archived_run = False
         self.run.reset_for_start()
         self.reset_plot_data(objective_dim)
         self.eval_history.clear()
@@ -82,6 +84,7 @@ class GuiSessionState:
         self.latest_result_plot_paths.clear()
 
     def reset_results_snapshot(self) -> None:
+        self.viewing_archived_run = False
         self.latest_task_snapshot.clear()
         self.latest_task_identity.clear()
         self.latest_eval_payload.clear()
