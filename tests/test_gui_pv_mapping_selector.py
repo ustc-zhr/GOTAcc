@@ -1,7 +1,7 @@
 import pytest
 
 
-def test_pv_mapping_search_filters_rows_without_losing_selection(monkeypatch):
+def test_pv_mapping_search_and_group_filters_without_losing_selection(monkeypatch):
     pytest.importorskip("PyQt5")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
 
@@ -39,7 +39,10 @@ def test_pv_mapping_search_filters_rows_without_losing_selection(monkeypatch):
         True,
     )
 
-    dialog.lineEdit_filter.setText("orbit bpm")
+    search = dialog._search_boxes["knob"]
+    group_box = dialog._group_boxes["knob"]
+
+    search.setText("orbit bpm")
     app.processEvents()
 
     assert table.isRowHidden(0)
@@ -52,8 +55,15 @@ def test_pv_mapping_search_filters_rows_without_losing_selection(monkeypatch):
     )
     assert dialog.selected_entries("knob") == entries
 
-    dialog.lineEdit_filter.clear()
+    search.clear()
     app.processEvents()
     assert not table.isRowHidden(0)
     assert not table.isRowHidden(1)
+
+    group_box.setCurrentText("matching")
+    app.processEvents()
+    assert not table.isRowHidden(0)
+    assert table.isRowHidden(1)
+    assert dialog.selected_entries("knob") == entries
+    assert dialog._status_labels["knob"].text() == "Visible: 1/2    Selected: 2"
     dialog.close()
