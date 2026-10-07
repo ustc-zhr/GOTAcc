@@ -105,7 +105,7 @@ class MachineWriteConfirmationDialog(QDialog):
         summary_box = QGroupBox("Machine Write Authorization", self)
         summary_layout = QFormLayout(summary_box)
         machine = task.get("machine", {}) or {}
-        restore_text = "Enabled" if bool(machine.get("restore_on_abort", True)) else "Disabled"
+        restore_text = "Always enabled"
         readback_text = "Enabled" if bool(machine.get("readback_check", False)) else "Disabled"
         summary_rows = [
             ("Task", self.task_cfg.meta.name),
@@ -378,7 +378,9 @@ class PVMappingSelectorDialog(QDialog):
             group_box.addItem(group, group)
 
         select_visible_button = QPushButton("Select Visible", tab)
+        select_visible_button.setObjectName(f"pushButton_selectVisible_{role}")
         clear_selection_button = QPushButton("Clear Selection", tab)
+        clear_selection_button.setObjectName(f"pushButton_clearSelection_{role}")
         filters.addWidget(search, 1)
         filters.addWidget(group_box)
         filters.addWidget(select_visible_button)
@@ -567,7 +569,7 @@ class BoundsToolsDialog(QDialog):
         ):
             button.setProperty("inlineAction", True)
             button.setFixedWidth(112)
-            button.setFixedHeight(28)
+            button.setFixedHeight(30)
         self.ui.buttonBox.rejected.connect(self.reject)
 
 
