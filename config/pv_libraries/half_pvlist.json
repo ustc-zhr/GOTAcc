@@ -1,6 +1,6 @@
 {
   "machine": "HALF",
-  "description": "HALF linac real-machine PV library generated from half_linac configs/machines/half/control_backends/real.json",
+  "description": "HALF linac real-machine PV library",
   "knobs": [
     {
       "name": "SM01-DX",
@@ -2189,6 +2189,27 @@
       "group": "profile-image"
     },
     {
+      "name": "PRF02_energy_center",
+      "pv_name": "IN:BD:PRF02:H:E0",
+      "readback": "IN:BD:PRF02:H:E0",
+      "group": "energy-spectrum",
+      "note": "Center energy"
+    },
+    {
+      "name": "PRF02_energy_deviation",
+      "pv_name": "IN:BD:PRF02:H:E",
+      "readback": "IN:BD:PRF02:H:E",
+      "group": "energy-spectrum",
+      "note": "Energy deviation"
+    },
+    {
+      "name": "PRF02_energy_spread",
+      "pv_name": "IN:BD:PRF02:H:DE",
+      "readback": "IN:BD:PRF02:H:DE",
+      "group": "energy-spectrum",
+      "note": "Energy spread"
+    },
+    {
       "name": "PRF03_sigx",
       "pv_name": "IN:BD:PRF03:H:SIZE",
       "readback": "IN:BD:PRF03:H:SIZE",
@@ -2427,6 +2448,27 @@
       "pv_name": "IN:BD:ENY:image1:ArrayData",
       "readback": "IN:BD:ENY:image1:ArrayData",
       "group": "profile-image"
+    },
+    {
+      "name": "ENY_energy_center",
+      "pv_name": "IN:BD:ENY:H:E0",
+      "readback": "IN:BD:ENY:H:E0",
+      "group": "energy-spectrum",
+      "note": "Center energy"
+    },
+    {
+      "name": "ENY_energy_deviation",
+      "pv_name": "IN:BD:ENY:H:E",
+      "readback": "IN:BD:ENY:H:E",
+      "group": "energy-spectrum",
+      "note": "Energy deviation"
+    },
+    {
+      "name": "ENY_energy_spread",
+      "pv_name": "IN:BD:ENY:H:DE",
+      "readback": "IN:BD:ENY:H:DE",
+      "group": "energy-spectrum",
+      "note": "Energy spread"
     },
     {
       "name": "KLY01_voltage_readback",
