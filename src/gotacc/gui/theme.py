@@ -472,7 +472,14 @@ QGroupBox#groupBox_guard {
     padding-top: 0px;
 }
 
-QGroupBox#groupBox_runtime,
+QGroupBox#groupBox_runtime {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    margin-top: 0px;
+    padding: 0px;
+}
+
 QGroupBox#groupBox_actions,
 QGroupBox#groupBox_livePlots,
 QGroupBox#groupBox_events,

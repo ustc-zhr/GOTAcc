@@ -921,7 +921,9 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         assert not window.offline_ui.frame_offlineHero.isVisible()
         assert not window.offline_ui.frame_offlinePlaceholder.isVisible()
         assert window.offline_ui.groupBox_benchmark.title() == "Benchmark"
-        assert window.run_ui.groupBox_runtime.maximumHeight() == 94
+        assert window.run_ui.groupBox_runtime.title() == ""
+        assert window.run_ui.groupBox_runtime.maximumHeight() == 56
+        assert window.run_ui.gridLayout_runtime.contentsMargins().top() == 6
         assert window.run_ui.groupBox_actions.isHidden()
         assert window.run_ui.pushButton_stop.parent() is window.run_ui.groupBox_runtime
         assert window.run_ui.pushButton_abortRestore.parent() is window.run_ui.groupBox_runtime

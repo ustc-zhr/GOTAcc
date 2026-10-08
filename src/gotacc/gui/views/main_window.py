@@ -916,9 +916,10 @@ class MainWindow(QMainWindow):
             frame.setFrameShape(QFrame.NoFrame)
 
     def _compact_run_snapshot(self) -> None:
-        self.run_ui.groupBox_runtime.setMaximumHeight(94)
+        self.run_ui.groupBox_runtime.setTitle("")
+        self.run_ui.groupBox_runtime.setMaximumHeight(56)
         self.run_ui.groupBox_runtime.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.run_ui.gridLayout_runtime.setContentsMargins(10, 22, 10, 8)
+        self.run_ui.gridLayout_runtime.setContentsMargins(0, 6, 0, 6)
         self.run_ui.gridLayout_runtime.setHorizontalSpacing(0)
         self.run_ui.gridLayout_runtime.setVerticalSpacing(0)
 
