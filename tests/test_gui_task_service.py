@@ -727,9 +727,23 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         preview_button = window.ui.pushButton_preview
         assert preview_button.text() == "Preview Task"
         assert window.ui.label_validationStatus.text() == "Not validated"
-        assert preview_button.parent() is window.ui.groupBox_runActions
+        assert preview_button.parent() is window.task_ui.frame_builderHero
         assert window.ui.label_validationStatus.parent() is window.ui.groupBox_runActions
-        assert preview_button.isVisible()
+        assert not preview_button.isHidden()
+        assert preview_button.property("inlineAction") is True
+        assert preview_button.property("runControl") is False
+        assert preview_button.size().width() == 100
+        assert preview_button.size().height() == 24
+        assert (
+            window.task_ui.horizontalLayout_builderSummaryActions.indexOf(
+                window.task_ui.label_builderSummary
+            )
+            == 0
+        )
+        assert (
+            window.task_ui.horizontalLayout_builderSummaryActions.indexOf(preview_button)
+            == 1
+        )
 
         preview_dialogs = []
         export_requests = []
@@ -782,13 +796,13 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         assert window.ui.label_cardAlgorithmValue.text() == "Offline benchmark"
         assert window.ui.label_cardAlgorithmValue.property("tone") == "success"
         run_action_buttons = [
-            window.ui.pushButton_preview,
             window.ui.pushButton_validateTask,
             window.ui.pushButton_startRun,
             window.ui.pushButton_stopRun,
         ]
         assert len({button.height() for button in run_action_buttons}) == 1
-        assert len({button.width() for button in run_action_buttons}) == 1
+        assert window.ui.pushButton_startRun.width() == window.ui.pushButton_stopRun.width()
+        assert window.ui.pushButton_validateTask.width() > window.ui.pushButton_startRun.width()
         assert all(button.property("compact") is True for button in run_action_buttons)
         assert all(button.property("runControl") is True for button in run_action_buttons)
         assert all(
@@ -802,16 +816,15 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         status_index = window.ui.gridLayout_runActions.indexOf(window.ui.label_validationStatus)
         assert window.ui.gridLayout_runActions.getItemPosition(status_index) == (0, 0, 1, 2)
         preview_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_preview)
-        assert window.ui.gridLayout_runActions.getItemPosition(preview_index) == (1, 0, 1, 1)
+        assert preview_index == -1
         validate_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_validateTask)
-        assert window.ui.gridLayout_runActions.getItemPosition(validate_index) == (1, 1, 1, 1)
+        assert window.ui.gridLayout_runActions.getItemPosition(validate_index) == (1, 0, 1, 2)
         stop_index = window.ui.gridLayout_runActions.indexOf(window.ui.pushButton_stopRun)
         assert window.ui.gridLayout_runActions.getItemPosition(stop_index) == (2, 1, 1, 1)
         assert window.machine_ui.groupBox_connection.isHidden()
         assert window.machine_ui.splitter_top.isHidden()
         assert window.machine_ui.label_machineTitle.parent() is window.machine_ui.frame_machineHero
-        assert window.machine_ui.label_status.parent() is window.machine_ui.frame_machineHero
-        assert window.machine_ui.label_status.text() == "EPICS"
+        assert window.machine_ui.label_status.isHidden()
         assert window.machine_ui.label_statusValue.parent() is window.machine_ui.frame_machineHero
         assert window.machine_ui.label_statusValue.text() == "Not checked"
         assert window.machine_ui.pushButton_test.parent() is window.machine_ui.frame_machineHero
@@ -820,7 +833,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         assert not window.machine_ui.checkBox_autoConnect.isVisible()
         assert not window.machine_ui.pushButton_connect.isVisible()
         assert not window.machine_ui.pushButton_disconnect.isVisible()
-        assert window.machine_ui.pushButton_test.text() == "Check"
+        assert window.machine_ui.pushButton_test.text() == "EPICS Check"
         assert window.machine_ui.label_timeout.text() == "PV Read Timeout [s]"
         assert window.machine_ui.label_timeout.parent() is window.machine_ui.groupBox_guard
         assert window.machine_ui.doubleSpinBox_timeout.parent() is window.machine_ui.groupBox_guard
@@ -1044,6 +1057,12 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         assert window.run_ui.splitter_main.orientation() == Qt.Vertical
         assert window.run_ui.splitter_runRight.orientation() == Qt.Horizontal
         assert not window.run_ui.splitter_main.childrenCollapsible()
+        assert not window.run_ui.splitter_main.isCollapsible(0)
+        assert window.run_ui.splitter_main.isCollapsible(1)
+        window.run_ui.splitter_main.setSizes([1, 0])
+        app.processEvents()
+        assert window.run_ui.splitter_main.sizes()[1] == 0
+        window.run_ui.splitter_main.setSizes([430, 240])
         assert not window.run_ui.splitter_runRight.childrenCollapsible()
         assert window.run_ui.tabWidget_plots.documentMode()
         assert window.run_ui.frame_obj.property("plotHost") is True
@@ -1062,6 +1081,13 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         ):
             assert button.property("compact") is True
             assert button.height() <= 30
+        refresh_archives = window.ui.pushButton_refreshRunArchives
+        assert refresh_archives.text() == ""
+        assert not refresh_archives.icon().isNull()
+        assert refresh_archives.property("iconOnly") is True
+        assert refresh_archives.width() == 28
+        assert refresh_archives.accessibleName() == "Refresh archived runs"
+        assert "Refresh archived runs" in refresh_archives.toolTip()
         assert window.ui.groupBox_convergencePlot.title() == ""
         assert window.ui.groupBox_convergencePlot.property("plotPanel") is True
         assert window.ui.frame_plotConvergence.property("plotHost") is True

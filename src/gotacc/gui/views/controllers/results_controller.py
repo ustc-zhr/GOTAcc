@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTreeWidgetItem,
@@ -66,7 +67,11 @@ class ResultsController:
             return
         layout = self.window.ui.verticalLayout_runList
         actions = QHBoxLayout()
-        refresh = QPushButton("Refresh", self.window.ui.groupBox_runList)
+        refresh = QPushButton(self.window.ui.groupBox_runList)
+        refresh.setIcon(self.window.style().standardIcon(QStyle.SP_BrowserReload))
+        refresh.setProperty("iconOnly", True)
+        refresh.setFixedWidth(28)
+        refresh.setAccessibleName("Refresh archived runs")
         load = QPushButton("Load Run", self.window.ui.groupBox_runList)
         open_dir = QPushButton("Open Folder", self.window.ui.groupBox_runList)
         for button in (refresh, load, open_dir):
