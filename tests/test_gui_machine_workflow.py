@@ -391,6 +391,57 @@ def test_objective_display_labels_include_online_aggregation(tmp_path, window):
     assert "weight is not applied by the offline backend" in offline_tooltip
 
 
+def test_reference_point_field_marks_optimizer_space_and_shows_conversion(tmp_path, window):
+    from gotacc.gui.views.tool_dialogs import AlgorithmDetailDialog
+
+    task = _online_task(tmp_path)
+    task["objective_type"] = "Multi Objective"
+    task["algorithm"] = "MOBO"
+    task["objectives"] = [
+        {
+            **task["objectives"][0],
+            "Direction": "minimize",
+            "Weight": "2",
+        },
+        {
+            "Enable": "Y",
+            "Name": "BPM Sum",
+            "Direction": "maximize",
+            "Weight": "0.5",
+            "Samples": "1",
+            "Math": "mean",
+        },
+    ]
+    task["machine"]["mapping"].append(
+        {
+            "Role": "objective",
+            "Name": "BPM Sum",
+            "PV Name": "TEST:BPM:SUM",
+            "Readback": "",
+        }
+    )
+    window.task_builder_controller.apply_task_payload(task, goto_builder=False)
+
+    algorithm, specs = window.task_builder_controller._recommended_param_specs(
+        "MOBO", window.task_builder_controller.dynamic_table_records()
+    )
+    specs = window.task_builder_controller._algorithm_detail_specs_with_context(specs)
+    dialog = AlgorithmDetailDialog(algorithm=algorithm, specs=specs, records=[])
+
+    assert dialog._labels["ref_point"].text() == "Optimizer-space Reference Point"
+    tooltip = dialog._editors["ref_point"][0].toolTip()
+    assert "Values are passed directly" in tooltip
+    assert "Transmission ↓ · w=2: r_optimizer[0] = -1 × 2 × r_physical[0]" in tooltip
+    assert "BPM Sum ↑ · w=0.5: r_optimizer[1] = +1 × 0.5 × r_physical[1]" in tooltip
+    assert dialog._labels["ref_point"].toolTip() == tooltip
+    dialog.deleteLater()
+
+    window.task_ui.comboBox_mode.setCurrentText("Offline")
+    offline_tooltip = window.task_builder_controller._reference_point_optimizer_space_note()
+    assert "r_optimizer[0] = -1 × r_physical[0]" in offline_tooltip
+    assert "configured w=2 is not applied offline" in offline_tooltip
+
+
 def test_online_std_objective_requires_multiple_samples(tmp_path):
     task = _online_task(tmp_path)
     task["objectives"][0]["Math"] = "std"

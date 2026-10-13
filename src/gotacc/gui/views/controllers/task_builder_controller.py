@@ -108,7 +108,10 @@ PARAM_NOTES = {
     "tol": "RCDS relative convergence tolerance.",
     "maxIt": "RCDS maximum direction-set iterations.",
     "maximize": "Maximize the objective when true; minimize when false.",
-    "ref_point": "Reference point as JSON array.",
+    "ref_point": (
+        "Optimizer-space reference point as a JSON array. Values are passed directly; "
+        "the GUI does not convert physical objective values."
+    ),
     "pop_size": "Population size.",
     "n_generations": "Generation count. Budget is still clipped by Max Evaluations.",
     "evals_per_gen": "MGGPO true evaluations selected from each generated offspring pool.",
@@ -927,11 +930,63 @@ class TaskBuilderController:
         state = "Recommended" if custom_count == 0 else f"{custom_count} custom"
         summary_label.setText(f"{algorithm_key} · {state}")
 
+    def _reference_point_optimizer_space_note(self) -> str:
+        base = PARAM_NOTES["ref_point"]
+        try:
+            task = self.view.current_task()
+        except Exception:
+            return base
+
+        objectives = TaskService._enabled_rows(task.get("objectives", []))
+        if not objectives:
+            return base
+
+        online = str(task.get("mode", "")).strip().lower() == "online epics"
+        lines = [
+            base,
+            "Each component must be worse than feasible optimizer scores for hypervolume.",
+            "",
+            "Current task conversion:",
+        ]
+        for index, row in enumerate(objectives):
+            name = str(row.get("Name", "")).strip() or f"f{index}"
+            direction = str(row.get("Direction", "")).strip().lower()
+            factor = "-1" if direction == "minimize" else "+1"
+            arrow = "↓" if direction == "minimize" else "↑"
+            try:
+                weight = float(row.get("Weight", 1.0) or 1.0)
+                weight_text = f"{weight:.6g}"
+            except (TypeError, ValueError):
+                weight_text = str(row.get("Weight", "")) or "invalid"
+
+            if online:
+                formula = (
+                    f"r_optimizer[{index}] = {factor} × {weight_text} × "
+                    f"r_physical[{index}]"
+                )
+                lines.append(f"{name} {arrow} · w={weight_text}: {formula}")
+            else:
+                formula = f"r_optimizer[{index}] = {factor} × r_physical[{index}]"
+                lines.append(
+                    f"{name} {arrow}: {formula}; configured w={weight_text} is not applied offline."
+                )
+        return "\n".join(lines)
+
+    def _algorithm_detail_specs_with_context(
+        self, specs: list[tuple[str, str, str, str]]
+    ) -> list[tuple[str, str, str, str]]:
+        reference_note = self._reference_point_optimizer_space_note()
+        return [
+            (name, default, dtype, reference_note if name == "ref_point" else note)
+            for name, default, dtype, note in specs
+        ]
+
     def open_algorithm_detail_dialog(self) -> None:
         algorithm_key, specs = self._recommended_param_specs(
             self.window.task_ui.comboBox_algorithm.currentText(),
             self.dynamic_table_records(),
         )
+        specs = self._algorithm_detail_specs_with_context(specs)
         dialog = AlgorithmDetailDialog(
             algorithm=algorithm_key,
             specs=specs,
