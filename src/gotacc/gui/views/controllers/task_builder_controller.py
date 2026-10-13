@@ -32,7 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..main_window import MainWindow
 
 try:
-    from ...services.task_service import TaskService
+    from ...services.task_service import OBJECTIVE_DIRECTIONS, TaskService
     from ..algorithm_ui_specs import parameter_ui_spec
     from ..tool_dialogs import AlgorithmDetailDialog
     from ..tool_dialogs import BoundsToolsDialog
@@ -42,7 +42,7 @@ except ImportError:  # pragma: no cover - local script fallback
     for path in (GUI_ROOT, GUI_ROOT / "services", GUI_ROOT / "views"):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    from task_service import TaskService
+    from task_service import OBJECTIVE_DIRECTIONS, TaskService
     from algorithm_ui_specs import parameter_ui_spec
     from tool_dialogs import AlgorithmDetailDialog
     from tool_dialogs import BoundsToolsDialog
@@ -1072,6 +1072,35 @@ class TaskBuilderController:
         finally:
             table.blockSignals(old_state)
 
+    def _install_objective_direction_widgets(self, table) -> None:
+        if table is not self.window.task_ui.tableWidget_objectives:
+            return
+        headers = self.table_headers(table)
+        if "Direction" not in headers:
+            return
+        direction_col = headers.index("Direction")
+        old_state = table.blockSignals(True)
+        try:
+            for row in range(table.rowCount()):
+                current_item = table.item(row, direction_col)
+                current_value = TaskService.validate_objective_direction(
+                    current_item.text() if current_item is not None else None,
+                    row_index=row,
+                )
+                combo = QComboBox(table)
+                combo.addItems(list(OBJECTIVE_DIRECTIONS))
+                combo.setCurrentText(current_value)
+                combo.currentTextChanged.connect(
+                    lambda *_args: self.refresh_task_preview()
+                )
+                table.setCellWidget(row, direction_col, combo)
+                if current_item is None:
+                    table.setItem(row, direction_col, QTableWidgetItem(combo.currentText()))
+                else:
+                    current_item.setText(combo.currentText())
+        finally:
+            table.blockSignals(old_state)
+
     def _current_write_link_variable_names(self) -> list[str]:
         rows = TaskService.table_to_records(self.window.task_ui.tableWidget_variables)
         enabled_rows = TaskService._enabled_rows(rows)
@@ -1548,6 +1577,7 @@ class TaskBuilderController:
                     table.setItem(row, col, QTableWidgetItem(str(value)))
         finally:
             table.blockSignals(old_state)
+        self._install_objective_direction_widgets(table)
         self._install_objective_math_widgets(table)
         self.refresh_write_link_editors()
         self.refresh_task_table_empty_states()
@@ -1592,6 +1622,7 @@ class TaskBuilderController:
         table.insertRow(row)
         for column, value in enumerate(defaults):
             table.setItem(row, column, QTableWidgetItem(value))
+        self._install_objective_direction_widgets(table)
         self._install_objective_math_widgets(table)
         table.selectRow(row)
         table.setCurrentCell(row, 1)
@@ -1653,6 +1684,7 @@ class TaskBuilderController:
         source_label: str | None = None,
         goto_builder: bool = True,
     ) -> None:
+        TaskService.validate_objective_directions(task.get("objectives", []))
         self.window._suppress_autofill = True
         try:
             self.window.task_ui.lineEdit_taskName.setText(str(task.get("task_name", "untitled_task")))

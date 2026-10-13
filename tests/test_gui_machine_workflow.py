@@ -336,17 +336,22 @@ def test_pv_check_covers_current_contract_and_becomes_stale(tmp_path, window, mo
 def test_objective_display_labels_include_online_aggregation(tmp_path, window):
     task = _online_task(tmp_path)
     task["objectives"][0]["Samples"] = "5"
+    task["objectives"][0]["Weight"] = "2.5"
 
     assert window.results_controller.objective_labels(1, task=task) == [
-        "Transmission [mean] ↑"
+        "Transmission [mean] ↑ · w=2.5"
     ]
     assert (
         window.results_controller.format_objective_values([0.9821], task=task)
-        == "Transmission [mean] = 0.9821"
+        == "Transmission [mean] ↑ · w=2.5 = 0.9821"
     )
-    assert "mean over 5 sample(s)" in window.results_controller.objective_sampling_tooltip(
-        1, task=task
-    )
+    tooltip = window.results_controller.objective_sampling_tooltip(1, task=task)
+    assert "mean over 5 sample(s)" in tooltip
+    assert "optimizer score = +1 × 2.5 × aggregated objective" in tooltip
+
+    assert window.run_ui.tableWidget_recent.horizontalHeaderItem(4).text() == "Optimizer Score"
+    assert window.ui.tableWidget_history.horizontalHeaderItem(2).text() == "Optimizer Score"
+    assert window.run_ui.groupBox_table.title() == "Evaluation History · Optimizer Scores"
 
     window.state.latest_task_snapshot = copy.deepcopy(task)
     window.state.objective_dim = 1
@@ -356,25 +361,34 @@ def test_objective_display_labels_include_online_aggregation(tmp_path, window):
         window.obj_canvas, title="Objective History"
     )
     axis = window.obj_canvas.figure.axes[0]
-    assert axis.get_ylabel() == "Transmission [mean] ↑"
-    assert axis.get_title() == "Transmission [mean] ↑ History"
+    assert axis.get_ylabel() == "Optimizer Score · Transmission [mean] ↑ · w=2.5"
+    assert axis.get_title() == "Transmission [mean] ↑ · w=2.5 · Optimizer Score History"
     window.runtime_status_controller.update_runtime_labels()
-    assert window.run_ui.label_bestTitle.text() == "Best Transmission [mean]"
+    assert (
+        window.run_ui.label_bestTitle.text()
+        == "Best Optimizer Score · Transmission [mean] ↑ · w=2.5"
+    )
     assert "mean over 5 sample(s)" in window.run_ui.label_bestTitle.toolTip()
 
     task["objectives"][0]["Math"] = "std"
     task["objectives"][0]["Direction"] = "minimize"
     assert window.results_controller.objective_labels(1, task=task) == [
-        "Transmission [std] ↓"
+        "Transmission [std] ↓ · w=2.5"
     ]
     tooltip = window.results_controller.objective_sampling_tooltip(1, task=task)
     assert "population standard deviation (ddof=0)" in tooltip
+    assert "optimizer score = -1 × 2.5 × aggregated objective" in tooltip
 
     offline_task = copy.deepcopy(task)
     offline_task["mode"] = "Offline"
     assert window.results_controller.objective_labels(1, task=offline_task) == [
-        "Transmission ↓"
+        "Transmission ↓ · w=2.5"
     ]
+    offline_tooltip = window.results_controller.objective_sampling_tooltip(
+        1, task=offline_task
+    )
+    assert "configured weight=2.5" in offline_tooltip
+    assert "weight is not applied by the offline backend" in offline_tooltip
 
 
 def test_online_std_objective_requires_multiple_samples(tmp_path):

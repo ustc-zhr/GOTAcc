@@ -165,6 +165,49 @@ def test_offline_benchmark_templates_include_complete_task_rows():
     assert len(TaskService.offline_benchmark_template("dtlz2")["variables"]) == 3
 
 
+@pytest.mark.parametrize(
+    "direction",
+    [None, "", "min", "MAXIMIZE", " maximize ", "minimise"],
+)
+def test_objective_direction_validation_rejects_noncanonical_values(
+    tmp_path,
+    direction,
+):
+    task = _offline_task(tmp_path)
+    task["objectives"][0]["Direction"] = direction
+
+    valid, errors = TaskService.validate_task_data(task)
+
+    assert not valid
+    assert any("invalid Direction" in error for error in errors)
+    with pytest.raises(ValueError, match="invalid Direction"):
+        TaskService.build_task_config(task)
+
+
+def test_objective_direction_validation_requires_explicit_value(tmp_path):
+    task = _offline_task(tmp_path)
+    task["objectives"][0].pop("Direction")
+
+    valid, errors = TaskService.validate_task_data(task)
+
+    assert not valid
+    assert any("invalid Direction" in error for error in errors)
+    with pytest.raises(ValueError, match="invalid Direction"):
+        TaskService.build_task_config(task)
+
+
+def test_minimize_direction_is_converted_to_maximize_convention(tmp_path):
+    task = _offline_task(tmp_path)
+    task["objectives"][0]["Direction"] = "minimize"
+
+    valid, errors = TaskService.validate_task_data(task)
+    cfg = TaskService.build_task_config(task)
+    value = float(np.asarray(cfg.backend.kwargs["func"](np.asarray([1.0]))).reshape(-1)[0])
+
+    assert valid, errors
+    assert value == pytest.approx(1.0)
+
+
 def test_offline_benchmark_selection_autofills_tables_without_overwriting_loaded_project(
     monkeypatch,
     tmp_path,
@@ -200,6 +243,56 @@ def test_offline_benchmark_selection_autofills_tables_without_overwriting_loaded
     assert restored["test_function"] == "zdt2"
     assert restored["variables"][0]["Name"] == "custom_x"
     assert restored["objectives"][0]["Name"] == "custom_f"
+    window.close()
+
+
+def test_objective_direction_uses_restricted_combo_and_round_trips(monkeypatch, tmp_path):
+    pytest.importorskip("PyQt5")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+
+    from PyQt5.QtWidgets import QApplication, QComboBox
+
+    import gotacc.gui.main  # noqa: F401 - configures Qt runtime paths
+    from gotacc.gui.views.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    task = _offline_task(tmp_path)
+    task["objectives"][0].update(
+        {"Direction": "minimize", "Samples": "1", "Math": "mean"}
+    )
+
+    window.task_builder_controller.apply_task_payload(task, goto_builder=False)
+    app.processEvents()
+
+    table = window.task_ui.tableWidget_objectives
+    headers = [
+        table.horizontalHeaderItem(column).text()
+        for column in range(table.columnCount())
+    ]
+    direction_column = headers.index("Direction")
+    combo = table.cellWidget(0, direction_column)
+    assert isinstance(combo, QComboBox)
+    assert [combo.itemText(index) for index in range(combo.count())] == [
+        "maximize",
+        "minimize",
+    ]
+    assert combo.currentText() == "minimize"
+
+    combo.setCurrentText("maximize")
+    app.processEvents()
+    assert window._current_task()["objectives"][0]["Direction"] == "maximize"
+
+    task["objectives"][0]["Direction"] = "unsupported"
+    with pytest.raises(ValueError, match="invalid Direction"):
+        window.task_builder_controller.apply_task_payload(task, goto_builder=False)
+    app.processEvents()
+    assert table.cellWidget(0, direction_column).currentText() == "maximize"
+    assert window._current_task()["objectives"][0]["Direction"] == "maximize"
+
+    window.task_builder_controller.add_task_table_row("objectives")
+    app.processEvents()
+    assert table.cellWidget(1, direction_column).currentText() == "maximize"
     window.close()
 
 
@@ -972,7 +1065,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         assert window.ui.groupBox_convergencePlot.title() == ""
         assert window.ui.groupBox_convergencePlot.property("plotPanel") is True
         assert window.ui.frame_plotConvergence.property("plotHost") is True
-        assert window.run_ui.groupBox_table.title() == "Evaluation History"
+        assert window.run_ui.groupBox_table.title() == "Evaluation History · Optimizer Scores"
         assert window.run_ui.pushButton_setSelectedEvaluation.text() == "Set Selected to Machine"
         assert not window.run_ui.pushButton_setSelectedEvaluation.isEnabled()
         assert window.ui.widget_resultsTables.isHidden()
@@ -1044,14 +1137,14 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         assert window.ui.tableWidget_paretoSolutions.rowCount() == 2
         assert (
             window.ui.tableWidget_paretoSolutions.item(0, 2).text()
-            == "f1 = -0.2, f2 = -1.4"
+            == "f1 ↑ · w=1 = -0.2, f2 ↑ · w=1 = -1.4"
         )
         window.ui.tableWidget_paretoSolutions.selectRow(1)
         assert window.ui.tableWidget_paretoSelectionDetail.item(0, 1).text() == "1"
         assert window.ui.tableWidget_paretoSelectionDetail.item(1, 1).text() == "no"
         assert (
             window.ui.tableWidget_paretoSelectionDetail.item(2, 1).text()
-            == "f1 = -0.5, f2 = -0.8"
+            == "f1 ↑ · w=1 = -0.5, f2 ↑ · w=1 = -0.8"
         )
 
         archived_task = TaskService.create_run_archive(multi_task)
@@ -1136,9 +1229,14 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         window.state.objective_dim = 1
         window.runtime_status_controller.sync_run_workspace(window.state.latest_task_snapshot)
         window.runtime_status_controller.update_runtime_labels()
-        assert window.run_ui.label_bestTitle.text() == "Best sphere"
-        assert window.run_ui.label_bestTitle.toolTip() == "sphere: maximize."
-        assert window.run_ui.tabWidget_plots.tabText(objective_tab) == "Objective"
+        assert (
+            window.run_ui.label_bestTitle.text()
+            == "Best Optimizer Score · sphere ↑ · w=1"
+        )
+        tooltip = window.run_ui.label_bestTitle.toolTip()
+        assert "sphere: maximize; configured weight=1" in tooltip
+        assert "weight is not applied by the offline backend" in tooltip
+        assert window.run_ui.tabWidget_plots.tabText(objective_tab) == "Optimizer Score"
         window.state.run.phase = "Running"
         window.runtime_status_controller.set_run_phase("Running")
         assert window.label_workspace_run.text() == "Running"
