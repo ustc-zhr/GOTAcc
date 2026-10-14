@@ -331,7 +331,7 @@ class ResultsController:
             title = f"{objective_label} · Optimizer Score Convergence"
         ax.plot(xs, state.objective_history, label=objective_label)
         if state.best_history:
-            ax.plot(xs, state.best_history, label="best-so-far")
+            ax.plot(xs, state.best_history, label="best feasible so far")
         ax.set_title(title)
         ax.set_xlabel("Evaluation")
         ax.set_ylabel(f"Optimizer Score · {objective_label}")
@@ -1061,7 +1061,7 @@ class ResultsController:
         best_label = (
             "Hypervolume"
             if state.objective_dim > 1
-            else f"Best Optimizer Score · {self.objective_labels(1)[0]}"
+            else f"Best Feasible Optimizer Score · {self.objective_labels(1)[0]}"
         )
         summary.addChild(
             QTreeWidgetItem(
@@ -1192,7 +1192,7 @@ class ResultsController:
         best_label = (
             "Hypervolume"
             if state.objective_dim > 1
-            else f"Best Optimizer Score · {self.objective_labels(1)[0]}"
+            else f"Best Feasible Optimizer Score · {self.objective_labels(1)[0]}"
         )
         rows.append(
             (best_label, "--" if state.run.best_value is None else f"{state.run.best_value:.6f}")
@@ -1445,7 +1445,9 @@ class ResultsController:
                 state.objective_history.append(value)
                 if record.get("feasible", True):
                     running_best = value if running_best is None else max(running_best, value)
-                state.best_history.append(value if running_best is None else running_best)
+                state.best_history.append(
+                    float("nan") if running_best is None else running_best
+                )
             elif len(objective_values) >= 2:
                 state.pareto_points.append((float(objective_values[0]), float(objective_values[1])))
             updates = record.get("hypervolume_updates") or []

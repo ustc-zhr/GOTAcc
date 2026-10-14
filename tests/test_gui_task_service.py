@@ -1272,7 +1272,7 @@ def test_gui_main_window_offscreen_smoke(monkeypatch, tmp_path):
         window.runtime_status_controller.update_runtime_labels()
         assert (
             window.run_ui.label_bestTitle.text()
-            == "Best Optimizer Score · sphere ↑ · w=1"
+            == "Best Feasible Optimizer Score · sphere ↑ · w=1"
         )
         tooltip = window.run_ui.label_bestTitle.toolTip()
         assert "sphere: maximize; configured weight=1" in tooltip
