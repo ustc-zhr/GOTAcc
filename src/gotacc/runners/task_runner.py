@@ -29,7 +29,8 @@ from typing import Any
 
 import numpy as np
 
-from gotacc.configs.schema import TaskConfig
+from gotacc.configs.schema import TaskConfig, validate_task_config
+from gotacc.configs.validators import validate_task_config_strict
 from gotacc.interfaces.factory import build_backend
 
 
@@ -345,6 +346,20 @@ def close_backend_if_possible(backend: Any) -> None:
         backend.close()
 
 
+def _run_initialization_step(backend: Any, step):
+    """Run one initialization step and close the backend if it fails.
+
+    Optimization-time failures retain the existing restore behavior below.
+    Initialization failures happen before a run can safely restore, but the
+    backend must still release any resources acquired by ``build_backend()``.
+    """
+    try:
+        return step()
+    except BaseException:
+        close_backend_if_possible(backend)
+        raise
+
+
 # =============================================================================
 # main runner
 # =============================================================================
@@ -354,27 +369,38 @@ def run_task(task_cfg: TaskConfig) -> RunArtifacts:
 
     流程
     ----
-    1. 检查 optimizer / backend 关键配置是否匹配
-    2. build backend
-    3. 读取初始点 x0
-    4. 解析最终绝对边界
-    5. 构造 optimizer
-    6. optimize()
-    7. 可选保存 history / 画图 / set_best
-    8. 返回 RunArtifacts
+    1. 执行基础结构与严格语义校验
+    2. 检查 optimizer / backend 关键配置是否匹配
+    3. build backend
+    4. 读取初始点 x0
+    5. 解析最终绝对边界
+    6. 构造 optimizer
+    7. optimize()
+    8. 可选保存 history / 画图 / set_best
+    9. 返回 RunArtifacts
     """
+    task_cfg = validate_task_config(task_cfg)
+    task_cfg = validate_task_config_strict(task_cfg)
     validate_optimizer_backend_match(task_cfg)
 
     backend = build_backend(task_cfg)
 
     if not hasattr(backend, "init_knob_value"):
+        close_backend_if_possible(backend)
         raise TypeError("Backend must implement init_knob_value().")
 
     if not hasattr(backend, "evaluate"):
+        close_backend_if_possible(backend)
         raise TypeError("Backend must implement evaluate().")
 
-    x0 = np.asarray(backend.init_knob_value(), dtype=float).reshape(-1)
-    bounds = resolve_bounds(task_cfg, x0)
+    x0 = _run_initialization_step(
+        backend,
+        lambda: np.asarray(backend.init_knob_value(), dtype=float).reshape(-1),
+    )
+    bounds = _run_initialization_step(
+        backend,
+        lambda: resolve_bounds(task_cfg, x0),
+    )
 
     optimizer_name = str(task_cfg.optimizer.name).lower()
     objective_callable = backend.evaluate
@@ -395,13 +421,17 @@ def run_task(task_cfg: TaskConfig) -> RunArtifacts:
         "constrained_mg-gpo",
     }:
         if not hasattr(backend, "evaluate_with_constraints"):
+            close_backend_if_possible(backend)
             raise TypeError("Constrained optimizer requires backend.evaluate_with_constraints().")
         objective_callable = backend.evaluate_with_constraints
 
-    optimizer = build_optimizer(
-        task_cfg=task_cfg,
-        objective_callable=objective_callable,
-        bounds=bounds,
+    optimizer = _run_initialization_step(
+        backend,
+        lambda: build_optimizer(
+            task_cfg=task_cfg,
+            objective_callable=objective_callable,
+            bounds=bounds,
+        ),
     )
 
     if task_cfg.runtime.verbose:

@@ -121,7 +121,7 @@ class RuntimeConfig:
     plot_convergence: bool = False
     plot_path: str | None = None
 
-    set_best: bool = True
+    set_best: bool = False
     restore_initial_on_error: bool = True
     restore_initial_on_keyboard_interrupt: bool = True
 

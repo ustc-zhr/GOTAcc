@@ -1,0 +1,208 @@
+{
+  "format_version": 1,
+  "profiles": {
+    "HALF": {
+      "fake_pv": {
+        "evaluate_x": [0.75, -0.5],
+        "initial": [0.5, -0.25],
+        "objective": [-5.0],
+        "policy_state": null,
+        "reads": [
+          ["HALF:HC8:RB", "HALF:VC8:RB"],
+          ["HALF:HC8:RB", "HALF:VC8:RB"],
+          ["HALF:SIGX", "HALF:SIGY"],
+          ["HALF:SIGX", "HALF:SIGY"]
+        ],
+        "writes": [
+          {
+            "kind": "many",
+            "pvs": ["HALF:HC8:SET", "HALF:VC8:SET"],
+            "values": [0.75, -0.5]
+          },
+          {
+            "kind": "many",
+            "pvs": ["HALF:HC8:SET", "HALF:VC8:SET"],
+            "values": [0.5, -0.25]
+          }
+        ]
+      },
+      "task_config": {
+        "backend": {
+          "bounds": [[-3.0, 3.0], [-3.0, 3.0]],
+          "bounds_mode": "absolute",
+          "kwargs": {
+            "best_selector_mode": null,
+            "combine_mode": "weighted_sum",
+            "constraint_bounds": [],
+            "constraint_math": [],
+            "constraint_names": [],
+            "constraint_policies": [],
+            "constraint_pvnames": [],
+            "knob_readback_pvnames": ["HALF:HC8:RB", "HALF:VC8:RB"],
+            "knobs_pvnames": ["HALF:HC8:SET", "HALF:VC8:SET"],
+            "log_path": "<WORKDIR>/save/half_gui_compatibility.opt",
+            "obj_math": ["mean", "mean"],
+            "obj_pvnames": ["HALF:SIGX", "HALF:SIGY"],
+            "obj_samples": 2,
+            "obj_weights": [-1.0, -1.0],
+            "objective_names": ["sigx", "sigy"],
+            "objective_policies": [],
+            "readback_check": true,
+            "readback_tol": 1e-09,
+            "sample_interval": 0.0,
+            "set_interval": 0.0,
+            "variable_names": ["HC8", "VC8"],
+            "write_policy": "none",
+            "write_policy_kwargs": {"pvlinks": []}
+          },
+          "type": "epics"
+        },
+        "meta": {
+          "description": "Synthetic GUI compatibility profile; FakePV only.",
+          "machine": "FAKE-HALF",
+          "name": "half_gui_compatibility",
+          "tags": ["gui", "epics"]
+        },
+        "optimizer": {
+          "kwargs": {
+            "device": "cpu",
+            "n_init": 7,
+            "n_iter": 0,
+            "random_state": 120,
+            "verbose": true
+          },
+          "name": "bo"
+        },
+        "runtime": {
+          "history_path": "<WORKDIR>/save/half_gui_compatibility_history.dat",
+          "plot_convergence": false,
+          "plot_path": "<WORKDIR>/save/half_gui_compatibility_plot.png",
+          "restore_initial_on_error": true,
+          "restore_initial_on_keyboard_interrupt": true,
+          "save_history": true,
+          "set_best": false,
+          "verbose": true
+        }
+      }
+    },
+    "IRFEL": {
+      "fake_pv": {
+        "evaluate_x": [11.0, 0.5],
+        "initial": [10.0, -1.0],
+        "objective": [5.0],
+        "policy_state": {
+          "policy": "delta_link",
+          "rules": [
+            {
+              "readback_tol": 0.01,
+              "scale": -2.0,
+              "source_index": 0,
+              "target_pv": "IRFEL:Q2:SET",
+              "target_readback_pv": "IRFEL:Q2:RB"
+            }
+          ],
+          "source_initial": [10.0],
+          "target_initial": [20.0],
+          "version": 1
+        },
+        "reads": [
+          ["IRFEL:Q1:RB", "IRFEL:HC1:RB"],
+          ["IRFEL:Q2:RB"],
+          ["IRFEL:Q1:RB", "IRFEL:HC1:RB"],
+          ["IRFEL:Q2:RB"],
+          ["IRFEL:ENERGY", "IRFEL:TRANS"],
+          ["IRFEL:ENERGY", "IRFEL:TRANS"]
+        ],
+        "writes": [
+          {
+            "kind": "many",
+            "pvs": ["IRFEL:Q1:SET", "IRFEL:HC1:SET", "IRFEL:Q2:SET"],
+            "values": [11.0, 0.5, 18.0]
+          },
+          {
+            "kind": "many",
+            "pvs": ["IRFEL:Q1:SET", "IRFEL:HC1:SET", "IRFEL:Q2:SET"],
+            "values": [10.0, -1.0, 20.0]
+          }
+        ]
+      },
+      "task_config": {
+        "backend": {
+          "bounds": [[8.0, 12.0], [-2.0, 2.0]],
+          "bounds_mode": "absolute",
+          "kwargs": {
+            "best_selector_mode": null,
+            "combine_mode": "weighted_sum",
+            "constraint_bounds": [],
+            "constraint_math": [],
+            "constraint_names": [],
+            "constraint_policies": [],
+            "constraint_pvnames": [],
+            "knob_readback_pvnames": ["IRFEL:Q1:RB", "IRFEL:HC1:RB"],
+            "knobs_pvnames": ["IRFEL:Q1:SET", "IRFEL:HC1:SET"],
+            "log_path": "<WORKDIR>/save/irfel_gui_compatibility.opt",
+            "obj_math": ["mean", "mean"],
+            "obj_pvnames": ["IRFEL:ENERGY", "IRFEL:TRANS"],
+            "obj_samples": 2,
+            "obj_weights": [-1.0, 1.0],
+            "objective_names": ["fel_energy", "transmission"],
+            "objective_policies": [
+              {
+                "kwargs": {
+                  "change_threshold": 1e-06,
+                  "large_threshold": 1000000.0,
+                  "target_col": 0
+                },
+                "name": "fel_energy_guard"
+              }
+            ],
+            "readback_check": true,
+            "readback_tol": 1e-09,
+            "sample_interval": 0.0,
+            "set_interval": 0.0,
+            "variable_names": ["Q1", "HC1"],
+            "write_policy": "delta_link",
+            "write_policy_kwargs": {
+              "links": [
+                {
+                  "readback_tol": 0.01,
+                  "scale": -2.0,
+                  "source_index": 0,
+                  "target_pv": "IRFEL:Q2:SET",
+                  "target_readback_pv": "IRFEL:Q2:RB"
+                }
+              ]
+            }
+          },
+          "type": "epics"
+        },
+        "meta": {
+          "description": "Synthetic GUI compatibility profile; FakePV only.",
+          "machine": "FAKE-IRFEL",
+          "name": "irfel_gui_compatibility",
+          "tags": ["gui", "epics"]
+        },
+        "optimizer": {
+          "kwargs": {
+            "device": "cpu",
+            "n_init": 7,
+            "n_iter": 0,
+            "random_state": 120,
+            "verbose": true
+          },
+          "name": "bo"
+        },
+        "runtime": {
+          "history_path": "<WORKDIR>/save/irfel_gui_compatibility_history.dat",
+          "plot_convergence": false,
+          "plot_path": "<WORKDIR>/save/irfel_gui_compatibility_plot.png",
+          "restore_initial_on_error": true,
+          "restore_initial_on_keyboard_interrupt": true,
+          "save_history": true,
+          "set_best": false,
+          "verbose": true
+        }
+      }
+    }
+  }
+}
