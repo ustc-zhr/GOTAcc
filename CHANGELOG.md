@@ -2,6 +2,9 @@
 
 ## 1.3.0 - 2026-08-27
 
+- Made CLI/Python runner Best writeback opt-in by default, validated direct
+  `run_task()` inputs before backend construction, and closed initialized
+  backends when runner setup fails
 - Redesigned GOTAcc Studio around a compact half_linac-style control-room
   shell, including dark/light theme switching, a horizontal workspace status
   strip, simplified log panel, and tighter Run-page monitoring

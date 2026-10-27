@@ -1,7 +1,7 @@
 # GOTAcc 论文支撑性可靠性修复记录
 
 基线：`1fd09732f8ee72c2fcb27d2e98d4f3b7889b9b31`
-实施分支：`codex/paper-reliability-fixes`
+实施分支：`feature/paper-reliability-fixes`
 日期：2026-10-27
 
 > 当前 WSL 副本中没有用户所述的 Windows 未提交测试/报告。本轮从指定基线重新建立

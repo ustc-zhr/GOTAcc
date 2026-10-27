@@ -62,6 +62,12 @@ task files; example task files live under `config/task_configs/`, and reusable
 machine PV lists live under `config/pv_libraries/`.
 GUI project drafts saved by `Save Project` live under `config/gui_projects/`.
 
+For CLI and direct Python runner use, writing the optimized Best point back to
+an online machine is opt-in. Set `runtime.set_best: true` in the task config or
+pass `--set-best` explicitly; `--no-set-best` disables writeback even when the
+loaded task enables it. This runner default does not change the GUI's explicit
+post-run confirmation workflow.
+
 Module execution is also supported:
 
 ```bash
