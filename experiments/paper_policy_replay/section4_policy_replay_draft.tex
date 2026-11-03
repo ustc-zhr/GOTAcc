@@ -1,0 +1,72 @@
+% Section 4 insert generated from the executed deterministic replay.
+% Production reference: 010518fbece77a4630684065101033ff8588613d
+\subsection{Deterministic replay of machine-specific diagnostic policies}
+\label{sec:policy_replay}
+
+We evaluated machine-aware diagnostic policies by replaying eight fixed,
+three-sample sequences through the production policy classes without
+communicating with EPICS.  All inputs were synthetic.  They comprised two
+nominal finite sequences, a constant-zero ambiguity control, a constant
+nonzero proxy for a frozen readback, a sustained high-level signal, an isolated
+$10^8$-level spike, and sequences containing NaN or infinity.  The spike
+amplitude reflects the reported order of magnitude of anomalous IRFEL
+energy-meter readings, but the sequence was constructed rather than recorded
+on the machine.  For each sequence, we recorded the arithmetic mean, mean and
+maximum absolute amplitudes, peak-to-peak variation, processed objective, and
+events emitted by the production policy event sink.
+
+Three objective configurations were compared: no policy; the dedicated
+\texttt{FelEnergyGuardPolicy}; and a registry-built
+\texttt{SampleGuardObjectivePolicy}.  The dedicated guard replaced the reduced
+target with zero when the mean absolute sample amplitude exceeded $10^6$ or
+when peak-to-peak variation was below $10^{-6}$.  The declarative rule used the
+named target \texttt{fel\_energy}, the conditions
+\texttt{max\_abs > $10^6$} or \texttt{peak\_to\_peak < $10^{-6}$}, and a
+\texttt{replace: 0} action.  These configurations are not asserted to be
+equivalent for arbitrary inputs; they are compared on the fixed replay.  A
+separate constraint replay configured a named \texttt{orbit\_x} rule to map an
+all-zero BPM sequence outside the accepted interval $[-1,1]$.
+
+\begin{table}[t]
+\centering
+\caption{Observed results for eight synthetic objective sequences.  ``Changed''
+means that the post-policy scalar differed from the arithmetic mean; it is not
+a classification-accuracy measure.}
+\label{tab:policy-replay}
+\begin{tabular}{lrrrr}
+\hline
+Configuration & Changed & Finite & Nominal retained & Observable events \\
+\hline
+No policy & 0/8 & 6/8 & 2/2 & 0 \\
+FEL energy guard & 4/8 & 7/8 & 2/2 & 0$^{\ast}$ \\
+Declarative sample guard & 4/8 & 7/8 & 2/2 & 5 \\
+\hline
+\end{tabular}
+\\[-1mm]
+\footnotesize{$^{\ast}$The production FEL guard does not emit policy events; zero
+events therefore denotes unavailable event observability, not a false
+predicate.}
+\end{table}
+
+Both guards mapped the isolated $[2,10^8,2]$ sequence from its arithmetic mean
+of $3.3333334667\times10^7$ to zero, and both changed all three constructed
+anomaly sequences while preserving both nominal finite sequences.  Thus the
+replay does not show an isolated-spike defect in the dedicated FEL guard and
+does not establish superiority of the general rule.  Instead, it demonstrates
+that the same optimizer-facing evaluation interface can host either a
+machine-specific policy class or a named declarative rule.  The declarative
+guard emitted five observable events, including one for the constant-zero
+control whose numerical value remained zero.  The FEL guard emitted no events
+because its production implementation has no event-emission call; no internal
+trigger log was inferred from its outputs.
+
+Without a policy, NaN and infinity both propagated.  Under either guard, NaN
+still propagated, whereas infinity was replaced because it satisfied the
+amplitude predicate.  This behavior should not be interpreted as comprehensive
+nonfinite-data handling.  In the constraint replay, the normal BPM mean
+remained $0.3$, while the all-zero sequence was mapped to $1.2$, deliberately
+outside $[-1,1]$, and produced one policy event.  The experiment exercised
+\texttt{post\_reduce()} only; it did not test PV acquisition or writes,
+snapshot/restore, GUI transitions, optimizer convergence, or live-machine
+safety.  Frozen-value discrimination also remains intrinsically ambiguous
+when a physically valid signal can be constant.

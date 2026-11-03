@@ -1,0 +1,25 @@
+sequence,input_class,description,samples,sample_count,reduced_mean,mean_abs,max_abs,peak_to_peak,policy,processed_objective,output_changed,output_finite,trigger_observed,event_count,events
+normal,nominal,Nominal varying FEL-energy samples.,"[2.0, 3.0, 4.0]",3,3.0,3.0,4.0,2.0,none,3.0,False,True,False,0,[]
+normal,nominal,Nominal varying FEL-energy samples.,"[2.0, 3.0, 4.0]",3,3.0,3.0,4.0,2.0,fel_energy_guard,3.0,False,True,not_observable,0,[]
+normal,nominal,Nominal varying FEL-energy samples.,"[2.0, 3.0, 4.0]",3,3.0,3.0,4.0,2.0,sample_guard_max_abs,3.0,False,True,False,0,[]
+valid_zero_constant,ambiguity_control,A flat value that can be physically valid; not labelled an anomaly.,"[0.0, 0.0, 0.0]",3,0.0,0.0,0.0,0.0,none,0.0,False,True,False,0,[]
+valid_zero_constant,ambiguity_control,A flat value that can be physically valid; not labelled an anomaly.,"[0.0, 0.0, 0.0]",3,0.0,0.0,0.0,0.0,fel_energy_guard,0.0,False,True,not_observable,0,[]
+valid_zero_constant,ambiguity_control,A flat value that can be physically valid; not labelled an anomaly.,"[0.0, 0.0, 0.0]",3,0.0,0.0,0.0,0.0,sample_guard_max_abs,0.0,False,True,True,1,"[""Policy triggered for fel_energy [replace]: 0 → 0""]"
+stale_constant,synthetic_anomaly,Synthetic proxy for a retained/frozen diagnostic value.,"[7.0, 7.0, 7.0]",3,7.0,7.0,7.0,0.0,none,7.0,False,True,False,0,[]
+stale_constant,synthetic_anomaly,Synthetic proxy for a retained/frozen diagnostic value.,"[7.0, 7.0, 7.0]",3,7.0,7.0,7.0,0.0,fel_energy_guard,0.0,True,True,not_observable,0,[]
+stale_constant,synthetic_anomaly,Synthetic proxy for a retained/frozen diagnostic value.,"[7.0, 7.0, 7.0]",3,7.0,7.0,7.0,0.0,sample_guard_max_abs,0.0,True,True,True,1,"[""Policy triggered for fel_energy [replace]: 7 → 0""]"
+high_level,synthetic_anomaly,Synthetic sustained high-level threshold case.,"[2000000.0, 3000000.0, 4000000.0]",3,3000000.0,3000000.0,4000000.0,2000000.0,none,3000000.0,False,True,False,0,[]
+high_level,synthetic_anomaly,Synthetic sustained high-level threshold case.,"[2000000.0, 3000000.0, 4000000.0]",3,3000000.0,3000000.0,4000000.0,2000000.0,fel_energy_guard,0.0,True,True,not_observable,0,[]
+high_level,synthetic_anomaly,Synthetic sustained high-level threshold case.,"[2000000.0, 3000000.0, 4000000.0]",3,3000000.0,3000000.0,4000000.0,2000000.0,sample_guard_max_abs,0.0,True,True,True,1,"[""Policy triggered for fel_energy [replace]: 3e+06 → 0""]"
+irfel_1e8_spike,synthetic_anomaly,Synthetic isolated spike at the reported IRFEL anomaly scale.,"[2.0, 100000000.0, 2.0]",3,33333334.666666668,33333334.666666668,100000000.0,99999998.0,none,33333334.666666668,False,True,False,0,[]
+irfel_1e8_spike,synthetic_anomaly,Synthetic isolated spike at the reported IRFEL anomaly scale.,"[2.0, 100000000.0, 2.0]",3,33333334.666666668,33333334.666666668,100000000.0,99999998.0,fel_energy_guard,0.0,True,True,not_observable,0,[]
+irfel_1e8_spike,synthetic_anomaly,Synthetic isolated spike at the reported IRFEL anomaly scale.,"[2.0, 100000000.0, 2.0]",3,33333334.666666668,33333334.666666668,100000000.0,99999998.0,sample_guard_max_abs,0.0,True,True,True,1,"[""Policy triggered for fel_energy [replace]: 3.33333e+07 → 0""]"
+slow_drift,nominal,"Finite, slowly varying control sequence.","[4.0, 4.2, 4.4]",3,4.2,4.2,4.4,0.40000000000000036,none,4.2,False,True,False,0,[]
+slow_drift,nominal,"Finite, slowly varying control sequence.","[4.0, 4.2, 4.4]",3,4.2,4.2,4.4,0.40000000000000036,fel_energy_guard,4.2,False,True,not_observable,0,[]
+slow_drift,nominal,"Finite, slowly varying control sequence.","[4.0, 4.2, 4.4]",3,4.2,4.2,4.4,0.40000000000000036,sample_guard_max_abs,4.2,False,True,False,0,[]
+contains_nan,nonfinite_boundary,Boundary case containing NaN.,"[""NaN"", 3.0, 4.0]",3,NaN,NaN,NaN,NaN,none,NaN,False,False,False,0,[]
+contains_nan,nonfinite_boundary,Boundary case containing NaN.,"[""NaN"", 3.0, 4.0]",3,NaN,NaN,NaN,NaN,fel_energy_guard,NaN,False,False,not_observable,0,[]
+contains_nan,nonfinite_boundary,Boundary case containing NaN.,"[""NaN"", 3.0, 4.0]",3,NaN,NaN,NaN,NaN,sample_guard_max_abs,NaN,False,False,False,0,[]
+contains_inf,nonfinite_boundary,Boundary case containing positive infinity.,"[""Infinity"", 3.0, 4.0]",3,Infinity,Infinity,Infinity,Infinity,none,Infinity,False,False,False,0,[]
+contains_inf,nonfinite_boundary,Boundary case containing positive infinity.,"[""Infinity"", 3.0, 4.0]",3,Infinity,Infinity,Infinity,Infinity,fel_energy_guard,0.0,True,True,not_observable,0,[]
+contains_inf,nonfinite_boundary,Boundary case containing positive infinity.,"[""Infinity"", 3.0, 4.0]",3,Infinity,Infinity,Infinity,Infinity,sample_guard_max_abs,0.0,True,True,True,1,"[""Policy triggered for fel_energy [replace]: inf → 0""]"

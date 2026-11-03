@@ -1,0 +1,38 @@
+[
+  {
+    "stage": "objective",
+    "sequence": "valid_zero_constant",
+    "policy": "sample_guard_max_abs",
+    "event": "Policy triggered for fel_energy [replace]: 0 → 0"
+  },
+  {
+    "stage": "objective",
+    "sequence": "stale_constant",
+    "policy": "sample_guard_max_abs",
+    "event": "Policy triggered for fel_energy [replace]: 7 → 0"
+  },
+  {
+    "stage": "objective",
+    "sequence": "high_level",
+    "policy": "sample_guard_max_abs",
+    "event": "Policy triggered for fel_energy [replace]: 3e+06 → 0"
+  },
+  {
+    "stage": "objective",
+    "sequence": "irfel_1e8_spike",
+    "policy": "sample_guard_max_abs",
+    "event": "Policy triggered for fel_energy [replace]: 3.33333e+07 → 0"
+  },
+  {
+    "stage": "objective",
+    "sequence": "contains_inf",
+    "policy": "sample_guard_max_abs",
+    "event": "Policy triggered for fel_energy [replace]: inf → 0"
+  },
+  {
+    "stage": "constraint",
+    "sequence": "zero_bpm",
+    "policy": "sample_guard_constraint",
+    "event": "Policy triggered for orbit_x [violate bound]: 0 → 1.2"
+  }
+]

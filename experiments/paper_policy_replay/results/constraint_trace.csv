@@ -1,0 +1,5 @@
+sequence,input_class,description,samples,sample_count,reduced_mean,mean_abs,max_abs,peak_to_peak,policy,processed_constraint,output_changed,within_bound,trigger_observed,event_count,events
+normal_bpm,nominal,Finite nonzero BPM samples inside the configured bound.,"[0.2, 0.3, 0.4]",3,0.3,0.3,0.4,0.2,none,0.3,False,True,False,0,[]
+normal_bpm,nominal,Finite nonzero BPM samples inside the configured bound.,"[0.2, 0.3, 0.4]",3,0.3,0.3,0.4,0.2,sample_guard_constraint,0.3,False,True,False,0,[]
+zero_bpm,synthetic_anomaly,Synthetic all-zero BPM sequence mapped outside the bound.,"[0.0, 0.0, 0.0]",3,0.0,0.0,0.0,0.0,none,0.0,False,True,False,0,[]
+zero_bpm,synthetic_anomaly,Synthetic all-zero BPM sequence mapped outside the bound.,"[0.0, 0.0, 0.0]",3,0.0,0.0,0.0,0.0,sample_guard_constraint,1.2,True,False,True,1,"[""Policy triggered for orbit_x [violate bound]: 0 → 1.2""]"

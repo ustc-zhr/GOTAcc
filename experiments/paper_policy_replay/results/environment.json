@@ -1,0 +1,38 @@
+{
+  "recorded_at_utc": "2026-11-03T03:18:38.222727+00:00",
+  "command": [
+    "/home/zhanghaoran/anaconda3/envs/half_linac/bin/python",
+    "experiments/paper_policy_replay/replay_policy.py",
+    "--out-dir",
+    "experiments/paper_policy_replay/results"
+  ],
+  "working_directory": "/home/zhanghaoran/gitproj/GOTAcc",
+  "python_executable": "/home/zhanghaoran/anaconda3/envs/half_linac/bin/python",
+  "python_version": "3.11.5 (main, Sep 11 2023, 13:54:46) [GCC 11.2.0]",
+  "python_implementation": "CPython",
+  "numpy_version": "2.2.5",
+  "pytest_version": "9.0.3",
+  "matplotlib_version": "3.10.0",
+  "gotacc_version": "1.3.0",
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "machine": "x86_64",
+  "pythonpath": "src",
+  "git_branch": "feature/paper-reliability-fixes",
+  "git_head": "010518fbece77a4630684065101033ff8588613d",
+  "reference_production_commit": "010518fbece77a4630684065101033ff8588613d",
+  "tracked_status": "",
+  "production_status": "",
+  "source_sha256": {
+    "src/gotacc/interfaces/epics.py": "0e84dff3baea415ea33bb388e0928541e5b625387583074565955fbdd5db053d",
+    "src/gotacc/interfaces/policies/sample_guard.py": "6e674a33c0acae6f65bf80da553de55673f94d00cb40bd4fbc9a0cd6a2e4119a",
+    "src/gotacc/interfaces/policies/builtins.py": "819cca8de7351d5df9978125c899d73006de23916e71f097dc94ac0aa9be8247",
+    "experiments/paper_policy_replay/replay_policy.py": "30590bd50c6cf20683a03d37566ed216fec3b15562319ffa39d2e0c0b4d6855d"
+  },
+  "safety_boundary": {
+    "epics_objective_instantiated": false,
+    "pyepics_loaded": false,
+    "ioc_connected": false,
+    "pv_writes": 0,
+    "execution_mode": "in-memory post_reduce replay"
+  }
+}

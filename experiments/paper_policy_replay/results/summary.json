@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "experiment": "GOTAcc deterministic policy replay",
+  "input_provenance": "All sequences are synthetic fixed inputs; none are recorded machine data.",
+  "source": {
+    "required_branch": "feature/paper-reliability-fixes",
+    "observed_branch": "feature/paper-reliability-fixes",
+    "git_head_at_execution": "010518fbece77a4630684065101033ff8588613d",
+    "reference_production_commit": "010518fbece77a4630684065101033ff8588613d"
+  },
+  "objective_policies": {
+    "none": {
+      "class": null,
+      "configuration": null,
+      "event_observability": "not applicable"
+    },
+    "fel_energy_guard": {
+      "class": "gotacc.interfaces.epics.FelEnergyGuardPolicy",
+      "configuration": {
+        "target_col": 0,
+        "large_threshold": 1000000.0,
+        "change_threshold": 1e-06
+      },
+      "event_observability": "event sink attached, but this production policy does not emit events"
+    },
+    "sample_guard_max_abs": {
+      "class": "gotacc.interfaces.policies.sample_guard.SampleGuardObjectivePolicy",
+      "registry_name": "sample_guard",
+      "configuration": {
+        "target": "fel_energy",
+        "conditions": [
+          {
+            "metric": "max_abs",
+            "operator": "gt",
+            "value": 1000000.0
+          },
+          {
+            "metric": "peak_to_peak",
+            "operator": "lt",
+            "value": 1e-06
+          }
+        ],
+        "match": "any",
+        "action": {
+          "type": "replace",
+          "value": 0.0
+        }
+      },
+      "event_observability": "production policy emits an event when its rule matches"
+    }
+  },
+  "constraint_policy": {
+    "class": "gotacc.interfaces.policies.sample_guard.SampleGuardConstraintPolicy",
+    "registry_name": "sample_guard",
+    "configuration": {
+      "target": "orbit_x",
+      "conditions": [
+        {
+          "metric": "max_abs",
+          "operator": "le",
+          "value": 1e-09
+        }
+      ],
+      "action": {
+        "type": "violate_bound",
+        "delta_ratio": 0.1,
+        "delta_min": 1e-06,
+        "scale_floor": 1.0
+      }
+    },
+    "constraint_bound": [
+      -1.0,
+      1.0
+    ]
+  },
+  "objective_summary": {
+    "none": {
+      "evaluations": 8,
+      "output_changed": 0,
+      "finite_output": 6,
+      "nonfinite_output": 2,
+      "observable_events": 0,
+      "nominal_retained": 2,
+      "synthetic_anomaly_changed": 0,
+      "nonfinite_passthrough": 2
+    },
+    "fel_energy_guard": {
+      "evaluations": 8,
+      "output_changed": 4,
+      "finite_output": 7,
+      "nonfinite_output": 1,
+      "observable_events": 0,
+      "nominal_retained": 2,
+      "synthetic_anomaly_changed": 3,
+      "nonfinite_passthrough": 1
+    },
+    "sample_guard_max_abs": {
+      "evaluations": 8,
+      "output_changed": 4,
+      "finite_output": 7,
+      "nonfinite_output": 1,
+      "observable_events": 5,
+      "nominal_retained": 2,
+      "synthetic_anomaly_changed": 3,
+      "nonfinite_passthrough": 1
+    }
+  },
+  "constraint_summary": {
+    "evaluations": 2,
+    "output_changed": 1,
+    "observable_events": 1,
+    "normal_bpm_retained": true,
+    "zero_bpm_processed": 1.2,
+    "zero_bpm_within_bound": false
+  },
+  "expectation_check": {
+    "matches_protocol": true,
+    "mismatches": []
+  },
+  "event_interpretation": {
+    "fel_energy_guard": "No events are present because the production class does not call emit_event; absence of an event is not evidence that its internal predicate was false.",
+    "sample_guard": "Events are captured directly from the production policy event sink."
+  },
+  "important_limitations": [
+    "The replay calls production post_reduce methods directly; it does not test acquisition, optimizer convergence, GUI transitions, or write/readback verification.",
+    "No IOC is connected and no PV read or write is performed.",
+    "The 1e8 spike and frozen-value inputs are synthetic and only reflect stated machine-anomaly forms; they are not recorded IRFEL waveforms.",
+    "A constant value can be valid, so a flat-signal match is not by itself ground-truth anomaly classification.",
+    "NaN is passed through by both tested guards in this sequence. Infinity happens to satisfy the amplitude predicate and is replaced; this is not generic nonfinite handling.",
+    "A None/PV read failure is an acquisition-stage error and cannot be represented as a numeric post-reduction sample.",
+    "Replacing an invalid objective by zero is task-dependent and must not be interpreted as universally safe for minimization objectives."
+  ]
+}

@@ -1,0 +1,540 @@
+[
+  {
+    "sequence": "normal",
+    "input_class": "nominal",
+    "description": "Nominal varying FEL-energy samples.",
+    "samples": [
+      2.0,
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 3.0,
+    "mean_abs": 3.0,
+    "max_abs": 4.0,
+    "peak_to_peak": 2.0,
+    "policy": "none",
+    "processed_objective": 3.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "normal",
+    "input_class": "nominal",
+    "description": "Nominal varying FEL-energy samples.",
+    "samples": [
+      2.0,
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 3.0,
+    "mean_abs": 3.0,
+    "max_abs": 4.0,
+    "peak_to_peak": 2.0,
+    "policy": "fel_energy_guard",
+    "processed_objective": 3.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "normal",
+    "input_class": "nominal",
+    "description": "Nominal varying FEL-energy samples.",
+    "samples": [
+      2.0,
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 3.0,
+    "mean_abs": 3.0,
+    "max_abs": 4.0,
+    "peak_to_peak": 2.0,
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 3.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "valid_zero_constant",
+    "input_class": "ambiguity_control",
+    "description": "A flat value that can be physically valid; not labelled an anomaly.",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.0,
+    "mean_abs": 0.0,
+    "max_abs": 0.0,
+    "peak_to_peak": 0.0,
+    "policy": "none",
+    "processed_objective": 0.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "valid_zero_constant",
+    "input_class": "ambiguity_control",
+    "description": "A flat value that can be physically valid; not labelled an anomaly.",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.0,
+    "mean_abs": 0.0,
+    "max_abs": 0.0,
+    "peak_to_peak": 0.0,
+    "policy": "fel_energy_guard",
+    "processed_objective": 0.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "valid_zero_constant",
+    "input_class": "ambiguity_control",
+    "description": "A flat value that can be physically valid; not labelled an anomaly.",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.0,
+    "mean_abs": 0.0,
+    "max_abs": 0.0,
+    "peak_to_peak": 0.0,
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 0.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": true,
+    "event_count": 1,
+    "events": [
+      "Policy triggered for fel_energy [replace]: 0 → 0"
+    ]
+  },
+  {
+    "sequence": "stale_constant",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic proxy for a retained/frozen diagnostic value.",
+    "samples": [
+      7.0,
+      7.0,
+      7.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 7.0,
+    "mean_abs": 7.0,
+    "max_abs": 7.0,
+    "peak_to_peak": 0.0,
+    "policy": "none",
+    "processed_objective": 7.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "stale_constant",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic proxy for a retained/frozen diagnostic value.",
+    "samples": [
+      7.0,
+      7.0,
+      7.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 7.0,
+    "mean_abs": 7.0,
+    "max_abs": 7.0,
+    "peak_to_peak": 0.0,
+    "policy": "fel_energy_guard",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "stale_constant",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic proxy for a retained/frozen diagnostic value.",
+    "samples": [
+      7.0,
+      7.0,
+      7.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 7.0,
+    "mean_abs": 7.0,
+    "max_abs": 7.0,
+    "peak_to_peak": 0.0,
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": true,
+    "event_count": 1,
+    "events": [
+      "Policy triggered for fel_energy [replace]: 7 → 0"
+    ]
+  },
+  {
+    "sequence": "high_level",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic sustained high-level threshold case.",
+    "samples": [
+      2000000.0,
+      3000000.0,
+      4000000.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 3000000.0,
+    "mean_abs": 3000000.0,
+    "max_abs": 4000000.0,
+    "peak_to_peak": 2000000.0,
+    "policy": "none",
+    "processed_objective": 3000000.0,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "high_level",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic sustained high-level threshold case.",
+    "samples": [
+      2000000.0,
+      3000000.0,
+      4000000.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 3000000.0,
+    "mean_abs": 3000000.0,
+    "max_abs": 4000000.0,
+    "peak_to_peak": 2000000.0,
+    "policy": "fel_energy_guard",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "high_level",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic sustained high-level threshold case.",
+    "samples": [
+      2000000.0,
+      3000000.0,
+      4000000.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 3000000.0,
+    "mean_abs": 3000000.0,
+    "max_abs": 4000000.0,
+    "peak_to_peak": 2000000.0,
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": true,
+    "event_count": 1,
+    "events": [
+      "Policy triggered for fel_energy [replace]: 3e+06 → 0"
+    ]
+  },
+  {
+    "sequence": "irfel_1e8_spike",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic isolated spike at the reported IRFEL anomaly scale.",
+    "samples": [
+      2.0,
+      100000000.0,
+      2.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 33333334.666666668,
+    "mean_abs": 33333334.666666668,
+    "max_abs": 100000000.0,
+    "peak_to_peak": 99999998.0,
+    "policy": "none",
+    "processed_objective": 33333334.666666668,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "irfel_1e8_spike",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic isolated spike at the reported IRFEL anomaly scale.",
+    "samples": [
+      2.0,
+      100000000.0,
+      2.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 33333334.666666668,
+    "mean_abs": 33333334.666666668,
+    "max_abs": 100000000.0,
+    "peak_to_peak": 99999998.0,
+    "policy": "fel_energy_guard",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "irfel_1e8_spike",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic isolated spike at the reported IRFEL anomaly scale.",
+    "samples": [
+      2.0,
+      100000000.0,
+      2.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 33333334.666666668,
+    "mean_abs": 33333334.666666668,
+    "max_abs": 100000000.0,
+    "peak_to_peak": 99999998.0,
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": true,
+    "event_count": 1,
+    "events": [
+      "Policy triggered for fel_energy [replace]: 3.33333e+07 → 0"
+    ]
+  },
+  {
+    "sequence": "slow_drift",
+    "input_class": "nominal",
+    "description": "Finite, slowly varying control sequence.",
+    "samples": [
+      4.0,
+      4.2,
+      4.4
+    ],
+    "sample_count": 3,
+    "reduced_mean": 4.2,
+    "mean_abs": 4.2,
+    "max_abs": 4.4,
+    "peak_to_peak": 0.40000000000000036,
+    "policy": "none",
+    "processed_objective": 4.2,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "slow_drift",
+    "input_class": "nominal",
+    "description": "Finite, slowly varying control sequence.",
+    "samples": [
+      4.0,
+      4.2,
+      4.4
+    ],
+    "sample_count": 3,
+    "reduced_mean": 4.2,
+    "mean_abs": 4.2,
+    "max_abs": 4.4,
+    "peak_to_peak": 0.40000000000000036,
+    "policy": "fel_energy_guard",
+    "processed_objective": 4.2,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "slow_drift",
+    "input_class": "nominal",
+    "description": "Finite, slowly varying control sequence.",
+    "samples": [
+      4.0,
+      4.2,
+      4.4
+    ],
+    "sample_count": 3,
+    "reduced_mean": 4.2,
+    "mean_abs": 4.2,
+    "max_abs": 4.4,
+    "peak_to_peak": 0.40000000000000036,
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 4.2,
+    "output_changed": false,
+    "output_finite": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "contains_nan",
+    "input_class": "nonfinite_boundary",
+    "description": "Boundary case containing NaN.",
+    "samples": [
+      "NaN",
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": "NaN",
+    "mean_abs": "NaN",
+    "max_abs": "NaN",
+    "peak_to_peak": "NaN",
+    "policy": "none",
+    "processed_objective": "NaN",
+    "output_changed": false,
+    "output_finite": false,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "contains_nan",
+    "input_class": "nonfinite_boundary",
+    "description": "Boundary case containing NaN.",
+    "samples": [
+      "NaN",
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": "NaN",
+    "mean_abs": "NaN",
+    "max_abs": "NaN",
+    "peak_to_peak": "NaN",
+    "policy": "fel_energy_guard",
+    "processed_objective": "NaN",
+    "output_changed": false,
+    "output_finite": false,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "contains_nan",
+    "input_class": "nonfinite_boundary",
+    "description": "Boundary case containing NaN.",
+    "samples": [
+      "NaN",
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": "NaN",
+    "mean_abs": "NaN",
+    "max_abs": "NaN",
+    "peak_to_peak": "NaN",
+    "policy": "sample_guard_max_abs",
+    "processed_objective": "NaN",
+    "output_changed": false,
+    "output_finite": false,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "contains_inf",
+    "input_class": "nonfinite_boundary",
+    "description": "Boundary case containing positive infinity.",
+    "samples": [
+      "Infinity",
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": "Infinity",
+    "mean_abs": "Infinity",
+    "max_abs": "Infinity",
+    "peak_to_peak": "Infinity",
+    "policy": "none",
+    "processed_objective": "Infinity",
+    "output_changed": false,
+    "output_finite": false,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "contains_inf",
+    "input_class": "nonfinite_boundary",
+    "description": "Boundary case containing positive infinity.",
+    "samples": [
+      "Infinity",
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": "Infinity",
+    "mean_abs": "Infinity",
+    "max_abs": "Infinity",
+    "peak_to_peak": "Infinity",
+    "policy": "fel_energy_guard",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": null,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "contains_inf",
+    "input_class": "nonfinite_boundary",
+    "description": "Boundary case containing positive infinity.",
+    "samples": [
+      "Infinity",
+      3.0,
+      4.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": "Infinity",
+    "mean_abs": "Infinity",
+    "max_abs": "Infinity",
+    "peak_to_peak": "Infinity",
+    "policy": "sample_guard_max_abs",
+    "processed_objective": 0.0,
+    "output_changed": true,
+    "output_finite": true,
+    "trigger_observed": true,
+    "event_count": 1,
+    "events": [
+      "Policy triggered for fel_energy [replace]: inf → 0"
+    ]
+  }
+]

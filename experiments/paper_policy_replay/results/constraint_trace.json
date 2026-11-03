@@ -1,0 +1,92 @@
+[
+  {
+    "sequence": "normal_bpm",
+    "input_class": "nominal",
+    "description": "Finite nonzero BPM samples inside the configured bound.",
+    "samples": [
+      0.2,
+      0.3,
+      0.4
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.3,
+    "mean_abs": 0.3,
+    "max_abs": 0.4,
+    "peak_to_peak": 0.2,
+    "policy": "none",
+    "processed_constraint": 0.3,
+    "output_changed": false,
+    "within_bound": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "normal_bpm",
+    "input_class": "nominal",
+    "description": "Finite nonzero BPM samples inside the configured bound.",
+    "samples": [
+      0.2,
+      0.3,
+      0.4
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.3,
+    "mean_abs": 0.3,
+    "max_abs": 0.4,
+    "peak_to_peak": 0.2,
+    "policy": "sample_guard_constraint",
+    "processed_constraint": 0.3,
+    "output_changed": false,
+    "within_bound": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "zero_bpm",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic all-zero BPM sequence mapped outside the bound.",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.0,
+    "mean_abs": 0.0,
+    "max_abs": 0.0,
+    "peak_to_peak": 0.0,
+    "policy": "none",
+    "processed_constraint": 0.0,
+    "output_changed": false,
+    "within_bound": true,
+    "trigger_observed": false,
+    "event_count": 0,
+    "events": []
+  },
+  {
+    "sequence": "zero_bpm",
+    "input_class": "synthetic_anomaly",
+    "description": "Synthetic all-zero BPM sequence mapped outside the bound.",
+    "samples": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "sample_count": 3,
+    "reduced_mean": 0.0,
+    "mean_abs": 0.0,
+    "max_abs": 0.0,
+    "peak_to_peak": 0.0,
+    "policy": "sample_guard_constraint",
+    "processed_constraint": 1.2,
+    "output_changed": true,
+    "within_bound": false,
+    "trigger_observed": true,
+    "event_count": 1,
+    "events": [
+      "Policy triggered for orbit_x [violate bound]: 0 → 1.2"
+    ]
+  }
+]
